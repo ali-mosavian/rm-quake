@@ -66,6 +66,7 @@ sb_lmw          dw      ?
 sb_lmh          dw      ?
 sb_shift        dw      ?
 sb_msk          dw      ?
+sb_vmsk         dw      ?
 SBPARM          ends
 
 .data
@@ -208,6 +209,7 @@ tmain           proc    far public uses bx cx dx si di es
                 mov     parm.sb_lmh, LM_H
                 mov     parm.sb_shift, 4                ;; stp 16, one span
                 mov     parm.sb_msk, TEX_W-1
+                mov     parm.sb_vmsk, TEX_H-1
 
                 mov     word ptr parmp, offset parm
                 mov     word ptr parmp+2, ds
