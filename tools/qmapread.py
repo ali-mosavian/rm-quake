@@ -3,7 +3,7 @@
     tools/qmapread.py <file.qmp>                 list the members
     tools/qmapread.py <file.qmp> <member>        write the member to stdout
 
-The format is mkassets.py's write_qmap and src/qgl/file.asm reads it by
+The format is mkassets.py's write_qmap and qgl/file.asm reads it by
 seeking to an offset -- there is no driver, so this is the only other
 reader and it exists to check the writer against the runtime.
 """

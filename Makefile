@@ -1,284 +1,156 @@
 ##
-## qb-qrender -- Quake BSP renderer in BASIC, built for real-mode DOS.
+## qcport -- Quake for real-mode DOS. C against Borland C 2.01's
+## medium-model runtime (C0M.OBJ, CM.LIB, MATHM.LIB) plus qgl's objects.
 ##
-## The compiler and linker are DOS programs, so every module compile shells
-## out to tools/bc.sh (BASIC) or tools/bcc-qr.sh (this project's own C
-## ports), each launching its OWN isolated DOSBox-X, so that `make -jN`
-## actually parallelises. LINK is the one step that stays single: it
-## needs every object at once, via tools/link-qr.sh.
-##
-## vbd only, on purpose -- see tools/bc.sh's own note on why pds/qb45 (kept
-## below only as documented failure evidence) do not need this treatment.
+## qgl assembles natively with jwasm and without __BASIC__. Each C
+## compile is its own DOSBox-X session (tools/bcc.sh), so `make -jN`
+## parallelises; the link needs every object at once and stays single.
 ##
 
 TOOLCHAINS ?= $(HOME)/work/other/d32x/toolchains
 DOSBOX_BIN ?=
-MAP        ?= dm3ish.bsp
-# Quake's own PAK, for the monster mkmdl.py cuts the soldier out of. Not
-# in the repo and not redistributable, so a tree without it builds and
-# runs without the monster rather than failing -- see the MDL rule below.
-PAK        ?= $(HOME)/dos/QUAKE_SW/ID1/PAK0.PAK
-MDL        ?= soldier
+BUILD      ?= $(CURDIR)/build/cport
+JWASM      ?= $(TOOLCHAINS)/native/bin/jwasm
+QGL        := $(CURDIR)/qgl
 TIMEOUT    ?= 600
-BUILD      ?= $(CURDIR)/build/vbd
-
-# Symbols, on by default. The debug records go in the OBJs and then in
-# the tail of the EXE; nothing is loaded at run time, so this costs disk
-# and not the conventional memory that is actually scarce here. The
-# dosbox-x MCP reads them as the guest EXECs the program, which turns
-# "spinning somewhere in LMEM" into a routine, a source file and a line.
-# DEBUGINFO=0 for a lean EXE.
-DEBUGINFO  ?= 1
-
-export TOOLCHAINS DOSBOX_BIN TIMEOUT DEBUGINFO
-
-BC     := $(CURDIR)/tools/bc.sh
-BCC_QR := $(CURDIR)/tools/bcc-qr.sh
-LINKQR := $(CURDIR)/tools/link-qr.sh
-
-# Sources sit in one directory per subsystem. Objects stay FLAT in
-# $(BUILD) -- LINK takes module names, not paths, so the layout is a
-# host-side concern only and basenames must therefore stay unique across
-# the tree. vpath is what lets the pattern rules below keep matching on
-# the bare name.
-SRC_DIRS := src/host src/render src/game src/qgl src/qgl/b8 src/qgl/dct
-vpath %.bas $(SRC_DIRS)
-vpath %.c   $(SRC_DIRS)
-vpath %.asm $(SRC_DIRS)
-
-# main first, unconditionally -- it carries the module-level main code,
-# and the link step needs it named first in the object list. NOT sorted:
-# sort would alphabetise main to the middle of the list.
-BAS_SRC  := $(foreach d,$(SRC_DIRS),$(wildcard $(d)/*.bas))
-BAS_MODS := main $(filter-out main,$(basename $(notdir $(BAS_SRC))))
-# The oracles -- -qglcheck, -qgldiff, -qglarr, -qglface -- are 13K of
-# code the far heap pays for on every map. ORACLES=1 links them in place
-# of qglstub, which refuses their flags; tools/check.sh builds that EXE
-# in its own directory for the gate.
-ORACLE_MODS := qglchk qgldiff qglarr qglface
-ifeq ($(ORACLES),1)
-BAS_MODS := $(filter-out qglstub,$(BAS_MODS))
-else
-BAS_MODS := $(filter-out $(ORACLE_MODS),$(BAS_MODS))
-endif
-HDRS     := $(foreach d,$(SRC_DIRS),$(wildcard $(d)/*.bi))
-
-C_SRC  := $(foreach d,$(SRC_DIRS),$(wildcard $(d)/*.c))
-C_MODS := $(basename $(notdir $(C_SRC)))
-C_HDRS := $(foreach d,$(SRC_DIRS),$(wildcard $(d)/*.h))
-
-# This project's own assembly -- hot loops that are ours, not uGL's, and
-# so have no business living in mgl's tree. Assembled on the host: jwasm
-# needs no DOS, unlike BC and BCC.
-ASM_SRC  := $(foreach d,$(SRC_DIRS),$(wildcard $(d)/*.asm))
-# file first: a VFS driver's row lands in a segment file.asm brackets,
-# and LINK lays the class out in the order it meets the modules
-ASM_MODS := file $(filter-out file,$(basename $(notdir $(ASM_SRC))))
-ASM_INC  := $(foreach d,$(SRC_DIRS),$(wildcard $(d)/*.inc))
-JWASM    := $(TOOLCHAINS)/native/bin/jwasm
-
-# SERIAL_LOG=1 turns qgl's transcribed LOG lines into a call trace on
-# port E9h. Off by default: it is a debugging build, not a slow one to
-# leave lying around. _DEBUG_ is mgl's own gate for those macros and is
-# set here rather than in qgl.inc, so that header stays mgl's log.inc
-# verbatim. Reading the trace needs SERIAL_LOG=1 on the RUN as well --
-# see the note on launch() in tools/dosbox.sh.
-ifeq ($(SERIAL_LOG),1)
-QGL_DEFS := -D_DEBUG_=1
-endif
-
-BAS_OBJS := $(addprefix $(BUILD)/,$(addsuffix .obj,$(BAS_MODS)))
-C_OBJS   := $(addprefix $(BUILD)/,$(addsuffix .obj,$(C_MODS)))
-ASM_OBJS := $(addprefix $(BUILD)/,$(addsuffix .obj,$(ASM_MODS)))
-
-DATA := data/stuff.ini data/base.dat
-## Preprocessed textures. The renderer blits these instead of resampling and
-## colour-matching the miptex lump at every launch; the raw atlas stands in
-## for the whole set as far as make is concerned.
-ASSETS := data/assets/assets.zip
-# The monster's geometry, vertex frames and skin. host_init loads these by
-# name at startup, so a build without them dies in mdl_load -- which is
-# how it went missing: data/assets is generated, not tracked, and nothing
-# regenerated these. Only reachable with the PAK; wildcard-guarded so a
-# tree without it is not a build failure.
-MDL_ASSETS := $(if $(wildcard $(PAK)),data/assets/$(MDL).geo data/assets/knight.geo data/assets/dog.geo data/assets/ogre.geo data/assets/demon.geo data/assets/zombie.geo data/assets/wizard.geo data/assets/shambler.geo data/assets/v_shot.geo data/assets/v_shot2.geo data/assets/v_nail.geo data/assets/v_rock.geo data/assets/v_nail2.geo data/assets/v_rock2.geo)
-# The status bar's pictures, out of the PAK's gfx.wad.
-GFX_ASSETS := $(if $(wildcard $(PAK)),data/assets/sbar.raw data/assets/snd.bsc)
-# The A* flight path -bench -campath walks. Generated, untracked, and it
-# was a ZERO-BYTE file in every clean build: -campath then read nothing,
-# stood at the spawn for the whole run, and `check.sh --churn` -- whose
-# entire job is to walk it and provoke evictions -- compared two
-# identical standing frames and called that a pass.
-CAM_ASSETS := data/assets/campath.bin
-ASSET_FILES := $(wildcard data/assets/*)
-# The maps a run can chain through: each gets its bsp and its own four
-# asset files under data/maps/<map>/, staged to $(BUILD)/MAPS/<map>/.
-# trigger_changelevel writes NEXT.BAT, GOMAP.BAT copies the next map's
-# files over the ones beside the exe and dosbox.sh's run.bat loops.
+# Quake's shareware PAK: the maps, models, sounds and status bar come out
+# of it. Not in the repo and not redistributable.
+PAK        ?= $(HOME)/dos/QUAKE_SW/ID1/PAK0.PAK
+# the test map the gates and qgl's suite read
+MAP        ?= dm3ish.bsp
+# the maps a run chains through
 MAPS       ?= e1m1 e1m2 e1m3 e1m4 e1m5 e1m6 e1m7 e1m8 start
-MAP_ASSETS := $(if $(wildcard $(PAK)),$(foreach m,$(MAPS),data/maps/$(m)/assets.zip))
-EXE  := $(BUILD)/qrender.exe
 
-.PHONY: all build run viz qb45 pds evidence assets test clean help
+# file.asm FIRST: a VFS driver registers by placing a row in a segment
+# file.asm brackets, and TLINK lays the class out in the order it meets
+# the modules. Same order qgl/test/Makefile uses.
+QGL_SRC := $(QGL)/file.asm $(QGL)/vga.asm \
+           $(QGL)/sf.asm $(QGL)/mem.asm $(QGL)/gem.asm \
+           $(QGL)/qglnew.asm $(QGL)/qglview.asm $(QGL)/qgldc.asm \
+           $(QGL)/qglrow.asm $(QGL)/dct/dctmem.asm $(QGL)/dct/dctems.asm \
+           $(QGL)/txt.asm $(QGL)/dr.asm \
+           $(QGL)/z.asm $(QGL)/clip.asm $(QGL)/rs.asm $(QGL)/sb.asm \
+           $(QGL)/ar.asm $(QGL)/dsp.asm \
+           $(QGL)/log.asm $(QGL)/tmr.asm $(QGL)/kbd.asm $(QGL)/mouse.asm \
+           $(QGL)/m4.asm \
+           $(QGL)/b8/b8fill.asm $(QGL)/b8/b8span.asm
+# Not linked: cpi4.asm replaces VBDOS runtime routines and calls that
+# runtime's __aFldiv/__aFlrem, and zip.asm is a container driver the .qmp
+# does not need -- file.asm reads its members by offset.
+QGL_MODS := $(basename $(notdir $(QGL_SRC)))
+QGL_INC  := $(wildcard $(QGL)/*.inc)
 
-all: build                      ## build the renderer (default)
-build: $(EXE)
-assets: $(ASSETS) $(MDL_ASSETS) $(GFX_ASSETS) $(CAM_ASSETS) $(MAP_ASSETS)   ## regenerate the preprocessed textures
-maps: $(MAP_ASSETS)             ## the chainable maps' assets
+# -D list for every C compile -- see src/qrcfg.h. Nothing in make sees a
+# changed define, so an arm built with a different CDEFS needs its own
+# BUILD directory:
+#
+#   make BUILD=$PWD/build/cport-noprof CDEFS="-DQR_PROF=0 -DQR_LOG=0"
+CDEFS ?=
 
-$(foreach m,$(MAPS),data/$(m).bsp): data/%.bsp: $(PAK) tools/pakget.py
-	@python3 tools/pakget.py $(PAK) maps/$*.bsp $@
+export TOOLCHAINS DOSBOX_BIN CDEFS TIMEOUT
 
-data/maps/%/assets.zip: data/%.bsp data/base.dat tools/mkassets.py tools/mkportals.py
-	@mkdir -p data/maps/$*
-	@python3 tools/mkassets.py data/$*.bsp data/base.dat data/maps/$* $(or $(SKILL),0) $(PAK)
-	@cp data/$*.bsp data/maps/$*/
+BCC  := $(CURDIR)/tools/bcc.sh
+LINK := $(CURDIR)/tools/link.sh
 
-$(ASSETS): data/$(MAP) data/base.dat tools/mkassets.py tools/mkportals.py
-	@python3 tools/mkassets.py data/$(MAP) data/base.dat data/assets $(or $(SKILL),0) $(PAK)
+C_SRC  := $(wildcard src/*.c)
+C_MODS := $(basename $(notdir $(C_SRC)))
 
-# .geo stands in for the three files mkmdl.py writes, the way assets.zip
-# stands in for the texture set.
-data/assets/$(MDL).geo: $(PAK) tools/mkmdl.py
-	@python3 tools/mkmdl.py $(PAK) $(MDL) data/assets stand,run,death,pain
+# Standalone .asm modules (r_ptproj.asm: r_ptproj/r_rclip), assembled
+# natively with jwasm.
+ASM_SRC  := $(wildcard src/*.asm)
+ASM_MODS := $(basename $(notdir $(ASM_SRC)))
 
-# the knight: 108 vertices, so its sword attack fits the page too
-data/assets/knight.geo: $(PAK) tools/mkmdl.py
-	@python3 tools/mkmdl.py $(PAK) knight data/assets stand,runb,death,pain,attackb
+MODS := $(C_MODS) $(ASM_MODS) $(QGL_MODS)
+OBJS := $(addprefix $(BUILD)/,$(addsuffix .obj,$(MODS)))
+EXE  := $(BUILD)/QCPORT.EXE
 
-# the dog: 236 vertices, so 23 frames fill the page -- one to stand, the
-# run, the death, one flinch; no attack set, it bites on the run
-data/assets/dog.geo: $(PAK) tools/mkmdl.py
-	@python3 tools/mkmdl.py $(PAK) dog data/assets stand:1,run,death,pain:1
+.PHONY: all build assets maps test run clean help
 
-# the ogre: 169 vertices, 32 frames -- the grenade's shoot set, no saw frames
-data/assets/ogre.geo: $(PAK) tools/mkmdl.py
-	@python3 tools/mkmdl.py $(PAK) ogre data/assets stand:1,run,death,pain:3,shoot
+# ONE file per map: <map>.qmp carries every lump, both atlases, the
+# palette, the font and the colormap, and the run takes its name.
+DATA_SRC := $(CURDIR)/data/assets
+DATA     := dm3ish.qmp
+# stuff.ini is read by name out of the working directory -- it is the
+# run's configuration, not the map's, and config.c opens it with plain
+# fopen.
+ROOT_DATA := stuff.ini
+DATA_OUT := $(addprefix $(BUILD)/,$(DATA) $(ROOT_DATA))
 
-# the demon: 143 vertices, 38 frames -- the claws fit, the leap does not
-data/assets/demon.geo: $(PAK) tools/mkmdl.py
-	@python3 tools/mkmdl.py $(PAK) demon data/assets stand:1,run,death,pain:3,attacka
+all: build                      ## build QCPORT.EXE (default)
+build: $(EXE) $(DATA_OUT)
 
-# the zombie: 177 vertices, 30 frames -- no death set, it is gibbed; the
-# fall (paine, 30 frames) does not fit, so it lies on paina's last
-data/assets/zombie.geo: $(PAK) tools/mkmdl.py
-	@python3 tools/mkmdl.py $(PAK) zombie data/assets stand:1,run:8,death,paina:8,atta
-
-# the wizard: 80 vertices, all 54 frames
-data/assets/wizard.geo: $(PAK) tools/mkmdl.py
-	@python3 tools/mkmdl.py $(PAK) wizard data/assets hover,fly,death,pain,magatt
-
-# 144 vertices, 37 frames fit: the lightning is the attack set, the smash
-# lands from the run cycle
-data/assets/shambler.geo: $(PAK) tools/mkmdl.py
-	@python3 tools/mkmdl.py $(PAK) shambler data/assets stand:1,run,death,pain,magic
-
-# the view weapon: shot1..7, the fire animation
-data/assets/v_shot.geo: $(PAK) tools/mkmdl.py
-	@python3 tools/mkmdl.py $(PAK) v_shot data/assets shot
-
-data/assets/v_shot2.geo: $(PAK) tools/mkmdl.py
-	@python3 tools/mkmdl.py $(PAK) v_shot2 data/assets shot
-
-data/assets/v_nail.geo: $(PAK) tools/mkmdl.py
-	@python3 tools/mkmdl.py $(PAK) v_nail data/assets shot
-
-data/assets/v_rock.geo: $(PAK) tools/mkmdl.py
-	@python3 tools/mkmdl.py $(PAK) v_rock data/assets shot
-
-data/assets/v_nail2.geo: $(PAK) tools/mkmdl.py
-	@python3 tools/mkmdl.py $(PAK) v_nail2 data/assets shot
-
-data/assets/v_rock2.geo: $(PAK) tools/mkmdl.py
-	@python3 tools/mkmdl.py $(PAK) v_rock2 data/assets shot
-
-# sbar.raw stands in for sbnum.raw too
-data/assets/sbar.raw: $(PAK) tools/mkgfx.py
-	@python3 tools/mkgfx.py $(PAK) data/assets
-
-# the sound effects: snd.bsc stands in for sndtab.raw and snddec.raw beside it
-data/assets/snd.bsc: $(PAK) tools/mksnd.py
-	@python3 tools/mksnd.py $(PAK) data/assets
-
-data/assets/campath.bin: data/$(MAP) tools/campath.py
-	@python3 tools/campath.py data/$(MAP) data/assets
+# Named one by one, not a `$(BUILD)/%:` pattern -- that pattern also
+# matches $(BUILD)/<anything>.obj and would compete with the compile
+# rules for every object.
+$(foreach f,$(DATA),$(eval $(BUILD)/$(f): $(DATA_SRC)/$(f) | $(BUILD); cp $$< $$@))
+$(foreach f,$(ROOT_DATA),$(eval $(BUILD)/$(f): $(CURDIR)/data/$(f) | $(BUILD); cp $$< $$@))
 
 $(BUILD):
 	mkdir -p $(BUILD)
 
-# Every BASIC module depends on every .bi: BC's own $include resolution
-# cannot say in advance which subset a given module actually needs
-# without parsing it, and copying the small ones costs nothing to over-
-# depend on -- tools/bc.sh already copies all of them per invocation.
-$(BUILD)/%.obj: %.bas $(HDRS) | $(BUILD)
-	$(BC) $< $@
+# On every header, not just the .c: without this an edit to qgl.h or a
+# struct changes what the objects mean while leaving the sources
+# untouched, LINK is happy, and the EXE runs old declarations against
+# new code.
+C_HDRS := $(wildcard src/*.h)
 
-# qrender's own C ports (r_walk.c, sb_build.c, pl_trace.c, r_span.c),
-# NOT mgl's -- see tools/bcc-qr.sh's own note on why that is a separate
-# script from tools/bcc.sh rather than a shared one with more flags.
-$(BUILD)/%.obj: %.c $(C_HDRS) $(BCC_QR) | $(BUILD)
-	$(BCC_QR) $< $@
+$(BUILD)/%.obj: src/%.c $(C_HDRS) | $(BUILD)
+	$(BCC) $< $@
 
-# On every .inc, for the same reason the BASIC rule takes every .bi:
-# qgl.inc carries the surface kinds and the struct layouts, so an edit
-# there changes what these objects mean while leaving every .asm file
-# untouched. Without the dependency the stale objects survive, LINK is
-# happy, and the EXE runs the old constants against the new BASIC
-# declarations. tools/depcheck.sh is the regression.
-$(BUILD)/%.obj: %.asm $(ASM_INC) | $(BUILD)
-	# __BASIC__: this build links BASIC's runtime, so qgl may call
-	# B$$SETM to reclaim far-heap memory. The qgl test suite does not
-	# define it and links free-standing.
-	$(JWASM) -c -Cp -Zg -omf $(if $(filter 1,$(DEBUGINFO)),-Zi,) -D__BASIC__=1 $(QGL_DEFS) -I$(CURDIR)/src/qgl -Fo$@ $<
+$(BUILD)/%.obj: src/%.asm | $(BUILD)
+	$(JWASM) -c -Cp -Zg -omf -Fo$@ $<
 
-$(BUILD)/stuff.ini: data/stuff.ini | $(BUILD)
-	cp $< $@
+# No __BASIC__ here, deliberately. On every .inc: qgl.inc carries the
+# surface kinds and the struct layouts, so an edit there changes what
+# these objects mean while leaving every .asm file untouched.
+$(BUILD)/%.obj: $(QGL)/%.asm $(QGL_INC) | $(BUILD)
+	$(JWASM) -c -Cp -Zg -omf -I$(QGL) -Fo$@ $<
 
-$(BUILD)/base.dat: data/base.dat | $(BUILD)
-	cp $< $@
+$(BUILD)/%.obj: $(QGL)/b8/%.asm $(QGL_INC) | $(BUILD)
+	$(JWASM) -c -Cp -Zg -omf -I$(QGL) -Fo$@ $<
 
-# qgl_txt_load wants a loose file beside the exe, not a PACK member --
-# see txt.asm's own note that this is mkfont.py's job, not INT 21h's.
-$(BUILD)/FONT.FNT: data/base.dat tools/mkfont.py | $(BUILD)
-	@python3 tools/mkfont.py data/base.dat font/4x6.fnt $@
+$(BUILD)/%.obj: $(QGL)/dct/%.asm $(QGL_INC) | $(BUILD)
+	$(JWASM) -c -Cp -Zg -omf -I$(QGL) -Fo$@ $<
 
-# Copy the whole directory rather than naming extensions, which is how
-# the .bld lumps silently failed to stage the first time this was
-# written by hand.
-$(BUILD)/.assets-stamp: $(ASSET_FILES) | $(BUILD)
-	cp -R data/assets/* $(BUILD)/
-	touch $@
+# The header is generated, and a stale one miscompiles rather than
+# failing: C will not catch a drifted declaration.
+.PHONY: qglh
+qglh:
+	@python3 $(CURDIR)/tools/mkqglh.py $(QGL) src/qgl.h --check \
+	  || { python3 $(CURDIR)/tools/mkqglh.py $(QGL) src/qgl.h; \
+	       echo "qgl.h was stale and has been regenerated -- rebuild" >&2; \
+	       exit 1; }
 
-$(BUILD)/.assets-stamp: $(MDL_ASSETS) $(CAM_ASSETS)
+$(OBJS): | qglh
 
-$(BUILD)/.maps-stamp: $(MAP_ASSETS) | $(BUILD)
-	$(if $(MAP_ASSETS),mkdir -p $(BUILD)/MAPS && cp -R $(foreach m,$(MAPS),data/maps/$(m)) $(BUILD)/MAPS/,)
-	touch $@
+$(EXE): $(OBJS)
+	$(LINK) $(BUILD) "$(MODS)"
 
-$(BUILD)/GOMAP.BAT: data/gomap.bat | $(BUILD)
-	cp $< $@
+# dm3ish: assets.zip for qgl's suite, dm3ish.qmp for the gates.
+ASSETS     := data/assets/assets.zip
+MAP_ASSETS := $(if $(wildcard $(PAK)),$(foreach m,$(MAPS),data/maps/$(m)/assets.zip))
+MKASSETS   := tools/mkassets.py tools/mkportals.py tools/mksnd.py tools/texquant.py tools/fsdither.c
 
-$(EXE): $(BAS_OBJS) $(C_OBJS) $(ASM_OBJS) $(BUILD)/stuff.ini $(BUILD)/base.dat $(BUILD)/FONT.FNT $(BUILD)/.assets-stamp $(BUILD)/.maps-stamp $(BUILD)/GOMAP.BAT
-	@python3 tools/qblint.py
-	$(LINKQR) $(BUILD) "$(BAS_MODS)" "$(C_MODS) $(ASM_MODS)"
+assets: $(ASSETS)               ## dm3ish's assets and .qmp
+maps: $(MAP_ASSETS)             ## e1m1..e1m8 and start, a .qmp each
 
-# The native gates, in one target so tools/check.sh and a bare `make
-# test` cannot drift apart. ~15s from clean, no DOS toolchain and no
-# VBDOS -- which is the point: a failure here is qgl's, not the
-# renderer's around it.
-test:                           ## lint, header deps, the qgl suite
-	@python3 tools/qblint.py
-	@sh tools/depcheck.sh
-	@$(MAKE) --no-print-directory -C src/qgl/test
+$(ASSETS): data/$(MAP) data/base.dat $(MKASSETS)
+	@python3 tools/mkassets.py data/$(MAP) data/base.dat data/assets $(or $(SKILL),0) $(PAK)
 
-run: $(EXE)                     ## headless run; 's' screenshots to build/vbd/
-	@VBD_OUT=$(BUILD) tools/dosbox.sh run $(MAP)
+$(foreach m,$(MAPS),data/$(m).bsp): data/%.bsp: $(PAK) tools/pakget.py
+	@python3 tools/pakget.py $(PAK) maps/$*.bsp $@
 
-viz: $(EXE)                     ## windowed run, to watch it live
-	@echo "launch: dosbox-x -conf $$(VBD_OUT=$(BUILD) tools/dosbox.sh viz $(MAP))"
+data/maps/%/assets.zip: data/%.bsp data/base.dat $(MKASSETS)
+	@python3 tools/mkassets.py data/$*.bsp data/base.dat data/maps/$* $(or $(SKILL),0) $(PAK)
+
+test:                           ## qgl's suite, native; needs `make assets`
+	@$(MAKE) --no-print-directory -C qgl/test
+
+run: $(EXE)                     ## headless run; cport.txt/cstep.txt land in $(BUILD)
+	@tools/run.sh $(BUILD)
 
 clean:                          ## drop all build output
-	rm -rf build
+	rm -rf $(BUILD)
 
 help:
 	@grep -hE '^[a-z0-9]+:.*##' $(MAKEFILE_LIST) | sed 's/:.*##/\t/' | expand -t 14

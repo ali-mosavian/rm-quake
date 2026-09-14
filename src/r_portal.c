@@ -22,11 +22,18 @@
  *
  * Runs every frame, unlike the PVS it narrows: the answer depends on where
  * you are looking, so there is no leaf-crossing to cache on.
+ *
+ * World-/Renderer-taking adaptation of the BASIC-linked build's own
+ * src/r_portal.c -- same mechanical change pl_trace.c and r_walk.c
+ * already got. m stays a raw float* internally (not Mat4*): both
+ * r_ptproj.asm and the flat-index math below (m[0]..m[15]) already
+ * treated a byref Mat4 as 16 contiguous floats, row-major, which is
+ * exactly u3d.h's own layout (m11..m14, m21..m24, ...) -- the public
+ * header takes Mat4* for type safety at the call site and this file
+ * casts once, at the top of r_portal_mark.
  */
 
-#include "qcshared.h"
-
-extern void pascal far uglLine( long dc, short x1, short y1, short x2, short y2, long clr );
+#include "r_portal.h"
 
 /*
  * Sized for real mode, where these statics are the whole cost of the file:
@@ -35,14 +42,10 @@ extern void pascal far uglLine( long dc, short x1, short y1, short x2, short y2,
  * be tighter but costs that many times more -- 4096 leaves by six rects of
  * four floats is 393K, which is not a thing that fits anywhere here.
  */
-#define PT_MAX_LEAVES 1024
 #define PT_MAX_STACK  1024   /* frontier depth */
 #define PT_MAX_WORK   8192   /* total pushes before giving up on the frame */
-#define PT_MAX_REFS   4096   /* dm3ish has 1566, e1m7 about the same */
 
-/* A portal entry as mkportals.py writes it: neighbour leaf, then the
-   portal's world-space bounding box as mins[3], maxs[3]. BSP space, Z-up. */
-#define PT_REF_SHORTS 7
+/* PT_REF_SHORTS -- r_portal.h now, shared with r_bsp.c's r_load_portals */
 
 typedef struct { float x0, y0, x1, y1; } Rect;
 
@@ -63,7 +66,7 @@ typedef struct { float x0, y0, x1, y1; } Rect;
 static short far seen[PT_MAX_LEAVES][4];
 static short far reached[PT_MAX_LEAVES];
 
-/* Which portal refs the flood actually went through this frame. uglLine
+/* Which portal refs the flood actually went through this frame. qglDrLine
    carries no z and so cannot be depth-tested, which is the obvious way to
    hide a portal behind a wall and is not available; this is better anyway.
    A portal the flood traversed is one visibility genuinely came through,
@@ -74,23 +77,26 @@ static char far used[PT_MAX_REFS];
 static short far stk_leaf[PT_MAX_STACK];
 static short far stk_rect[PT_MAX_STACK][4];
 
-static long culled_run;
 static short culled_frame;
-static short gave_up;
 
-/* DIAG: how much work the flood really does per frame. */
-static long dg_proj, dg_push, dg_pop, dg_frames;
+/* Run totals for bench.txt. The flood's cost is pops x the refs on each
+   popped leaf, and a leaf is popped once per rectangle that widens its
+   union -- so neither figure is bounded by the leaf count and neither
+   can be estimated from the map. Counted, not reasoned about. */
+static long pt_pops, pt_projs, pt_pushes;
+
+void r_portal_stats( long *pops, long *projs, long *pushes )
+{
+    *pops = pt_pops; *projs = pt_projs; *pushes = pt_pushes;
+}
 
 /*
- * A portal's box projected to a screen rectangle. src/r_portal.asm now, not
- * C: bcc's -Ox reloaded the segment for BOTH far-declared parameters, 13
- * times per corner, though only bb is genuinely far -- m is a near pointer
- * at every real call site (r_portal_mark's own m, straight off BASIC's
- * u3dMtrx). The asm loads bb's segment once, at entry, and never touches m's
- * segment at all because m has none. Same math, same near-plane-straddle
- * fallback to the whole screen -- see r_portal.asm's own header for the
- * rest, including why vx/vy are computed lazily and 1/vw replaces two
- * divides with one.
+ * A portal's box projected to a screen rectangle -- src/r_ptproj.asm.
+ * bcc -Ox never hoists a far pointer's segment out of a loop: the C
+ * version reloaded ES thirteen times per corner for two parameters
+ * that never move across the whole function. See r_ptproj.asm's own
+ * header for the rest, including why vx/vy are computed lazily and
+ * 1/vw replaces two divides with one.
  */
 extern short pascal far r_ptproj(
     short far *bb, float *m,
@@ -98,53 +104,53 @@ extern short pascal far r_ptproj(
     Rect *outp
 );
 
-/* r_ptproj.asm now -- 93 instructions in bcc's own -S output, 6 FWAIT with
- * nothing to wait on under DOSBox's dynamic core, and 6 redundant reloads
- * of outp's pointer through a register that cannot itself address memory.
- * Same math, same result. */
+/* r_rclip -- also r_ptproj.asm now: 93 instructions in bcc's own -S
+ * output, 6 FWAIT with nothing to wait on under DOSBox's dynamic core,
+ * and 6 redundant reloads of outp's pointer through a register that
+ * cannot itself address memory. Same math, same result. */
 extern short pascal far r_rclip( Rect *a, Rect *b, Rect *outp );
 
 /*
- * Narrow pvsb to the leaves this eye can actually see through portals.
+ * Narrow rdr->pvsb to the leaves this eye can actually see through
+ * portals, into rdr->pvs_now.
  *
- * Returns the number of leaves cleared, or -1 if the flood ran past its work
- * budget -- in which case pvsb is left exactly as the PVS produced it, which
- * is today's behaviour and always correct.
+ * Returns the number of leaves cleared, or a negative code if the
+ * flood ran past its work budget or the map's leaf count is out of
+ * range -- in which case pvs_now is left untouched, and the caller
+ * (r_draw_world) falls back to using pvsb unchanged, which is always
+ * correct, just unnarrowed.
  */
-short pascal far r_portal_mark(
-    float     *m,
-    short      cam_leaf,
-    short      visleafs,
-    float      xresh,
-    float      yresh,
-    float      z_near,
-    BASARRAY  *a_index,
-    BASARRAY  *a_refs,
-    BASARRAY  *a_pvsb,
-    BASARRAY  *a_out
-)
+short r_portal_mark( World *world, Renderer *rdr, Mat4 *mtx, short cam_leaf, short visleafs,
+                      float xresh, float yresh, float z_near )
 {
-    short far *index = (short far *) a_index->farptr;
-    short far *refs  = (short far *) a_refs->farptr;
-    short far *pvsb  = (short far *) a_pvsb->farptr;
-    short far *outb  = (short far *) a_out->farptr;
+    float *m = (float *) mtx;
+    short far *index = world->pt_idx;
+    short far *refs  = world->pt_ref;
+    short far *pvsb  = rdr->pvsb;
+    short far *outb  = rdr->pvs_now;
     Rect screen, rect, pr, sub;
     short sp = 0, i, k, li, nb, first, last, nrefs;
     long work = 0;
 
-    gave_up = 0;
     culled_frame = 0;
+    /* No adjacency loaded -- r_load_portals never ran, or the map has
+       none. Without this the flood indexes off a null far pointer,
+       reads the interrupt vector table as a portal index, and finds
+       leaf ranges thousands of entries wide: 4.75 million projections a
+       frame, 2.38 seconds of a 2.39 second frame, and 28 leaves culled
+       on the strength of it. It did not fault and it did not look
+       broken; it looked slow. */
+    if ( !index || !refs ) return -5;
     if ( visleafs <= 0 || visleafs >= PT_MAX_LEAVES ) return -2;
     if ( cam_leaf < 0 || cam_leaf > visleafs ) return -3;
 
-    dg_frames++;
     for ( i = 0; i <= visleafs; i++ ) reached[i] = 0;
     nrefs = index[visleafs + 1];
     if ( nrefs > PT_MAX_REFS ) nrefs = PT_MAX_REFS;
     for ( i = 0; i < nrefs; i++ ) used[i] = 0;
 
-    screen.x0 = 0.0; screen.y0 = 0.0;
-    screen.x1 = xresh * 2.0; screen.y1 = yresh * 2.0;
+    screen.x0 = 0.0f; screen.y0 = 0.0f;
+    screen.x1 = xresh * 2.0f; screen.y1 = yresh * 2.0f;
 
     reached[cam_leaf] = 1;
     seen[cam_leaf][0] = 0;
@@ -160,11 +166,11 @@ short pascal far r_portal_mark(
 
     while ( sp > 0 ) {
         sp--;
-        dg_pop++;
         li = stk_leaf[sp];
         rect.x0 = stk_rect[sp][0]; rect.y0 = stk_rect[sp][1];
         rect.x1 = stk_rect[sp][2]; rect.y1 = stk_rect[sp][3];
 
+        pt_pops++;
         first = index[li];
         last  = index[li + 1];
         for ( k = first; k < last; k++ ) {
@@ -172,7 +178,7 @@ short pascal far r_portal_mark(
             nb = e[0];
             if ( nb < 0 || nb > visleafs ) continue;
 
-            dg_proj++;
+            pt_projs++;
             if ( !r_ptproj( e + 1, m, xresh, yresh, z_near, &pr ) ) continue;
             if ( !r_rclip( &pr, &rect, &sub ) ) continue;
 
@@ -194,9 +200,9 @@ short pascal far r_portal_mark(
                 if ( (short) sub.y1 > seen[nb][3] ) seen[nb][3] = (short) sub.y1;
             }
 
-            if ( sp >= PT_MAX_STACK ) { gave_up = 1; return -4; }
-            if ( ++work >= PT_MAX_WORK ) { gave_up = 1; return -1; }
-            dg_push++;
+            if ( sp >= PT_MAX_STACK ) return -4;
+            pt_pushes++;
+            if ( ++work >= PT_MAX_WORK ) return -1;
             if ( k < PT_MAX_REFS ) used[k] = 1;
             stk_leaf[sp] = nb;
             stk_rect[sp][0] = (short) sub.x0; stk_rect[sp][1] = (short) sub.y0;
@@ -219,20 +225,8 @@ short pascal far r_portal_mark(
             culled_frame++;
         }
     }
-    culled_run += culled_frame;
     return culled_frame;
 }
-
-long pascal far r_portal_culled( void )
-{
-    return culled_run;
-}
-
-short pascal far r_portal_culled_frame( void )
-{
-    return culled_frame;
-}
-
 
 /*
  * Draw every portal of every leaf the flood reached, as the wireframe of its
@@ -247,27 +241,18 @@ short pascal far r_portal_culled_frame( void )
  * Drawn into the render target, not the composite -- these are world-space
  * lines and belong in the view, scaled with it.
  */
-void pascal far r_portal_draw(
-    long       dc,
-    float     *m,
-    short      visleafs,
-    float      xresh,
-    float      yresh,
-    float      z_near,
-    long       clr,
-    BASARRAY  *a_index,
-    BASARRAY  *a_refs,
-    BASARRAY  *a_seen
-)
+void r_portal_draw( QSurf dc, Mat4 *mtx, short visleafs, float xresh, float yresh, float z_near,
+                     long clr, World *world, Renderer *rdr )
 {
     static short edge[12][2] = {
         {0,1},{1,3},{3,2},{2,0},   /* the two faces normal to z */
         {4,5},{5,7},{7,6},{6,4},
         {0,4},{1,5},{2,6},{3,7}    /* and the struts between them */
     };
-    short far *index = (short far *) a_index->farptr;
-    short far *refs  = (short far *) a_refs->farptr;
-    short far *vis   = (short far *) a_seen->farptr;
+    float *m = (float *) mtx;
+    short far *index = world->pt_idx;
+    short far *refs  = world->pt_ref;
+    short far *vis   = rdr->pvs_now;
     short sx[8], sy[8], ok[8];
     short li, k, i, c, nb, first, last, infront;
     float lox, loy, hix, hiy;
@@ -286,7 +271,7 @@ void pascal far r_portal_draw(
             /* Only the ones visibility actually came through this frame. */
             if ( k >= PT_MAX_REFS || !used[k] ) continue;
 
-            lox = 1e30; loy = 1e30; hix = -1e30; hiy = -1e30;
+            lox = 1e30f; loy = 1e30f; hix = -1e30f; hiy = -1e30f;
             infront = 0;
 
             for ( i = 0; i < 8; i++ ) {
@@ -312,10 +297,10 @@ void pascal far r_portal_draw(
                    near plane projects past a short, and Borland's FIST folds
                    that to -32768 -- a line to the wrong side of the screen.
                    Same trap r_span.c documents. */
-                if ( fx < -4096.0 ) fx = -4096.0;
-                if ( fx >  4096.0 ) fx =  4096.0;
-                if ( fy < -4096.0 ) fy = -4096.0;
-                if ( fy >  4096.0 ) fy =  4096.0;
+                if ( fx < -4096.0f ) fx = -4096.0f;
+                if ( fx >  4096.0f ) fx =  4096.0f;
+                if ( fy < -4096.0f ) fy = -4096.0f;
+                if ( fy >  4096.0f ) fy =  4096.0f;
                 sx[i] = (short) fx;
                 sy[i] = (short) fy;
                 ok[i] = 1;
@@ -326,24 +311,14 @@ void pascal far r_portal_draw(
                to the side, and drawing those buries the few you are looking
                through -- which are the only ones that explain anything. */
             if ( !infront ) continue;
-            if ( hix < 0.0 || hiy < 0.0 ||
-                 lox > xresh * 2.0 || loy > yresh * 2.0 ) continue;
+            if ( hix < 0.0f || hiy < 0.0f ||
+                 lox > xresh * 2.0f || loy > yresh * 2.0f ) continue;
 
             for ( c = 0; c < 12; c++ ) {
                 short a = edge[c][0], b = edge[c][1];
                 if ( ok[a] && ok[b] )
-                    uglLine( dc, sx[a], sy[a], sx[b], sy[b], clr );
+                    qglDrLine( dc, sx[a], sy[a], sx[b], sy[b], clr );
             }
         }
-    }
-}
-
-long pascal far r_portal_dg( short which )
-{
-    switch ( which ) {
-        case 0:  return dg_proj;
-        case 1:  return dg_push;
-        case 2:  return dg_pop;
-        default: return dg_frames;
     }
 }

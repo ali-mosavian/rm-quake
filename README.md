@@ -1,157 +1,61 @@
-# qb-qrender
+# qcport
 
-A Quake `.bsp` renderer written in BASIC, running in real-mode DOS.
+Quake for real-mode DOS, in C and assembly: id's episode 1 maps with
+lightmaps, light styles, dynamic lights, a two-layer sky, alias models,
+the monsters' AI, doors, triggers, weapons, sound and the status bar.
+It runs on a 16-bit 386-class machine with EMS, 320x200 or 160x100.
 
-Loads a Quake 1 map, walks the BSP, culls with the PVS and the view frustum,
-and draws it with perspective-texture-mapped triangles through µGL — a DOS
-game library by Ali Mosavian and av1ctor. Mip-mapped textures matched back
-into the Quake palette, backface culling, BSP collision against the map, a
-MOD soundtrack and a bitmap-font HUD.
+It grew out of qb-qrender, a renderer in Microsoft BASIC; that code is
+in this repository's history up to `chore: drop the BASIC renderer`.
 
-```
-bsp_pvs dm3ish.bsp
-```
-
-## Files
+## Layout
 
 | | |
 |---|---|
-| `src/main.bas` | main module: init, frame loop, BSP traversal and the rasteriser |
-| `src/common.bas`    | `stuff.ini` parsing and the string tokeniser |
-| `src/bspfile.bi`  | BSP-on-disk structures, shared types, `declare`s |
-| `src/quakedef.bi`  | the `COMMON SHARED` block — state that crosses modules |
-| `data/stuff.ini`  | video mode, camera, sound settings |
-| `data/base.dat`   | µAR archive: palette, colormap, 4x6 font, two MOD tracks |
-| `data/dm3ish.bsp` | demo map |
-| `ugl-patch/`      | **patched µGL** — link against this, not the stock library |
-| `mkvbd.bat`       | build under DOS |
-| `dosbox/`, `tools/` | build and run on a host without a DOS machine |
-
-Sources are split into modules. `DIM SHARED` is module scope only, so state
-that crosses a module boundary lives in `src/quakedef.bi` as `COMMON SHARED`;
-everything else stays local to its module, which matters because `COMMON`
-arrays are always descriptor-addressed and the renderer's scratch is
-deliberately `'$STATIC` for direct addressing.
-
-`bsp_pvs_refactored.bas` is a superseded rewrite kept for reference. It is not
-built by `mkvbd.bat`. It has not been compiled; it uses `uglPalLoad` without
-including `pal.bi`, so it carries that defect too.
-
-See `AGENTS.md` for the toolchain constraints, the BASIC and DOSBox
-gotchas behind them, and what is still open.
+| `src/` | the program: `qmain.c`, the BSP walk, surfaces, entities, AI, sound |
+| `qgl/` | the graphics, memory, file, timer and input layer, in asm |
+| `qgl/test/` | qgl's own suite, one test per file, run natively |
+| `tools/` | the build scripts, the asset pipeline and the `test-*.sh` gates |
+| `data/` | `stuff.ini`, `base.dat` and the dm3ish test map |
+| `docs/` | memory layout, portal culling, open bugs |
 
 ## Building
 
-**It must be VBDOS 1.0.** This is not a preference:
-
-- **QB 4.5** cannot compile the module at all. `BC.EXE` exhausts its workspace
-  and reports `Out of memory` with 0 bytes free, before parsing a single line
-  of the program body. Free conventional memory is not the constraint — it
-  fails identically with 608K free.
-- **PDS 7.1** parses the file but rejects every `_` line continuation in
-  `bspfile.bi` with `Formal parameter specification illegal`, and cascades to
-  113 errors. Underscore continuation is a VBDOS extension.
-
-µGL is a separate tree and is **not** vendored here. Point `MGL` at it and
-`VBD` at the VBDOS install:
-
-```
-set MGL=C:\MGL
-set VBD=C:\VBDOS
-mkvbd
-```
-
-`mkvbd.bat` sets `INCLUDE=%MGL%\INC` so BC resolves the `'$include`
-directives, which is why the sources name the headers bare (`ugl.bi`,
-`u3d.bi`, …) with no path of their own.
-
-Two things about the link line are easy to get wrong:
-
-- µGL's libraries are **split per compiler**. The VBDOS one is
-  `lib/release/vbd/uglv.lib`, not a `lib/ugl.lib` — that path in µGL's own
-  `mk4vbd.bat` refers to a flattened tree that isn't what ships here.
-- **`u3d` is not inside `uglv.lib`.** It lives in `lib/addons/u3d.obj` and has
-  to be named in the objects list, or the link fails on `U3DMTRX*`.
-
-The program needs EMS. Under NT-family Windows or DOSBox, enable expanded
-memory and run fullscreen — µGL's VESA probe wants a real video context.
-
-### Building and running on a host
-
-`tools/dosbox.sh` builds and runs this under DOSBox-X with no DOS machine, by
-filling in `dosbox/template.conf` and dropping the results in `build/`:
+It needs Borland C 2.01 and jwasm/jwlink from `$TOOLCHAINS`
+(`~/work/other/d32x/toolchains`), DOSBox-X, Python 3.12 with numpy and
+Pillow, and Quake's shareware `PAK0.PAK` at `$PAK`
+(`~/dos/QUAKE_SW/ID1/PAK0.PAK`), which is not redistributable.
 
 ```bash
-tools/dosbox.sh build          # VBDOS
-tools/dosbox.sh run            # against dm3ish.bsp
+make assets maps
 ```
 
-`build qb45` and `build pds` reproduce the two failures above. Paths come from
-`MGL`, `TOOLCHAINS` and `DOSBOX_BIN`; see `dosbox/README.md`.
+```bash
+make BUILD=$PWD/build/cport -j8
+```
 
-## Fixes this build needed
+```bash
+make test
+```
 
-The program did not compile or link as it stood; three defects predate any
-restructuring and are fixed here.
+`assets` builds dm3ish and the models, sounds and status bar; `maps`
+builds `data/maps/<map>/<map>.qmp` for e1m1..e1m8 and start. Every
+compile runs in its own DOSBox-X, so `-j8` is safe inside one make;
+two makes must not share a `BUILD`.
 
-- **`pal.bi` was never included.** Nothing else in µGL pulls it in, so
-  `uglPalLoad` was an undeclared array reference and `uglPalSet` could not
-  parse as a sub call at all. Three of the compiler's errors were this one
-  missing line.
-- **`ugluBMPSave` did not exist.** `bspfile.bi` declares it, the screenshot
-  key calls it, and it is in no µGL library. Neither is `ugluSaveTGA`, which
-  `uglu.bi` declares — µGL's BMP routines only *load*. The link failed on
-  `UGLUBMPSAVE`, which means the screenshot key had never worked. It is now
-  implemented in `main.bas` as an 8-bit BMP writer.
-- **Backface culling was inert.** The plane distance was computed with the
-  opposite sign to the rest of the file, and all three branches assigned
-  `drawply = 1`, so nothing was ever rejected while the HUD reported the
-  switch as enabled.
+## Running
 
-### Runtime error trapping has never worked
+```bash
+tools/run.sh build/cport "e1m1.qmp -lm -ticks 600"
+```
 
-Line 191 reads `on errror goto HandleErr` — three r's. That is not a syntax
-error: BASIC also has a computed `ON n GOTO`, so it parses as "evaluate the
-variable `errror`, which under `defint a-z` is an undeclared integer zero, and
-branch to the zeroth label", which falls through every time. The handler at
-`HandleErr` has never been installed, and untrapped runtime errors print the
-runtime's own message instead.
+`tools/run.sh` runs headless and leaves `cstep.txt`, `BENCH.BMP` and
+`BENCH.TXT` in the build directory; `tools/viz.sh` opens a window. Copy
+the map's `.qmp` beside `QCPORT.EXE` first. A level exit writes
+`NEXT.BAT`, which the run script calls to load the next map.
 
-**This is left as-is deliberately.** Correcting the spelling would route every
-runtime error to `ExitError "0x1000, Unknown runtime error..."`, replacing a
-specific diagnostic with a generic one. The typo is worth knowing about, not
-worth fixing until the handler says something useful.
+W/A/S/D move, the mouse looks, space jumps, 1-6 pick a weapon, F5 takes
+a screenshot, F12 shows the stats.
 
-## Structure
-
-There is no optimiser in VBDOS. A `SUB` call costs a stack frame and a
-descriptor per argument, and nothing inlines it back out. So routines are
-split on exactly one criterion — **how often they are entered**:
-
-- **once at startup** — split as far as it stays readable. `doInit` is a list
-  of named zero-argument steps.
-- **once per frame** — still free. `camUpdate`, `inputToggles`, `drawHud`,
-  `presentFrame`.
-- **per node, face, vertex, triangle** — *not* split. `bspDrawFaces` is one
-  250-line routine on purpose.
-
-Splitting `doInit` this way has a second cost that is easy to miss. It turned
-one procedure scope into 26, and under `defint a-z` an undeclared name is a
-fresh integer zero rather than an error — so any value that used to flow from
-one part of `doInit` to a later part reads as 0 once they are separate
-routines, with no diagnostic at all. `pal` was lost exactly this way. Before
-adding a step, check what the code around it *reads* as well as what it
-writes.
-
-The rule has a harder limit too, because violating it broke this build
-once already: a routine boundary cannot cut through a block. `texLoadAll` is
-one 200-line routine not because it does one thing, but because it is a single
-`for i = 0 to numtex-1` loop — splitting it into upload/mip/average phases put
-`for` and its `next` in different procedures.
-
-Two other real-mode constraints shape the code. `defint a-z` means an
-undeclared name silently becomes an integer zero rather than an error, so
-every shared variable is declared. And map buffers live in `'$DYNAMIC` arrays
-(far, allocated at load) while the per-frame renderer scratch lives after
-`'$STATIC` in DGROUP, where it is addressed directly instead of through a
-descriptor.
+See `CLAUDE.md` for how this project is worked on and what each
+subsystem learned the hard way.

@@ -103,18 +103,18 @@ The rules below are for what gets written or touched from here:
   the model.
 - If a Python test suite appears: pytest, no test classes, parametrize
   wherever one assertion runs over a set. The gates today are `make test`
-  and `tools/check.sh`, not pytest.
+  and `tools/test-*.sh`, not pytest.
 
 ### The gates
 
-    make test           lint, header deps, the qgl suite -- native, ~15s
-    tools/check.sh      the above, then build, bench and compare
-    tools/check.sh --churn   two runs of one binary under eviction
+    make test                    the qgl suite, native; needs `make assets`
+    tools/test-<name>.sh <build> one behaviour of QCPORT.EXE, headless
 
-`make test` needs no DOS toolchain and no VBDOS, which is what makes it
-worth running between edits: a failure there names an assertion instead
-of producing a picture that came out wrong for reasons unknown.
-`check.sh` runs it first for the same reason.
+`make test` needs no Borland C, which is what makes it worth running
+between edits: a failure there names an assertion instead of producing a
+picture that came out wrong for reasons unknown. Each `test-*.sh` says in
+its header what went wrong and what it produced; run the ones for the
+subsystem a change touches, against a build directory of its own.
 
 ### Writing
 
@@ -137,16 +137,10 @@ launched run gets `dosbox_status`, a screenshot, the text screen and
 `dosbox_where` checked repeatedly WHILE it is in flight, not started and
 then read once at the end. A picture answers in one glance what a timeout
 cannot answer at all: loading screen, black screen, error, or a frame
-that rendered and stopped. This is the MUST rule -- see House rules and
-**Drive DOSBox hands-on**. Every inspection freezes the CPU; resume with
+that rendered and stopped. This is the MUST rule -- see **Drive DOSBox
+hands-on**. Every inspection freezes the CPU; resume with
 `dosbox_continue` and confirm `cpuRunning` before reading anything from
 the next check.
-
-**In QB, one call per frame beats many small ones.** A C port of
-`d_draw_faces`'s per-face MATH, called once per face, moved e1m7's
-38.773ms setup phase to 38.672ms -- six pairs, medians, -0.100ms. The
-arithmetic was never the cost; 497 crossings a frame were. Port the
-whole loop and cross once, or do not bother.
 
 **Measure, do not reason, about cost.** DOSBox charges per instruction and
 models no latency, so intuitions about what is expensive are worthless
@@ -370,7 +364,7 @@ timer and dividing the counter by 1000 gave a dt seven times too small: the
 physics was frame-rate independent but ran in slow motion, every speed in the
 game being units per seven seconds. What mgl delivered was 145.6 Hz: its
 `tmrInit` programmed a PIT divisor of 8192 whatever was asked for. The PIT
-is qgl's now -- `src/qgl/tmr.asm` hooks INT 8 at a real 1000 Hz and chains
+is qgl's now -- `qgl/tmr.asm` hooks INT 8 at a real 1000 Hz and chains
 the BIOS handler each time the divisor accumulates to 65536, so DOS's clock
 keeps its 18.2 -- and `sys_time_init` still measures it against DOS's own
 TIMER, because the emulator is still underneath it.
@@ -1061,7 +1055,7 @@ a sampling change is the fix, not a regression, but say so each time.
 
 ## The file layer: one name space, drivers that register by linking
 
-`src/qgl/file.asm` is what mgl's `uar*` was: `qglFileOpen` /
+`qgl/file.asm` is what mgl's `uar*` was: `qglFileOpen` /
 `qglFileOpenBas` / `qglFileSize` / `qglFileRead` / `qglFileWrite` /
 `qglFileClose` on `"assets.zip::member"` and on plain names, and a
 handle indexes a table there rather than the caller declaring a `UAR`
@@ -1084,7 +1078,7 @@ suite cannot demonstrate it. Both Makefiles list `file` first,
 `qglFileDrivers` reports what the walk finds, and `t05file` asserts the
 count.
 
-`src/qgl/zip.asm` is the first driver, and the only one.
+`qgl/zip.asm` is the first driver, and the only one.
 
 **Stored only, and `tools/mkassets.py` now writes stored.** mgl's reader
 carries an inflate and a window table to drive it; deleting that is most
@@ -1284,7 +1278,7 @@ itself, being a differential against mgl by design. The music player
 rather than ported, and with it the last mgl call in production; the
 hang its init had is gone with it. `Env.sound` sat ahead of `vis`, so
 both C offsets moved by two. The camera's matrices are `qglM4Persp`/`qglM4LookAt`/
-`qglM4Conc` in `src/qgl/m4.asm`, mgl's `mdu3d.asm` FPU sequence kept
+`qglM4Conc` in `qgl/m4.asm`, mgl's `mdu3d.asm` FPU sequence kept
 instruction for instruction because `tools/ref/bench.bmp` is a
 byte-for-byte reference and a rounding that moves by an ulp moves it;
 `t32m4` checks them on values a real4 holds exactly, and the bench
@@ -1330,9 +1324,9 @@ measurement, not fifty-five.
 
 ## Retiring mgl: the keyboard and the mouse
 
-`src/qgl/kbd.asm` is mgl's INT 9 hook with the same table -- a word per
+`qgl/kbd.asm` is mgl's INT 9 hook with the same table -- a word per
 scancode, -1 down, word 0 the last code, `Keys` in `in.bi` keeping
-TKBD's names so `g.env.keyboard.w` reads as before. `src/qgl/mouse.asm`
+TKBD's names so `g.env.keyboard.w` reads as before. `qgl/mouse.asm`
 keeps its own cursor from the driver's mickeys, one pixel each, clipped
 to the mode, and `qglMousePos` places it -- which is how the spawn yaw
 and a teleport's facing are applied, so the clip range is part of the
@@ -1770,7 +1764,7 @@ on a far pointer truncates TOWARDS ZERO, so a window at E000h -- a
 negative long -- came out one paragraph high and every digit was read
 sixteen bytes off. `scr_seg_of` subtracts the low half first.
 
-**Sound is a Sound Blaster at 220h, polled.** `src/qgl/dsp.asm` is
+**Sound is a Sound Blaster at 220h, polled.** `qgl/dsp.asm` is
 Quake's snd_dos.c on the SB16 path: reset, version 4 or nothing, a
 4096-byte ring from `qglMemAlloc` aligned to 4096 so it never crosses a
 DMA page, filled with 128 (silence is not zero), DMA channel 1 in
@@ -1814,7 +1808,7 @@ own, so the silence a block's tail is padded with never plays.
 The cost is a nibble and a lookup where a byte used to do, and the
 whole sound layer -- card, mix and decode -- is 1 frame of 127 over 400
 ticks on e1m1, measured against `-nosound` with the same binary.
-`cport/tools/test-sndcodec.sh` is the gate, and it is a checksum for a
+`tools/test-sndcodec.sh` is the gate, and it is a checksum for a
 reason: a decode reading the high nibble for the low one, or dividing
 by the wrong blocks-per-page, still fills the ring on time and leaves
 `started`, `loops` and `under` all correct while the card plays noise.
@@ -1872,7 +1866,7 @@ pinned core -- that sequence answered `23760 >= 40843` true and
 The loader took the conventional-memory branch it could not afford and
 the trace showed 41K leaving the far heap with every guard "passing";
 three spellings of the compare all agreed, which is the second rule's
-tell. `src/qgl/cpi4.asm` replaces the routine: the low words get their
+tell. `qgl/cpi4.asm` replaces the routine: the low words get their
 sign bits flipped and a plain signed `cmp`, no flag surgery. The runtime
 keeps `B$CPI4` in one module with `B$CMI4`, `B$MUI4`, `B$DVI4` and
 `B$RMI4`, so all five live there or LINK pulls the module and reports
@@ -2095,7 +2089,7 @@ warm-up frames that build every surface in the view are not averaged
 into a mean describing no frame that ran. Frame counts and `ft_mean`
 repeat exactly run to run; the phase microseconds repeat to about half
 a percent, the interrupts landing an instruction apart, which is what
-`cport/tools/test-prof.sh` sets its 2% residual bound from. Its third
+`tools/test-prof.sh` sets its 2% residual bound from. Its third
 arm is the one that catches a bracket around the wrong lines: with
 `-nomdl -noitems -noview` the alias phase has to fall to nothing.
 
@@ -2113,7 +2107,7 @@ mark is `sc_init FAILED` and sc.c prints no reason. dm3ish is lit
 the unlit fill, and a lit one will be larger.
 
 **The profiler costs 0.6% of an e1m1 frame, and the logging costs
-nothing.** `cport/src/qrcfg.h` gates both -- `QR_PROF` is PhaseTimes'
+nothing.** `src/qrcfg.h` gates both -- `QR_PROF` is PhaseTimes'
 brackets, d_faces' two rdtsc a face, its nine sc_find key sums that
 nothing ever read, and the walk's bench-only counters; `QR_LOG` is
 `mark()` and the cstep.txt trace. Both default ON. `make BUILD=<dir>
@@ -2141,7 +2135,7 @@ was once 22 bytes from the 64K ceiling.
 **`QR_LOG=0` deletes cstep.txt, and the gates that grep it.** The run
 summary -- `frames=`, `pos=`, `fight=`, `gs_state` -- goes out through
 `mark()`, so test-walk.sh, test-items.sh and their kin need the default
-build. `cport/tools/test-cdefs.sh <with> <without>` is the regression
+build. `tools/test-cdefs.sh <with> <without>` is the regression
 test: the same frame from both arms, byte-identical, plus an assertion
 that the gates fired at all. It compares the PICTURE and not frames or
 polys -- `-ticks` bounds the simulation, so the faster arm renders one
@@ -2477,7 +2471,7 @@ corridor.
 
 ### cport: id's lights, not the test light
 
-`cport/src/dl.c` is WinQuake's: 32 slots allocated as `CL_AllocDlight`
+`src/dl.c` is WinQuake's: 32 slots allocated as `CL_AllocDlight`
 does, `CL_DecayLights`, and the emitters -- a muzzle flash for every
 player weapon and the soldier's volley, the quad's and pentagram's
 EF_DIMLIGHT, EF_ROCKET on rockets and lava balls, TE_EXPLOSION on every
@@ -2489,7 +2483,7 @@ on disk to say it has one) and model lighting (the models draw unshaded).
 **A lit face's stag must change every tick.** The test light's constant
 -1 was a hit on the second lit frame, so a glow froze at its first
 build; that light never changed, and nothing showed it. `dl_stag` is
-`-1 - dl_tick` now. `cport/tools/test-dlight.sh` wants the quad's frame
+`-1 - dl_tick` now. `tools/test-dlight.sh` wants the quad's frame
 to move from tick 32 to 33 and a dead muzzle flash to leave the
 `-nodlight` frame.
 
@@ -2506,7 +2500,7 @@ shipped only style 0, so e1m1's 137 faces lit (0, 10) -- the fluorescent
 flicker -- drew steady. Every plane ships now, stacked `lm_h` rows apart
 in the face's slot, and `sb_build` sums them scaled by their styles as
 R_BuildLightMap does; `ls.c` has all of world.qc's styles.
-`cport/tools/test-styles.sh`; `-nostyles` holds every style at "m"
+`tools/test-styles.sh`; `-nostyles` holds every style at "m"
 (`ls_hold`), where it used to freeze each at its pattern's first letter.
 
 **A style nothing sets is 256, not 'm'.** id's `d_lightstylevalue`
@@ -2523,7 +2517,7 @@ chains up to `SC_VARIANTS` blocks through `bsib`, most recent first. A
 new variant only comes out of free store -- with the block records
 spent, taking one would evict a surface in view -- and a dynamic light's
 key never comes back, so it writes over what the face has.
-`cport/tools/test-scvariants.sh`.
+`tools/test-scvariants.sh`.
 
 **Running out of block records looks like no variants at all.** At
 `SC_NBLK` 384, e1m1's (480,-19,29) yaw 295 wanted 409. Each new key was
@@ -2561,7 +2555,7 @@ START_OFF lights were on from the start. The header grew to 78 bytes,
 and mkassets read its monster records back at a hard-coded 76: e1m1
 shipped the knight and the ogre and died at `soldier.geo: no such
 member`. `ENTS_HEAD` is the one format now, and every staged `.qmp`
-needs rebuilding. `cport/tools/test-lightsw.sh`.
+needs rebuilding. `tools/test-lightsw.sh`.
 
 ## Culling: the subtree skip, and what it nearly cost
 
@@ -2609,7 +2603,7 @@ button column drew over the platform, the column's foot matching
 `-noents` on all 784 pixels. The world now writes, then the brush
 entities test and write, then the models and items; `QGL_Z_TEST` writes
 on a pass. Insertion stays for `-noz` and for `-entinsert`, the A/B.
-`cport/tools/test-brushdepth.sh`.
+`tools/test-brushdepth.sh`.
 
 **A per-frame counter divided by the profiled frame count is not a
 mean.** `pt_marked` read 575 against 486 on the two arms and that gap was
