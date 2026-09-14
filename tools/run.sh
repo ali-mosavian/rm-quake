@@ -13,7 +13,7 @@ OUT="${1:?usage: run.sh <build-dir> [\"args\"]}"
 QARGS="${2:-dm3ish.qmp -ticks 300}"
 # The pinned machine, not cycles=max: a frame time is only comparable
 # if both sides ran on the same emulated CPU, and max scales with host
-# load. dosbox/template.conf says 75000 for the same reason.
+# load.
 CYCLES="${CYCLES:-75000}"
 
 DOSBOX_BIN="${DOSBOX_BIN:-}"

@@ -116,6 +116,10 @@ picture that came out wrong for reasons unknown. Each `test-*.sh` says in
 its header what went wrong and what it produced; run the ones for the
 subsystem a change touches, against a build directory of its own.
 
+The notes below still name `tools/check.sh`, `tools/dosbox.sh` and
+`tools/ref/*.bmp`: the BASIC renderer's gates, removed with it. What they
+proved is history; `tools/test-*.sh` are the gates now.
+
 ### Writing
 
 **Commit messages.** Conventional commits, `type(scope): description`,

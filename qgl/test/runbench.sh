@@ -4,7 +4,7 @@
 # records that the recompiler throws its translations away when mgl does
 # that. Timing on the dynamic core would measure the recompiler.
 #
-# cycles is the pinned 75000 from dosbox/template.conf, so the emulated
+# cycles is the pinned 75000 tools/run.sh uses, so the emulated
 # machine is the one every other number in this repo was taken on.
 db="$1"; d="$2"
 cat > "$d/run.conf" <<EOF
@@ -16,7 +16,7 @@ startbanner=false
 quit warning=false
 [cpu]
 core=normal
-# The pinned machine, matching dosbox/template.conf. Observed: under
+# The pinned machine, matching tools/run.sh. Observed: under
 # cputype=386 this harness produced a zero-byte OUT.TXT and no
 # diagnostic. Running here does not prove real-hardware compatibility.
 #

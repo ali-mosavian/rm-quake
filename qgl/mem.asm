@@ -88,8 +88,7 @@ IFDEF __BASIC__
                 ;; give some back and try again.
                 ;;
                 ;; VERIFIED, unlike mgl's bas_malloc, which this repo has
-                ;; recorded as corrupting on this arena (see
-                ;; docs/knowledge/qrender-memory-map.md). B$SETM's own
+                ;; recorded as corrupting on this arena. B$SETM's own
                 ;; source says what it returns: "DX:AX = 32-bit size of
                 ;; near and far heaps in bytes" -- the SIZE, not the free
                 ;; tail. mgl's comment calls it "largest free block size"

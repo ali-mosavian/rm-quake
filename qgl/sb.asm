@@ -89,8 +89,8 @@ LM_MAXCELLS     equ     LM_MAXDIM * LM_MAXDIM
 __SIMM16__      equ     0DEADh
 __SIMM32__      equ     0DEADBEEFh
 
-;; mirrors bspfile.bi's SurfBuild / qcshared.h's SurfBuild -- the three
-;; move together, the same rule the .bld lumps live by.
+;; mirrors src/sb_build.h's SurfBuild -- the two move together, the
+;; same rule the .bld lumps live by.
 SBPARM          struc
 sb_lmptr        dd      ?               ;; -> this face's luxel rect
 sb_lmstride     dd      ?               ;; atlas bytes per row
