@@ -143,7 +143,8 @@ $(foreach m,$(MAPS),data/$(m).bsp): data/%.bsp: $(PAK) tools/pakget.py
 data/maps/%/assets.zip: data/%.bsp data/base.dat $(MKASSETS)
 	@python3 tools/mkassets.py data/$*.bsp data/base.dat data/maps/$* $(or $(SKILL),0) $(PAK)
 
-test:                           ## qgl's suite, native; needs `make assets`
+test:                           ## header deps, then qgl's suite, native; needs `make assets`
+	@tools/depcheck.sh
 	@$(MAKE) --no-print-directory -C qgl/test
 
 run: $(EXE)                     ## headless run; cport.txt/cstep.txt land in $(BUILD)
