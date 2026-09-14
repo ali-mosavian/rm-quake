@@ -137,6 +137,7 @@ void mdl_damage( World *world, Player *player, Fight *fight, Renderer *rdr,
 {
     float r;
 
+    if ( ent->cruc ) return;    /* never walkmonster_start: takedamage stays DAMAGE_NO */
     ent->health = (short) ( ent->health - dmg );
     if ( ent->health <= 0 ) {
         ent->state = MDL_ST_DEAD;

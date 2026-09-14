@@ -8,7 +8,9 @@
 short ent_find_node( short m, World *world );
 short ent_point_leaf( BspVec3 *p, World *world );
 short ent_plat_touched( Player *player, World *world, short p );
-void  ent_check_teleport( Player *player, World *world, short scr_x_res );
+void  ent_check_teleport( Player *player, World *world, float now, short scr_x_res );
+void  ent_fog_tick( World *world, Player *player, float now );
+void  ent_monster_teleport( World *world, float now, MdlEnt far *e );
 void  ent_move_plats( World *world, Player *player, float dt );
 void  ent_place_models( World *world );
 
@@ -55,12 +57,14 @@ typedef struct {
     BspVec3 org;
     float   angle;
     short   first;
+    short   cruc;           /* SPAWN_CRUCIFIED */
 } EntsMon;
 
 typedef struct {
     short model;
     BspVec3  dest;
     float yaw;
+    short name, player_only;
 } EntsTele;
 
 typedef struct {
@@ -116,8 +120,8 @@ typedef struct {
 /* ents.bin's own records, checked the same way bsptypes.h checks the
    map's -- see the note there. */
 #define REC_ENTSHEAD 78
-#define REC_ENTSMON  20
-#define REC_ENTSTELE 18
+#define REC_ENTSMON  22
+#define REC_ENTSTELE 22
 #define REC_ENTSPLAT 12
 #define REC_ENTSITEM 20
 #define REC_CRATE    92

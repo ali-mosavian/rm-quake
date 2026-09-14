@@ -98,6 +98,7 @@ SOUNDS = [
     "wizard/widle1", "wizard/widle2", "wizard/hit",                                 # 158..160
     "shambler/sidle", "shambler/melee2",                                            # 161, 162
     "boss1/out1", "boss1/sight1",                                                   # 163, 164 Chthon rising
+    "misc/power", "boss1/pain", "boss1/death", "zombie/idle_w2",                    # 165..168 lightning_use, Chthon's end, zombie_cruc1
 ]
 
 

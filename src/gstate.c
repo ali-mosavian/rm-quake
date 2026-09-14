@@ -153,7 +153,7 @@ void pl_game_reset( World *world, Player *player, Camera *cam, Fight *fight,
 void host_state( World *world, Player *player, Camera *cam, Fight *fight,
                   Renderer *rdr, short fire, short scr_x_res )
 {
-    short i, ndead;
+    short i, ndead, nmon;
 
     switch ( fight->state ) {
     case GS_PLAY:
@@ -174,10 +174,13 @@ void host_state( World *world, Player *player, Camera *cam, Fight *fight,
             fight->state_until = rdr->anim_time + PL_DEATH_PAUSE;
             break;
         }
-        ndead = 0;
-        for ( i = 0; i < world->mon_count; i++ )
+        ndead = nmon = 0;
+        for ( i = 0; i < world->mon_count; i++ ) {
+            if ( world->mon[i].cruc ) continue;
+            nmon++;
             if ( world->mon[i].state == MDL_ST_DEAD ) ndead++;
-        if ( world->mon_count > 0 && ndead == world->mon_count ) fight->state = GS_WON;
+        }
+        if ( nmon > 0 && ndead == nmon ) fight->state = GS_WON;
         break;
 
     case GS_DEAD:

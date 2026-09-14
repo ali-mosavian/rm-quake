@@ -553,6 +553,9 @@ int main( void )
            tools/run.sh's own headless invocations pass it explicitly
            so an unattended run still terminates. */
         clock.bench_ticks = args.bench_ticks;
+        clock.nwarp = args.nwarp;
+        memcpy( clock.warp_tick, args.warp_tick, sizeof(clock.warp_tick) );
+        memcpy( clock.warp_xyz, args.warp_xyz, sizeof(clock.warp_xyz) );
         pt.n = 0;                  /* armed per frame below, once the warm-up
                                        is past: the first frames build every
                                        surface in the view and no later frame
@@ -847,8 +850,8 @@ int main( void )
                headless view of a pickup actually happening */
             {   short mon_hunt, mon_moved;
                 mdl_ai_stats( &world, &mon_hunt, &mon_moved );
-                sprintf( buf, "ai hunting=%d moved=%d leaps=%d",
-                         (int) mon_hunt, (int) mon_moved, (int) fight.leaps );
+                sprintf( buf, "ai hunting=%d moved=%d leaps=%d teles=%d",
+                         (int) mon_hunt, (int) mon_moved, (int) fight.leaps, (int) world.mon_teles );
                 mark( buf );
             }
 

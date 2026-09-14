@@ -159,7 +159,11 @@ typedef struct {
     BspVec3  mins, maxs;
     BspVec3  dest;
     float yaw;
+    short name, player_only;
+    float until;         /* a named one takes a touch until then */
 } Teleporter;
+#define ENT_FOGS      8
+#define ENT_FOG_DELAY 0.2f   /* spawn_tfog's nextthink */
 
 /* q_ent.bi's PlatEnt. A func_train shares the array: same brush, same
    speed, a different state machine. */
@@ -263,6 +267,7 @@ typedef struct {
 #define ENT_TRIG_RELAY    8
 #define ENT_TRIG_BOSS     9     /* Chthon, unseen */
 #define ENT_TRIG_BOLT    10     /* event_lightning */
+#define ENT_BOSS_DYING   1.9f   /* shockc's ten frames, then death1..death10 */
 #define ENT_TRIG_FIREBALL 11
 #define ENT_TRIG_READY 0
 #define ENT_TRIG_GOING 1        /* a button on its way in */

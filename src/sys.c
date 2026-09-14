@@ -29,7 +29,7 @@ void sys_error( char *msg )
     exit( 1 );
 }
 
-#define MAX_ARGS 16
+#define MAX_ARGS 32     /* tokens past this are dropped, -ticks with them */
 static char cmdbuf[128];
 
 void sys_parse_args( RunArgs *args )
@@ -107,6 +107,14 @@ void sys_parse_args( RunArgs *args )
             args->at_z = (float) atof( argv[i+3] );
             args->at_set = -1;
             i += 3;
+        }
+        else if ( stricmp( argv[i], "-warp" ) == 0 && i + 4 < argc && args->nwarp < 4 ) {
+            args->warp_tick[args->nwarp]   = atol( argv[i+1] );
+            args->warp_xyz[args->nwarp][0] = (float) atof( argv[i+2] );
+            args->warp_xyz[args->nwarp][1] = (float) atof( argv[i+3] );
+            args->warp_xyz[args->nwarp][2] = (float) atof( argv[i+4] );
+            args->nwarp++;
+            i += 4;
         }
         else if ( stricmp( argv[i], "-yaw" ) == 0 && i + 1 < argc ) {
             args->yaw = (float) atof( argv[i+1] );

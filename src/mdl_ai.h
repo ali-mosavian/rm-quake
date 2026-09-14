@@ -105,6 +105,7 @@
 #define ZOMBIE_GIB_Z     6.0f    /* '-10 -22 30' less the 24 to the origin */
 #define ZOMBIE_ATK_NEAR  0.4f
 #define ZOMBIE_ATK_MID   0.1f
+#define ZOMBIE_CRUC_CYCLE 0.85f /* zombie_cruc1..6: 0.1, then 0.1 + random * 0.1 five times */
 
 #define WIZARD_HEALTH     80
 #define WIZARD_FLY_LO     30.0f  /* held 30..40 above the player, 8 a step */

@@ -18,6 +18,9 @@ typedef struct {
     float accum;
     long  ticks;
     long  bench_ticks;    /* -ticks N; 0 = unbounded */
+    short nwarp;          /* -warp's */
+    long  warp_tick[4];
+    float warp_xyz[4][3];
 } HostClock;
 
 void host_advance( World *world, Player *player, Camera *cam, Renderer *rdr,

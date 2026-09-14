@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include "qgl.h"
 #include <stdlib.h>
+#include <math.h>
 
 #include "ent.h"
 #include "snd.h"
@@ -225,6 +226,52 @@ void ent_move_plats( World *world, Player *player, float dt )
     }
 }
 
+/* spawn_tfog: play_teleport's sound, 0.2 s after, where the fog was made */
+static void ent_fog( World *world, BspVec3 *org, float now )
+{
+    short k;
+
+    for ( k = 0; k < ENT_FOGS; k++ ) {
+        if ( world->fog_at[k] != 0.0f ) continue;
+        world->fog_org[k] = *org;
+        world->fog_at[k] = now + ENT_FOG_DELAY;
+        return;
+    }
+}
+
+void ent_fog_tick( World *world, Player *player, float now )
+{
+    short k;
+    BspVec3 at;
+
+    for ( k = 0; k < ENT_FOGS; k++ ) {
+        if ( world->fog_at[k] == 0.0f || now < world->fog_at[k] ) continue;
+        world->fog_at[k] = 0.0f;
+        at = world->fog_org[k];
+        snd_play( player, (short) ( SND_TELE + rand() % 5 ), &at );
+    }
+}
+
+/* teleport_touch's two fogs: where it stood, and 32 along the
+   destination's facing */
+static void ent_tele_fogs( World *world, BspVec3 *from, Teleporter far *t, float now )
+{
+    BspVec3 org;
+    float a = t->yaw * ( 3.14159265f / 180.0f );
+
+    ent_fog( world, from, now );
+    org = t->dest;
+    org.x += 32.0f * (float) cos( a );
+    org.y += 32.0f * (float) sin( a );
+    ent_fog( world, &org, now );
+}
+
+/* teleport_use: a named teleporter takes a touch only for 0.2 s after */
+static short ent_tele_live( Teleporter far *t, float now )
+{
+    return (short) ( !t->name || now <= t->until );
+}
+
 /*
  * name: ent_check_teleport
  * desc: Moves the player if their box overlaps a teleporter's.
@@ -234,7 +281,7 @@ void ent_move_plats( World *world, Player *player, float dt )
  *       fast enough player pass through one without ever having their
  *       centre inside it.
  */
-void ent_check_teleport( Player *player, World *world, short scr_x_res )
+void ent_check_teleport( Player *player, World *world, float now, short scr_x_res )
 {
     short i;
     BspVec3 pmin, pmax;
@@ -251,15 +298,13 @@ void ent_check_teleport( Player *player, World *world, short scr_x_res )
     for ( i = 0; i < world->tele_count; i++ ) {
         Teleporter far *t = &world->tele[i];
 
+        if ( !ent_tele_live( t, now ) ) continue;
         if ( pmax.x >= t->mins.x && pmin.x <= t->maxs.x &&
              pmax.y >= t->mins.y && pmin.y <= t->maxs.y &&
              pmax.z >= t->mins.z && pmin.z <= t->maxs.z ) {
 
-            /* spawn_tfog's play_teleport, where they were and where
-               they arrive -- the first is out of earshot by then */
-            snd_play( player, (short) ( SND_TELE + rand() % 5 ), &player->pos );
+            ent_tele_fogs( world, &player->pos, t, now );
             player->pos   = t->dest;
-            snd_play( player, (short) ( SND_TELE + rand() % 5 ), &player->pos );
             player->vel.x = 0.0f;
             player->vel.y = 0.0f;
             player->vel.z = 0.0f;
@@ -271,6 +316,29 @@ void ent_check_teleport( Player *player, World *world, short scr_x_res )
 
             return;
         }
+    }
+}
+
+/* teleport_touch on a monster: its box, MDL_HALF and MDL_ZLO..MDL_ZHI,
+   against every teleporter that is not PLAYER_ONLY */
+void ent_monster_teleport( World *world, float now, MdlEnt far *e )
+{
+    short i;
+    BspVec3 from;
+
+    for ( i = 0; i < world->tele_count; i++ ) {
+        Teleporter far *t = &world->tele[i];
+
+        if ( t->player_only || !ent_tele_live( t, now ) ) continue;
+        if ( e->pos.x + MDL_HALF < t->mins.x || e->pos.x - MDL_HALF > t->maxs.x ||
+             e->pos.y + MDL_HALF < t->mins.y || e->pos.y - MDL_HALF > t->maxs.y ||
+             e->pos.z + MDL_ZHI  < t->mins.z || e->pos.z + MDL_ZLO  > t->maxs.z ) continue;
+        from = e->pos;
+        ent_tele_fogs( world, &from, t, now );
+        e->pos = t->dest;
+        e->yaw = e->ideal_yaw = t->yaw;
+        world->mon_teles++;
+        return;
     }
 }
 
@@ -433,7 +501,8 @@ static void ent_load_trigs( World *world, unsigned char far *buf, long *ofs, sho
         t->maxs  = world->models[m].maxs;
         /* A shooter and a fireball have no brush: their origin IS the
            volume, so mins and maxs are the same point. */
-        if ( xr.kind == ENT_TRIG_SHOOTER || xr.kind == ENT_TRIG_FIREBALL || xr.kind == ENT_TRIG_BOSS ) {
+        if ( xr.kind == ENT_TRIG_SHOOTER || xr.kind == ENT_TRIG_FIREBALL || xr.kind == ENT_TRIG_BOSS ||
+             xr.kind == ENT_TRIG_BOLT ) {
             t->mins = xr.org;
             t->maxs = xr.org;
         }
@@ -608,9 +677,14 @@ void ent_load_teleports( World *world )
             /* the arrival point is above the mapper's mark -- see PL_TELE_LIFT */
             t->dest.z += PL_TELE_LIFT;
             t->yaw = tr.yaw;
+            t->name = tr.name;
+            t->player_only = tr.player_only;
+            t->until = -1.0f;
             world->tele_count++;
         }
     }
+    for ( k = 0; k < ENT_FOGS; k++ ) world->fog_at[k] = 0.0f;
+    world->mon_teles = 0;
 
     for ( i = 0; i < h.nplat; i++ ) {
         EntsPlat pr;

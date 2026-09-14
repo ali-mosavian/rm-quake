@@ -21,7 +21,7 @@
 /* the sounds, in tools/mksnd.py's SOUNDS order -- q_pl.bi's own
    numbering, and sndtab.raw's. SND_MON + kind * 4 is a monster's
    four for kinds 0..4, SND_MON2 + (kind - 5) * 4 for the rest. */
-#define SND_COUNT       165
+#define SND_COUNT       169
 #define SND_SHOTGUN     0
 #define SND_SSG         1
 #define SND_NAIL        2
@@ -108,6 +108,10 @@
 #define SND_SHAM_MELEE2 162
 #define SND_BOSS_OUT    163
 #define SND_BOSS_SIGHT  164
+#define SND_POWER       165
+#define SND_BOSS_PAIN   166
+#define SND_BOSS_DEATH  167
+#define SND_CRUC_IDLE   168
 
 /* sound()'s attenuations and entity channels, id's numbers */
 #define ATTN_NONE   0
@@ -124,6 +128,7 @@
    a brush by its submodel */
 #define SND_ENT_MON   1024
 #define SND_ENT_BRUSH 256
+#define SND_ENT_TRIG  2048    /* a point entity, by its trigger index */
 
 /*
  * name: snd_init

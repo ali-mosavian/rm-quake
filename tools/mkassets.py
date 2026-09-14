@@ -176,6 +176,7 @@ def build_models(pak: str, kinds: set[int], tmp: str) -> dict[str, bytes]:
 
 
 ENTS_HEAD  = '<4f3fff13hf8shh'   # ent.h's EntsHead; the monsters follow it
+ENTS_MON   = '<h3ffhh'           # ent.h's EntsMon
 
 QMAP_VER   = 1
 QMAP_HEAD  = 64
@@ -781,7 +782,7 @@ def parse_entities(text: str, nmodels: int, boxes: list[tuple[float, ...]], skil
     inter: tuple[tuple[float, float, float], float, float] | None = None   # origin, pitch, yaw
     next_map = ''
     dests: dict[str, tuple[tuple[float, float, float], float]] = {}
-    trigs: list[tuple[str, int]] = []
+    trigs: list[tuple[str, int, int, int]] = []   # target, model, targetname id, PLAYER_ONLY
     hides: list[int] = []
     bolt_doors: list[int] = []   # the electrode doors, target "lightning"
     plats: list[tuple[int, float, float]] = []
@@ -963,7 +964,8 @@ def parse_entities(text: str, nmodels: int, boxes: list[tuple[float, ...]], skil
                 dests[kv.get('targetname', '')] = (
                     vec(kv.get('origin', '0 0 0')), float(kv.get('angle', '0')))
             case 'trigger_teleport' if model(kv.get('model', '')):
-                trigs.append((kv.get('target', ''), model(kv['model'])))
+                trigs.append((kv.get('target', ''), model(kv['model']), name_id(kv.get('targetname', '')),
+                              int(kv.get('spawnflags', '0')) & 1))
                 hides.append(model(kv['model']))
             case 'trigger_once' | 'trigger_multiple' if model(kv.get('model', '')):
                 hides.append(model(kv['model']))
@@ -1008,7 +1010,7 @@ def parse_entities(text: str, nmodels: int, boxes: list[tuple[float, ...]], skil
                 # lightning_use: a point off Chthon with both electrode doors up; travel
                 # carries the doors' indices, patched below once every door is read
                 uses.append((0, TRIG_BOLT, 0, name_id(kv.get('targetname', '')),
-                             0, 0, 0.0, 0.0, (0.0, 0.0, 0.0), 0, b''.ljust(40)))
+                             0, 0, 0.0, 0.0, (0.0, 0.0, 0.0), 0, b''.ljust(40), vec(kv.get('origin', '0 0 0'))))
             case 'trigger_onlyregistered' if model(kv.get('model', '')) and kv.get('message'):
                 # OnlyRegisteredTouch on the shareware: the message and misc/talk
                 # every two seconds, its target never fired -- a multiple with no target
@@ -1053,8 +1055,9 @@ def parse_entities(text: str, nmodels: int, boxes: list[tuple[float, ...]], skil
                               float(kv.get('height', '0')),
                               int(kv.get('sounds', '0') or 0) or 2))
             case str(c) if c in mon_kind:
+                # SPAWN_CRUCIFIED: a zombie nailed up, never walkmonster_start
                 mons.append((mon_kind[c], vec(kv.get('origin', '0 0 0')), float(kv.get('angle', '0')),
-                             kv.get('target', '')))
+                             kv.get('target', ''), int(kv.get('spawnflags', '0')) & 1 if c == 'monster_zombie' else 0))
             case str(c) if c in item_kind:
                 amount = item_amount(c, int(kv.get('spawnflags', '0')))
                 items.append((item_kind[c], amount, name_id(kv.get('target', '')),
@@ -1064,7 +1067,7 @@ def parse_entities(text: str, nmodels: int, boxes: list[tuple[float, ...]], skil
                 ambs.append((mksnd.SOUNDS.index(wav), int(255 * fvol), vec(kv.get('origin', '0 0 0'))))
 
     # a teleporter with no destination still hides its brush
-    teles = [(m, *dests[t]) for t, m in trigs if t in dests]
+    teles = [(m, *dests[t], name, only) for t, m, name, only in trigs if t in dests]
 
     if inter is None:
         inter = (spawn, 0.0, angle)   # no info_intermission: the start, as Quake does
@@ -1091,10 +1094,10 @@ def parse_entities(text: str, nmodels: int, boxes: list[tuple[float, ...]], skil
                                 len(teles), len(plats), len(hides), len(items), len(doors), len(uses), len(mons),
                                 len(ambs), len(trains), len(corners), worldtype, len(crates.used), gravity,
                                 next_map[:8].encode('latin1').ljust(8), len(msgs), len(lights)))
-    for kind, org, yaw, target in mons:
-        buf += struct.pack('<h3ffh', kind, *org, yaw, corner_at.get(target, -1))   # its patrol's first corner
-    for m, org, yaw in teles:
-        buf += struct.pack('<h3ff', m, *org, yaw)
+    for kind, org, yaw, target, cruc in mons:
+        buf += struct.pack(ENTS_MON, kind, *org, yaw, corner_at.get(target, -1), cruc)   # its patrol's first corner
+    for m, org, yaw, name, only in teles:
+        buf += struct.pack('<h3ffhh', m, *org, yaw, name, only)
     for m, speed, height, snd in plats:
         buf += struct.pack('<hffh', m, speed, height, snd)
     for m in hides:
@@ -1574,7 +1577,7 @@ def main():
     # what the runtime loads, so it is what decides which models ship.
     head = struct.calcsize('<3ff3fff')
     nmon = struct.unpack_from('<13h', OUT['ents.bin'], head)[7]
-    kinds = {struct.unpack_from('<h', OUT['ents.bin'], struct.calcsize(ENTS_HEAD) + i * 20)[0]
+    kinds = {struct.unpack_from('<h', OUT['ents.bin'], struct.calcsize(ENTS_HEAD) + i * struct.calcsize(ENTS_MON))[0]
              for i in range(nmon)}
     models = build_models(pak, kinds, os.path.join(outdir, '.mdl'))
     sbar = build_sbar(pak, os.path.join(outdir, '.gfx'))

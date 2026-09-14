@@ -83,6 +83,7 @@ typedef struct {
     float   idle_at;            /* the next roll for an idle sound */
     short   water;              /* SV_CheckWaterTransition's: 1 in a liquid,
                                    -1 out, 0 before its first look */
+    short   cruc;               /* SPAWN_CRUCIFIED: still, moaning, unhurt */
 } MdlEnt;
 
 

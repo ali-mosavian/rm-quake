@@ -65,7 +65,7 @@ void host_advance( World *world, Player *player, Camera *cam, Renderer *rdr,
                     HostClock *clock, PhaseTimes *pt, float real_dt,
                     short scr_x_res, short scr_y_res )
 {
-    short steps = 0;
+    short steps = 0, w;
 #if QR_PROF
     float t0 = sys_now( sysclk );
 #endif
@@ -82,6 +82,13 @@ void host_advance( World *world, Player *player, Camera *cam, Renderer *rdr,
            one. */
         if ( clock->bench_ticks > 0 && clock->ticks >= clock->bench_ticks ) {
             break;
+        }
+        for ( w = 0; w < clock->nwarp; w++ ) {
+            if ( clock->warp_tick[w] != clock->ticks ) continue;
+            player->pos.x = clock->warp_xyz[w][0];
+            player->pos.y = clock->warp_xyz[w][1];
+            player->pos.z = clock->warp_xyz[w][2];
+            player->vel.x = player->vel.y = player->vel.z = 0.0f;
         }
         host_tick( world, player, cam, rdr, input, hud, ls, fight, HOST_DT, scr_x_res, scr_y_res );
         clock->accum -= HOST_DT;
@@ -134,7 +141,8 @@ void host_tick( World *world, Player *player, Camera *cam, Renderer *rdr,
     v_update_camera( cam, player, world, input, fight, rdr, dt, scr_x_res, scr_y_res );
 
     /* and anything the world does to the player as a result of moving */
-    ent_check_teleport( player, world, scr_x_res );
+    ent_check_teleport( player, world, rdr->anim_time, scr_x_res );
+    ent_fog_tick( world, player, rdr->anim_time );
 
     /* movers, after the player has moved and before anything is drawn.
        Doors before triggers, because a button's target is a door and a

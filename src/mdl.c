@@ -166,6 +166,7 @@ void mdl_load_monsters( World *world, unsigned char far *buf, long *ofs, short c
         e->pos    = mr.org;
         e->yaw    = mr.angle;   /* a model's yaw is Quake's, CCW from +x: no mirror */
         e->patrol = mr.first;   /* its path_corner, -1 for none */
+        e->cruc   = mr.cruc;
         if ( mr.kind >= 0 && mr.kind < MDL_KINDS ) kinds[ mr.kind ] = 1;
     }
 

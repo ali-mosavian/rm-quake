@@ -35,6 +35,9 @@ typedef struct {
     long  bench_ticks;      /* -ticks N; 0 = unbounded (main.bas default) */
     short at_set;
     float at_x, at_y, at_z; /* -at X Y Z */
+    short nwarp;            /* -warp T X Y Z: put the player there at tick T */
+    long  warp_tick[4];
+    float warp_xyz[4][3];
     short yaw_set;
     float yaw;               /* -yaw D, wrapped into [0,360) */
     short pitch_set;

@@ -587,6 +587,16 @@ void mdl_think( World *world, Player *player, Fight *fight, Renderer *rdr,
         return;
     }
 
+    /* zombie_cruc1: nailed up, its cycle's first frame moans a tenth of
+       the time; the page has no room for the cruc frames, so it hangs
+       in stand1 */
+    if ( ent->cruc ) {
+        if ( rdr->anim_time < ent->idle_at ) return;
+        ent->idle_at = rdr->anim_time + ZOMBIE_CRUC_CYCLE;
+        if ( mdl_rnd() < 0.1f ) mdl_voice( player, ent, CHAN_VOICE, SND_CRUC_IDLE, ATTN_STATIC );
+        return;
+    }
+
     /* SV_CheckWaterTransition: a splash crossing a liquid's surface, sky
        counting as one as id's test has it */
     dmg = (short) ( pl_point_contents( &ent->pos, world ) <= CONTENTS_WATER ? 1 : -1 );
@@ -987,5 +997,7 @@ void mdl_tick( World *world, Player *player, Fight *fight, Renderer *rdr )
     for ( i = 0; i < world->mon_count; i++ ) {
         MdlState *m = mdl_of( world, world->mon[i].kind );
         if ( m ) mdl_think( world, player, fight, rdr, &world->mon[i], m, -1 );
+        if ( world->mon[i].state != MDL_ST_DEAD && !world->mon[i].cruc )
+            ent_monster_teleport( world, rdr->anim_time, &world->mon[i] );
     }
 }

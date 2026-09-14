@@ -261,6 +261,41 @@ short ent_lights_selftest( void )
     return 1;
 }
 
+/* lightning_use: both electrode doors at one end of their travel, then a
+   point off an awake Chthon while the first is up. id's STATE_TOP is a
+   door OPEN here. wait_left is lightning_end. */
+static void ent_lightning( World *world, Player *player, Renderer *rdr, short k )
+{
+    TrigEnt far *t = &world->trig[k];
+    TrigEnt far *boss;
+    short a = (short) t->ofs_out.x, b = (short) t->ofs_out.y, s1, s2, j;
+    float now = rdr->anim_time;
+    BspVec3 org;
+
+    if ( t->wait_left >= now + 1.0f ) return;
+    if ( a < 0 || b < 0 || a >= world->door_count || b >= world->door_count ) return;
+    s1 = world->door[a].state;
+    s2 = world->door[b].state;
+    if ( ( s1 != ENT_DOOR_OPEN && s1 != ENT_DOOR_SHUT ) ||
+         ( s2 != ENT_DOOR_OPEN && s2 != ENT_DOOR_SHUT ) || s1 != s2 ) return;
+    t->wait_left = now + 1.0f;
+    org = t->mins;
+    snd_start( player, (short) ( SND_ENT_TRIG + k ), CHAN_VOICE, SND_POWER, &org, ATTN_NORM );
+
+    for ( j = 0; j < world->trig_count; j++ ) {
+        boss = &world->trig[j];
+        if ( boss->kind != ENT_TRIG_BOSS ) continue;
+        if ( s1 != ENT_DOOR_OPEN || boss->state != ENT_TRIG_ARMED || boss->left <= 0 ) return;
+        org = boss->mins;
+        snd_start( player, (short) ( SND_ENT_TRIG + j ), CHAN_VOICE, SND_BOSS_PAIN, &org, ATTN_NORM );
+        boss->left--;
+        if ( boss->left > 0 ) return;
+        boss->state = ENT_TRIG_DONE;
+        boss->delay_left = ENT_BOSS_DYING;
+        return;
+    }
+}
+
 void ent_use_targets( World *world, Player *player, Fight *fight,
                        Renderer *rdr, short id )
 {
@@ -281,6 +316,9 @@ void ent_use_targets( World *world, Player *player, Fight *fight,
 
     ent_lights_use( world->light, world->light_count, &world->light_clock, id );
 
+    for ( k = 0; k < world->tele_count; k++ )
+        if ( world->tele[k].name == id ) world->tele[k].until = rdr->anim_time + ENT_FOG_DELAY;
+
     for ( k = 0; k < world->trig_count; k++ ) {
         if ( world->trig[k].name != id ) continue;
 
@@ -298,12 +336,15 @@ void ent_use_targets( World *world, Player *player, Fight *fight,
         case ENT_TRIG_RELAY:
             ent_trig_fire( world, player, fight, rdr, k );
             break;
+        case ENT_TRIG_BOLT:
+            ent_lightning( world, player, rdr, k );
+            break;
         case ENT_TRIG_BOSS:
             /* boss_awake's rise: out1 and sight1 from where he stands */
             if ( world->trig[k].state == ENT_TRIG_READY ) {
                 org = world->trig[k].mins;
-                snd_start( player, SND_ENT_BRUSH, CHAN_WEAPON, SND_BOSS_OUT, &org, ATTN_NORM );
-                snd_start( player, SND_ENT_BRUSH, CHAN_VOICE, SND_BOSS_SIGHT, &org, ATTN_NORM );
+                snd_start( player, (short) ( SND_ENT_TRIG + k ), CHAN_WEAPON, SND_BOSS_OUT, &org, ATTN_NORM );
+                snd_start( player, (short) ( SND_ENT_TRIG + k ), CHAN_VOICE, SND_BOSS_SIGHT, &org, ATTN_NORM );
             }
             /* fall through */
         case ENT_TRIG_SHOOTER:
@@ -482,6 +523,7 @@ void ent_move_trigs( World *world, Player *player, Camera *cam, Fight *fight,
     TrigEnt far *t;
     BrushModel far *b;
     BspVec3 was, home, at;
+    float before;
 
     home.x = home.y = home.z = 0.0f;
 
@@ -489,6 +531,7 @@ void ent_move_trigs( World *world, Player *player, Camera *cam, Fight *fight,
         t = &world->trig[k];
         b = &world->brush[ t->model ];
         was = b->ofs;
+        before = t->delay_left;
 
         if ( t->delay_left > 0.0f ) {
             t->delay_left -= dt;
@@ -496,6 +539,17 @@ void ent_move_trigs( World *world, Player *player, Camera *cam, Fight *fight,
                 ent_kill_targets( world, t->kill );
                 ent_use_targets( world, player, fight, rdr, t->target );
             }
+        }
+
+        /* Chthon's end: boss_death1's death.wav after shockc, death9's
+           out1, death10's kill with the targets above */
+        if ( t->kind == ENT_TRIG_BOSS && t->state == ENT_TRIG_DONE && before > 0.0f ) {
+            at = t->mins;
+            if ( before > ENT_BOSS_DYING - 1.0f && t->delay_left <= ENT_BOSS_DYING - 1.0f )
+                snd_start( player, (short) ( SND_ENT_TRIG + k ), CHAN_VOICE, SND_BOSS_DEATH, &at, ATTN_NORM );
+            if ( before > 0.1f && t->delay_left <= 0.1f )
+                snd_start( player, (short) ( SND_ENT_TRIG + k ), CHAN_BODY, SND_BOSS_OUT, &at, ATTN_NORM );
+            if ( t->delay_left <= 0.0f ) fight->kills++;
         }
 
         switch ( t->kind ) {

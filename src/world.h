@@ -84,6 +84,9 @@ typedef struct {
 
     short       tele_count;
     Teleporter  far *tele;
+    short       mon_teles;       /* monsters a teleporter moved */
+    BspVec3     fog_org[ENT_FOGS];
+    float       fog_at[ENT_FOGS];  /* 0 free */
 
     short       plat_count;
     short       plat_max;        /* func_trains share the plat array */
