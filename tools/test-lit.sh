@@ -59,13 +59,22 @@ fi
 # Moved to 100,000: SC_NBLK back to 1024 for the light-style variants,
 # and sc_selftest no longer leaking its cache, read 108,128 here. This
 # run has sound on, which reads 11 K under a -nosound run.
+#
+# Moved to 88,000: the build before the host refactor read 90,576 and
+# the refactor, recovered, 90,496, each the same on every run. The
+# refactor before its recovery read 87,936 -- 2.6 K of code -- and fails.
+#
+# Moved to 86,000: Phase 4's monster tables and near helpers, -1,408
+# measured step by step (s26 88,288 -> s34 86,880, the same on two runs):
+# FAR_DATA +772, code +626. Under a K of margin on purpose, so each K
+# the next steps spend is looked at.
 largest=$(tr -d '\r' < "$OUT/CSTEP.TXT" 2>/dev/null |
           sed -n 's/.*sc_init ok largest=\([0-9]*\).*/\1/p' | tail -1)
 if [[ -z "$largest" ]]; then
     echo "FAIL: no 'sc_init ok largest=' in cstep.txt -- the cache died, or the mark did" >&2
     fail=1
-elif (( largest < 100000 )); then
-    echo "FAIL: $largest bytes free after sc_init, was 108 K -- something took the cuts back" >&2
+elif (( largest < 86000 )); then
+    echo "FAIL: $largest bytes free after sc_init, was 86.9 K -- something took the cuts back" >&2
     fail=1
 else
     echo "ok: $largest bytes still free after the cache is built"

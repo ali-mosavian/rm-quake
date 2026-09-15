@@ -30,6 +30,7 @@ triangle, so the u belongs to the CORNER and not to the vertex.
 from __future__ import annotations
 
 import os
+import re
 import struct
 import sys
 
@@ -71,20 +72,48 @@ def resample_skin(skin) -> tuple[int, int, np.ndarray]:
     return sw, sh, skin.pixels[yi][:, xi]  # nearest neighbour: stays in palette indices
 
 
+def parse_sets(spec: str | None) -> list[tuple[str, int]]:
+    # name, or name:n for the first n frames of that set -- the dog's 236
+    # vertices leave the page room for 23 frames
+    return [(e.split(":")[0], int(e.split(":")[1]) if ":" in e else 0)
+            for e in (spec.split(",") if spec is not None else ["stand", "walk", "run"])]
+
+
+def kept(m: mdl.Model, name: str, n: int) -> list:
+    # In frameset order, not file order: the .mdl keeps death before run
+    # and the draw indexes the sets by position.
+    fs = [f for f in m.frames if re.sub(r"\d+$", "", f.name) == name]
+    return fs[:n] if n else fs
+
+
+def select_frames(m: mdl.Model, sets: list[tuple[str, int]]) -> list:
+    return [f for name, n in sets for f in kept(m, name, n)] or list(m.frames)
+
+
+def quantise(frames: list) -> tuple[np.ndarray, np.ndarray, bytes]:
+    # Vertices as BYTES, one per axis -- trivertx_t's own compression --
+    # against one scale and origin fitted to every kept frame.
+    allv = np.concatenate([f.verts for f in frames], axis=0)  # [n*frames, 3]
+    vmin = allv.min(axis=0)
+    vmax = allv.max(axis=0)
+    vscale = np.where(vmax > vmin, (vmax - vmin) / 255.0, 1.0)
+    vtx = b"".join(np.clip(np.rint((f.verts - vmin) / vscale), 0, 255).astype(np.uint8).tobytes() for f in frames)
+    return vmin, vscale, vtx
+
+
+def vertex_bytes(pak: str, name: str, spec: str) -> bytes:
+    """The .vtx stream mkmdl writes for name and spec, straight from the PAK."""
+    blob, entries = mdl.read_pak(pak)
+    m = mdl.parse_mdl(mdl.pak_read(blob, entries, f"progs/{name}.mdl"), name)
+    return quantise(select_frames(m, parse_sets(spec)))[2]
+
+
 def main() -> int:
     if len(sys.argv) not in (4, 5):
         print(__doc__)
         return 1
     pak, name, outdir = sys.argv[1:4]
-    # Optional 5th arg: comma-separated frame-name prefixes, for callers
-    # tight on memory (qb-quake's own conventional-memory budget -- see
-    # mgl/docs/issues/ems-texture-and-zbuffer-dropouts.md's "MEM, not EMS"
-    # skin fix, which trades EMS's texture-read bug for conventional-
-    # memory pressure instead). Default unchanged: stand/walk/run.
-    # name, or name:n for the first n frames of that set -- the dog's 236
-    # vertices leave the page room for 23 frames
-    sets = [(e.split(":")[0], int(e.split(":")[1]) if ":" in e else 0)
-            for e in (sys.argv[4].split(",") if len(sys.argv) == 5 else ["stand", "walk", "run"])]
+    sets = parse_sets(sys.argv[4] if len(sys.argv) == 5 else None)
     os.makedirs(outdir, exist_ok=True)
 
     blob, entries = mdl.read_pak(pak)
@@ -92,38 +121,9 @@ def main() -> int:
     uv = mdl.build_uv(m)                     # [tri][corner][u, v], normalised
     skin = m.skins[0]
 
-    # Core anims only, same set mkspr.py bakes -- all 114 frames of the
-    # soldier is 116 KB of vertices, and the comparison only ever plays
-    # stand/walk/run.
-    import re
-    # In frameset order, not file order: the .mdl keeps death before run
-    # and d_mdl.bas indexes the sets by position.
-    def kept(name: str, n: int) -> list:
-        fs = [f for f in m.frames if re.sub(r"\d+$", "", f.name) == name]
-        return fs[:n] if n else fs
+    frames = select_frames(m, sets)
 
-    frames = [f for name, n in sets for f in kept(name, n)]
-    if not frames:
-        frames = list(m.frames)
-
-    # Vertices as BYTES, one per axis -- the same trivertx_t compression
-    # the .mdl file itself already uses -- packed into an 8-bit BMP (one
-    # row per frame, uglNewBMPEx's own EMS path), NOT a BASIC string and
-    # NOT a uglArrLoad array. Both of those were tried and both hit a
-    # hard ceiling this session: a space$()'d string put ~8KB in BOTH
-    # conventional memory and BASIC's own separate, much smaller "string
-    # space" pool (runtime errors 14 and 7 going from 8 frames to 16);
-    # uglArrLoad's store table is UA_MAX=4 slots, ALL of them already
-    # taken by this renderer's own faces/nodes/leaves/clips arrays, so a
-    # 5th uglArrNew call is refused regardless of size or memory type.
-    # An EMS bitmap DC is a different resource entirely -- the skin and
-    # Z-buffer already prove more than 4 of THOSE coexist -- read back
-    # with uglMapEx + PEEK exactly like d_surf.bas's own lightmap/
-    # geometry atlas rows, not through uglArrMap at all.
-    allv = np.concatenate([f.verts for f in frames], axis=0)  # [n*frames, 3]
-    vmin = allv.min(axis=0)
-    vmax = allv.max(axis=0)
-    vscale = np.where(vmax > vmin, (vmax - vmin) / 255.0, 1.0)
+    vmin, vscale, vtx = quantise(frames)
 
     UV_SCALE = 32767   # fixed-point Integer UV, 0..32767 = 0.0..1.0
 
@@ -133,11 +133,17 @@ def main() -> int:
     # exactly this size and the source image's own dimensions would be a
     # fact it has no use for. They were written here before anything read
     # them, which is how they stayed wrong for free.
-    out = bytearray(struct.pack("<4sHHHHH", b"QMDL", len(m.tris), len(m.st),
+    # "QMD2": the 48-byte "QMDL" had no page fields, and mdl.c refuses it by name.
+    out = bytearray(struct.pack("<4sHHHHH", b"QMD2", len(m.tris), len(m.st),
                                 len(frames), sw, sh))
     out += struct.pack("<6f", *vscale.tolist(), *vmin.tolist())
-    counts = [len(kept(name, n)) for name, n in sets]
+    counts = [len(kept(m, name, n)) for name, n in sets]
     out += struct.pack("<5H", *(counts + [0] * 5)[:5])
+    # Frames one 16K EMS page holds, and the pages they take: the loader
+    # maps page frame // page_frames, so no frame straddles two.
+    page_frames = 16384 // (len(m.st) * 3)
+    vpages = -(-len(frames) // page_frames)
+    out += struct.pack("<2H", vpages, page_frames)
     for t, (_ff, a, b, c) in enumerate(m.tris):
         out += struct.pack("<3h", a, b, c)
         for k in range(3):
@@ -155,12 +161,8 @@ def main() -> int:
     # worked, but this is simpler and this data is small enough (8,160
     # bytes for the soldier's stand+run set) to just live in DOS memory
     # like the PVS lump already does.
-    vtxbuf = bytearray()
-    for f in frames:
-        q = np.clip(np.rint((f.verts - vmin) / vscale), 0, 255).astype(np.uint8)
-        vtxbuf += q.tobytes()
     vtxpath = os.path.join(outdir, f"{name[:8]}.vtx")
-    open(vtxpath, "wb").write(bytes(vtxbuf))
+    open(vtxpath, "wb").write(vtx)
 
     # Raw palette indices, top-down, no header: the .geo already carries
     # sw and sh, and a second copy in a BMP header is a second place for
@@ -171,7 +173,7 @@ def main() -> int:
 
     print(f"{name}: {len(m.tris)} tris, {len(m.st)} verts, {len(frames)} frames")
     print(f"  {os.path.basename(geo):<14} {len(out):,} B  (header + tris {len(m.tris)*18:,})")
-    print(f"  {os.path.basename(vtxpath):<14} {len(vtxbuf):,} B  "
+    print(f"  {os.path.basename(vtxpath):<14} {len(vtx):,} B  "
           f"(flat, memAlloc'd conventional memory -- see mdl_load in d_mdl.bas)")
     print(f"  {os.path.basename(skn):<14} {skin.width}x{skin.height} -> {sw}x{sh} "
           f"= {sw*sh:,} B (power of two, both axes)")

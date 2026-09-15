@@ -78,7 +78,7 @@ else
     map2=$(tr -d '\r' < "$log" | grep '^asset_map ok ' | tail -1 | awk '{print $3}')
     [[ "$map2" == "e1m2.qmp" ]] || { echo "FAIL: the second leg opened ${map2:-nothing}, not e1m2.qmp" >&2; fail=1; }
 
-    carry=$(tr -d '\r' < "$log" | grep -m1 '^carry ')
+    carry=$(tr -d '\r' < "$log" | grep -m1 '^carry health ')
     [[ -n "$carry" ]] || { echo "FAIL: e1m2 was started without -carry" >&2; fail=1; }
     ch=$(echo "$carry" | awk '{print $3}')
     left=$(tr -d '\r' < "$log" | grep -m1 '^fight=' | sed 's/.*health \([0-9-]*\).*/\1/')
@@ -90,6 +90,28 @@ else
         echo "FAIL: carried $ch health; SetChangeParms floors it at 50" >&2
         fail=1
     fi
+fi
+
+# 4: each changelevel's own map. mkassets kept one a file, the last read, so
+#    all five of start's slipgates led to "end" and e1m4's main exit to e1m8.
+if [[ -f "$OUT/start.qmp" ]]; then
+    for gate in "-64 1628 176 e1m1" "-548 2368 208 e2m1"; do
+        read -r gx gy gz want <<< "$gate"
+        TIMEOUT="${TIMEOUT:-300}" "$RUN" "$OUT" "start.qmp -nostats -noai -at $gx $gy $gz -ticks 30" >/dev/null 2>&1
+        next=$(tr -d '\r' < "$log" 2>/dev/null | grep -m1 '^gs_state ' | sed -n 's/.* next \([^ ]*\) .*/\1/p')
+        [[ "$next" == "$want" ]] || { echo "FAIL: start's slipgate at $gx,$gy leads to ${next:-nothing}, not $want" >&2; fail=1; }
+    done
+else
+    echo "SKIP arm 4: no start.qmp in $OUT"
+fi
+
+# 5: -carry with no CARRY.BIN (run.sh deletes it) loaded nothing, and the log still
+#    printed the default kit as "carry health 100 ...". A short file is untested: every
+#    -carry run follows the pl_carry_save that wrote it.
+TIMEOUT="${TIMEOUT:-300}" "$RUN" "$OUT" "e1m1.qmp -nostats -noai -carry -ticks 2" >/dev/null 2>&1
+if ! tr -d '\r' < "$log" 2>/dev/null | grep -q '^carry refused' || tr -d '\r' < "$log" | grep -q '^carry health '; then
+    echo "FAIL: -carry with no CARRY.BIN is not reported refused" >&2
+    fail=1
 fi
 
 [[ $fail -eq 0 ]] && echo "ok: the slipgate ends the level, e1m2 follows, and $ch health went with it"

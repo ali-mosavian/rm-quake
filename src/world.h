@@ -2,6 +2,9 @@
 #define __WORLD_H__
 
 #include "bsptypes.h"
+#include "rng.h"
+#include "pak.h"
+#include "sound.h"
 
 /* Cell heights are powers of two and a cell is at most one EMS page,
    so 1..16384 -- nine of them can matter and the rest cannot exist. */
@@ -31,6 +34,8 @@ typedef struct {
  * loader exists to allocate them.
  */
 typedef struct {
+    Rng         rng;             /* every die the game rolls, in order; first,
+                                     so &world->rng is world itself */
     short       model_count;
     Submodel    far *models;
     Node        far *nodes;
@@ -85,6 +90,7 @@ typedef struct {
     short       tele_count;
     Teleporter  far *tele;
     short       mon_teles;       /* monsters a teleporter moved */
+    short       mon_jumps;       /* trigger_monsterjump throws that flew */
     BspVec3     fog_org[ENT_FOGS];
     float       fog_at[ENT_FOGS];  /* 0 free */
 
@@ -129,7 +135,7 @@ typedef struct {
     char        far *msgs;
 
     /* Which submodel owns a face is Face.side >> 1, written by
-       ent_load_teleports -- see its own note. There is no array. */
+       ent_load_brushes -- see its own note. There is no array. */
 
     /* The three EMS-resident stores mod.c owns and hands scanlines/rows
        out of through mod_lm_map/mod_cm_map/mod_geom_map (sb_build.c
@@ -167,6 +173,10 @@ typedef struct {
     long  tex_ofs[1024];    /* [id*4 + level] -> byte offset in the atlas */
     QSurf sky_layers, sky_dc;   /* d_sky.c's: back and front, composed */
     short sky_shift;            /* the front shift sky_dc holds, -1 none */
+    short skill;                /* 0..3: which ents<N>.bin loaded */
+    short serverflags;          /* svs.serverflags: the runes held as the map loaded */
+    Pak   pak;                  /* the map's container, open for the run */
+    Sound snd;
 } World;
 
 #endif

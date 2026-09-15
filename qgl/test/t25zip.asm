@@ -2,7 +2,7 @@
 ;;
 ;; The sizes here are DERIVED, not read off a listing: colmap.bin is
 ;; Quake's colormap, 64 shades of 256 entries, and texofs.bld is one long
-;; per (texture, mip) over dm3ish's 20 textures, the 18 of its pickups'
+;; per (texture, mip) over dm3ish's 20 textures, the 22 of its pickups'
 ;; b_*.bsp crates after them, and 4 levels. Either one changing means
 ;; the assets changed, which is worth being told about.
 ;;
@@ -28,7 +28,7 @@ qglFileRead   proto   far :word, :dword, :dword
 qglFileClose  proto   far :word
 
 CMAP_LEN        equ     64 * 256        ;; shades x palette entries
-TOFS_LEN        equ     (20 + 18) * 4 * 4   ;; the map's and the crates' textures x mips x one long
+TOFS_LEN        equ     (20 + 22) * 4 * 4   ;; the map's and the crates' textures x mips x one long
 CHUNK           equ     256
 
 .data

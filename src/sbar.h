@@ -1,6 +1,8 @@
 #ifndef __SBAR_H__
 #define __SBAR_H__
 
+
+#include "pak.h"
 #include "qgltypes.h"
 #include "fight.h"
 
@@ -37,7 +39,7 @@
  * desc: sbar.raw into the surface's top band and sbnum.raw's cells into
  *       the middle one, both straight out of the map container.
  */
-void scr_sbar_load( void );
+void scr_sbar_load( Pak *pak );
 
 /*
  * name: scr_sbar_draw

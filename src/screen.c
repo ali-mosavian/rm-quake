@@ -11,7 +11,7 @@
 #include "screen.h"
 #include "qgl.h"  /* qglSfPset/qglDrShade */
 #include "pal.h"  /* pal_bestfit/pal_current */
-#include "assets.h"    /* asset_load_whole */
+#include "pak.h"
 #include "mod.h"       /* mod_cm_map */
 
 /* One bit of glyph[ch][bit/16], MSB first within each word -- ported
@@ -26,10 +26,10 @@ static short font_bit( Font far *font, unsigned char ch, short x, short y )
     return (short) ( ( font->glyph[ch][word_idx] >> bitpos ) & 1 );
 }
 
-void font_load( Font far *font, char *flname )
+void font_load( Pak *pak, Font far *font, char *flname )
 {
     long n;
-    unsigned char far *buf = asset_load_whole( flname, &n );
+    unsigned char far *buf = pak_load_whole( pak, flname, &n );
     /* 4-byte "font" id, then 256 glyphs of 4 words (8 bytes) each. */
     _fmemcpy( font->glyph, buf + 4, 256 * 8 );
     qglMemFree( (long) buf );
@@ -348,7 +348,7 @@ void scr_draw_msg( Hud far *hud, World *world, Fight *fight, Renderer *rdr,
 {
     short len, secs;
     char *msg;
-    char buf[48];
+    char buf[64];
 
     if ( rdr->anim_time < fight->msg_until ) {
         len = (short) strlen( fight->msg );

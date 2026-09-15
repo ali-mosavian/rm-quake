@@ -5,7 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <mem.h>   /* _fmemcpy */
+#include <stddef.h>  /* offsetof */
+#include <mem.h>     /* _fmemcpy */
 
 #include "sys.h"
 #include "qgl.h"
@@ -30,15 +31,191 @@ void sys_error( char *msg )
 }
 
 #define MAX_ARGS 32     /* tokens past this are dropped, -ticks with them */
-static char cmdbuf[128];
+#define CMD_MAX  128    /* the PSP tail is at most 127 characters */
+
+/* The flags that set one RunArgs field to -1. Names live in the table,
+   in far data: a table of `char *` would put every name in DGROUP. */
+typedef struct {
+    char     name[11];
+    unsigned ofs;
+} ArgFlag;
+
+static const ArgFlag far arg_flags[] = {
+    { "-walk",      offsetof( RunArgs, walk ) },
+    { "-jump",      offsetof( RunArgs, jump ) },
+    { "-strafe",    offsetof( RunArgs, strafe ) },
+    { "-noents",    offsetof( RunArgs, no_ents ) },
+    { "-noitems",   offsetof( RunArgs, no_items ) },
+    { "-nomdl",     offsetof( RunArgs, no_mdl ) },
+    { "-noai",      offsetof( RunArgs, no_ai ) },
+    { "-fire",      offsetof( RunArgs, fire ) },
+    { "-carry",     offsetof( RunArgs, carry ) },
+    { "-noview",    offsetof( RunArgs, no_view ) },
+    { "-nosound",   offsetof( RunArgs, no_sound ) },
+    { "-sndsum",    offsetof( RunArgs, sndsum ) },
+    { "-mdlsum",    offsetof( RunArgs, mdlsum ) },
+    { "-badorder",  offsetof( RunArgs, bad_order ) },
+    { "-entinsert", offsetof( RunArgs, ent_insert ) },
+    { "-noz",       offsetof( RunArgs, no_z ) },
+    { "-nocull",    offsetof( RunArgs, no_cull ) },
+    { "-nomip",     offsetof( RunArgs, no_mip ) },
+    { "-noportal",  offsetof( RunArgs, no_portal ) },
+    { "-nosubvis",  offsetof( RunArgs, no_subvis ) },
+    { "-nolcache",  offsetof( RunArgs, no_lcache ) },
+    { "-nodlight",  offsetof( RunArgs, no_dlight ) },
+    { "-nostyles",  offsetof( RunArgs, no_styles ) },
+    { "-comp",      offsetof( RunArgs, comp ) },
+    { "-ptwire",    offsetof( RunArgs, ptwire ) },
+    { "-nostats",   offsetof( RunArgs, no_stats ) },
+    { "-stats",     offsetof( RunArgs, stats ) },
+    { "-nodraw",    offsetof( RunArgs, no_draw ) },
+    { "-lm",        offsetof( RunArgs, use_lm ) }
+};
+
+#define ARG_FLAGS ( sizeof(arg_flags) / sizeof(arg_flags[0]) )
+
+/* The flags that take values: each handler reads exactly nval tokens. */
+typedef void (near *ArgTake)( RunArgs *args, char **val );
+
+typedef struct {
+    char    name[8];
+    short   nval;
+    ArgTake take;
+} ArgValued;
+
+static void near take_at( RunArgs *args, char **val )
+{
+    args->at_x = (float) atof( val[0] );
+    args->at_y = (float) atof( val[1] );
+    args->at_z = (float) atof( val[2] );
+    args->at_set = -1;
+}
+
+static void near take_warp( RunArgs *args, char **val )
+{
+    short w = args->nwarp;
+    if ( w >= 4 ) return;
+    args->warp_tick[w]   = atol( val[0] );
+    args->warp_xyz[w][0] = (float) atof( val[1] );
+    args->warp_xyz[w][1] = (float) atof( val[2] );
+    args->warp_xyz[w][2] = (float) atof( val[3] );
+    args->nwarp++;
+}
+
+static void near take_yaw( RunArgs *args, char **val )
+{
+    args->yaw = (float) atof( val[0] );
+    while ( args->yaw < 0.0f ) args->yaw += 360.0f;
+    args->yaw_set = -1;
+}
+
+static void near take_pitch( RunArgs *args, char **val )
+{
+    args->pitch = (float) atof( val[0] );
+    if ( args->pitch < 0.0f )   args->pitch = 0.0f;
+    if ( args->pitch > 180.0f ) args->pitch = 180.0f;
+    args->pitch_set = -1;
+}
+
+static void near take_ticks( RunArgs *args, char **val )
+{
+    args->bench_ticks = atol( val[0] );
+}
+
+static void near take_record( RunArgs *args, char **val )
+{
+    strncpy( args->record_name, val[0], sizeof(args->record_name) - 1 );
+}
+
+static void near take_play( RunArgs *args, char **val )
+{
+    strncpy( args->play_name, val[0], sizeof(args->play_name) - 1 );
+}
+
+static void near take_skill( RunArgs *args, char **val )
+{
+    args->skill = (short) atoi( val[0] );
+}
+
+static void near take_sflags( RunArgs *args, char **val )
+{
+    args->sflags = (short) atoi( val[0] );
+}
+
+static const ArgValued far arg_valued[] = {
+    { "-at",     3, take_at },
+    { "-warp",   4, take_warp },
+    { "-yaw",    1, take_yaw },
+    { "-pitch",  1, take_pitch },
+    { "-ticks",  1, take_ticks },
+    { "-record", 1, take_record },
+    { "-play",   1, take_play },
+    { "-skill",  1, take_skill },
+    { "-sflags", 1, take_sflags }
+};
+
+#define ARG_VALUED ( sizeof(arg_valued) / sizeof(arg_valued[0]) )
+
+/* Splits buf in place on blanks; returns the token count. */
+static int near sys_tokenize( char *buf, unsigned len, char **argv )
+{
+    int argc = 0, in_tok = 0;
+    unsigned i;
+
+    for ( i = 0; i < len && argc < MAX_ARGS; i++ ) {
+        if ( buf[i] == ' ' || buf[i] == '\t' ) {
+            buf[i] = '\0';
+            in_tok = 0;
+        } else if ( !in_tok ) {
+            argv[argc++] = &buf[i];
+            in_tok = 1;
+        }
+    }
+    return argc;
+}
+
+static void near sys_usage( void )
+{
+    printf( "Usage: qcport mapname.qmp [-ticks N]\n" );
+    printf( "  -ticks N      run N simulation ticks, then write bench.bmp/bench.txt, exit\n" );
+    printf( "  -lm           composite lightmaps via the surface cache\n" );
+    printf( "  -nosubvis     walk subtrees with no visible leaf, as before the skip\n" );
+    printf( "  -nolcache     re-find each entity's leaves every frame, as before the cache\n" );
+    exit( 0 );
+}
+
+static int near arg_flag( RunArgs *args, const char *tok )
+{
+    unsigned k;
+    for ( k = 0; k < ARG_FLAGS; k++ ) {
+        if ( _fstricmp( arg_flags[k].name, tok ) != 0 ) continue;
+        *(short *) ( (char *) args + arg_flags[k].ofs ) = -1;
+        return 1;
+    }
+    return 0;
+}
+
+/* Returns the values taken. A flag short of its values is ignored, as an
+   unrecognised one is. */
+static int near arg_values( RunArgs *args, const char *tok, char **rest, int nrest )
+{
+    unsigned k;
+    for ( k = 0; k < ARG_VALUED; k++ ) {
+        if ( _fstricmp( arg_valued[k].name, tok ) != 0 ) continue;
+        if ( nrest < arg_valued[k].nval ) return 0;
+        arg_valued[k].take( args, rest );
+        return arg_valued[k].nval;
+    }
+    return 0;
+}
 
 void sys_parse_args( RunArgs *args )
 {
-    unsigned char far *tail;
-    unsigned char len;
+    char  cmd[CMD_MAX];
     char *argv[MAX_ARGS];
-    int argc = 0;
-    int i, in_tok;
+    unsigned char far *tail;
+    unsigned len;
+    int argc, i;
 
     memset( args, 0, sizeof(*args) );
 
@@ -46,102 +223,21 @@ void sys_parse_args( RunArgs *args )
        many raw characters, no null terminator of its own. */
     tail = (unsigned char far *) ( ( (unsigned long) _psp << 16 ) | 0x80L );
     len = tail[0];
-    if ( len > sizeof(cmdbuf) - 1 ) len = sizeof(cmdbuf) - 1;
-    _fmemcpy( cmdbuf, (char far *) (tail + 1), len );
-    cmdbuf[len] = '\0';
+    if ( len > CMD_MAX - 1 ) len = CMD_MAX - 1;
+    _fmemcpy( cmd, (char far *) ( tail + 1 ), len );
+    cmd[len] = '\0';
 
-    in_tok = 0;
-    for ( i = 0; i < (int) len && argc < MAX_ARGS; i++ ) {
-        if ( cmdbuf[i] == ' ' || cmdbuf[i] == '\t' ) {
-            cmdbuf[i] = '\0';
-            in_tok = 0;
-        } else if ( !in_tok ) {
-            argv[argc++] = &cmdbuf[i];
-            in_tok = 1;
-        }
-    }
-
-    if ( argc < 1 ) {
-        printf( "Usage: qcport mapname.qmp [-ticks N]\n" );
-        printf( "  -ticks N      run N simulation ticks, then write bench.bmp/bench.txt, exit\n" );
-        printf( "  -lm           composite lightmaps via the surface cache\n" );
-        printf( "  -nosubvis     walk subtrees with no visible leaf, as before the skip\n" );
-        printf( "  -nolcache     re-find each entity's leaves every frame, as before the cache\n" );
-        exit( 0 );
-    }
+    argc = sys_tokenize( cmd, len, argv );
+    if ( argc < 1 ) sys_usage();
 
     strncpy( args->map_name, argv[0], sizeof(args->map_name) - 1 );
 
+    /* unrecognised flags are ignored, as they always were */
     for ( i = 1; i < argc; i++ ) {
-        if      ( stricmp( argv[i], "-walk" )    == 0 ) args->walk = -1;
-        else if ( stricmp( argv[i], "-jump" )    == 0 ) args->jump = -1;
-        else if ( stricmp( argv[i], "-strafe" )  == 0 ) args->strafe = -1;
-        else if ( stricmp( argv[i], "-noents" )  == 0 ) args->no_ents = -1;
-        else if ( stricmp( argv[i], "-noitems" ) == 0 ) args->no_items = -1;
-        else if ( stricmp( argv[i], "-nomdl" )   == 0 ) args->no_mdl = -1;
-        else if ( stricmp( argv[i], "-noai" )    == 0 ) args->no_ai = -1;
-        else if ( stricmp( argv[i], "-fire" )    == 0 ) args->fire = -1;
-        else if ( stricmp( argv[i], "-carry" )   == 0 ) args->carry = -1;
-        else if ( stricmp( argv[i], "-noview" )  == 0 ) args->no_view = -1;
-        else if ( stricmp( argv[i], "-nosound" ) == 0 ) args->no_sound = -1;
-        else if ( stricmp( argv[i], "-sndsum" )  == 0 ) args->sndsum = -1;
-        else if ( stricmp( argv[i], "-badorder" )== 0 ) args->bad_order = -1;
-        else if ( stricmp( argv[i], "-entinsert" ) == 0 ) args->ent_insert = -1;
-        else if ( stricmp( argv[i], "-noz" )     == 0 ) args->no_z = -1;
-        else if ( stricmp( argv[i], "-nocull" )  == 0 ) args->no_cull = -1;
-        else if ( stricmp( argv[i], "-nomip" )   == 0 ) args->no_mip = -1;
-        else if ( stricmp( argv[i], "-noportal" )== 0 ) args->no_portal = -1;
-        else if ( stricmp( argv[i], "-nosubvis" )== 0 ) args->no_subvis = -1;
-        else if ( stricmp( argv[i], "-nolcache" )== 0 ) args->no_lcache = -1;
-        else if ( stricmp( argv[i], "-nodlight" )== 0 ) args->no_dlight = -1;
-        else if ( stricmp( argv[i], "-nostyles" )== 0 ) args->no_styles = -1;
-        else if ( stricmp( argv[i], "-comp" )    == 0 ) args->comp = -1;
-        else if ( stricmp( argv[i], "-ptwire" )  == 0 ) args->ptwire = -1;
-        else if ( stricmp( argv[i], "-nostats" ) == 0 ) args->no_stats = -1;
-        else if ( stricmp( argv[i], "-stats" )   == 0 ) args->stats = -1;
-        else if ( stricmp( argv[i], "-nodraw" )  == 0 ) { args->no_draw = -1; args->no_stats = -1; }
-        else if ( stricmp( argv[i], "-lm" )      == 0 ) args->use_lm = -1;
-        else if ( stricmp( argv[i], "-at" ) == 0 && i + 3 < argc ) {
-            args->at_x = (float) atof( argv[i+1] );
-            args->at_y = (float) atof( argv[i+2] );
-            args->at_z = (float) atof( argv[i+3] );
-            args->at_set = -1;
-            i += 3;
-        }
-        else if ( stricmp( argv[i], "-warp" ) == 0 && i + 4 < argc && args->nwarp < 4 ) {
-            args->warp_tick[args->nwarp]   = atol( argv[i+1] );
-            args->warp_xyz[args->nwarp][0] = (float) atof( argv[i+2] );
-            args->warp_xyz[args->nwarp][1] = (float) atof( argv[i+3] );
-            args->warp_xyz[args->nwarp][2] = (float) atof( argv[i+4] );
-            args->nwarp++;
-            i += 4;
-        }
-        else if ( stricmp( argv[i], "-yaw" ) == 0 && i + 1 < argc ) {
-            args->yaw = (float) atof( argv[i+1] );
-            while ( args->yaw < 0.0f ) args->yaw += 360.0f;
-            args->yaw_set = -1;
-            i++;
-        }
-        else if ( stricmp( argv[i], "-pitch" ) == 0 && i + 1 < argc ) {
-            args->pitch = (float) atof( argv[i+1] );
-            if ( args->pitch < 0.0f )   args->pitch = 0.0f;
-            if ( args->pitch > 180.0f ) args->pitch = 180.0f;
-            args->pitch_set = -1;
-            i++;
-        }
-        else if ( stricmp( argv[i], "-ticks" ) == 0 && i + 1 < argc ) {
-            args->bench_ticks = atol( argv[i+1] );
-            i++;
-        }
-        else if ( stricmp( argv[i], "-record" ) == 0 && i + 1 < argc ) {
-            strncpy( args->record_name, argv[i+1], sizeof(args->record_name) - 1 );
-            i++;
-        }
-        else if ( stricmp( argv[i], "-play" ) == 0 && i + 1 < argc ) {
-            strncpy( args->play_name, argv[i+1], sizeof(args->play_name) - 1 );
-            i++;
-        }
-        /* else: unrecognised, ignored -- matching the original, which
-           has no "unknown flag" error either. */
+        if ( arg_flag( args, argv[i] ) ) continue;
+        i += arg_values( args, argv[i], argv + i + 1, argc - i - 1 );
     }
+
+    /* -nodraw rasterises no overlay either */
+    if ( args->no_draw ) args->no_stats = -1;
 }

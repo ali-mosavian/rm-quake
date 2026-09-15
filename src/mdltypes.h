@@ -32,8 +32,9 @@
 #define MDL_KIND_WIZARD   6
 #define MDL_KIND_SHAMBLER 7
 
-/* mkmdl.py's .geo header, 48 bytes. Read whole and picked apart, so
+/* mkmdl.py's .geo header, 52 bytes. Read whole and picked apart, so
    the field order here is the file's. */
+#define MDL_MAGIC   0x32444D51L     /* "QMD2"; "QMDL" was the 48-byte header with no pages */
 typedef struct {
     long  magic;
     short ntri, nvert, nframe;
@@ -41,20 +42,26 @@ typedef struct {
     BspVec3 scale;              /* vertex byte -> model unit */
     BspVec3 origin;
     short nstand, nrun, ndeath, npain, natk;
+    short vpages, page_frames;  /* vertex pages 0..vpages-1, whole frames a page */
 } MdlHead;
 
-#define REC_MDLHEAD 48
+#define REC_MDLHEAD 52
 typedef char rec_mdlhead_ok[ sizeof(MdlHead) == REC_MDLHEAD ? 1 : -1 ];
+
+/* One .geo triangle: three vertex indices and a texture corner for each. */
+typedef struct { short a, b, c, u1, v1, u2, v2, u3, v3; } MdlTri;
+typedef char rec_mdltri_ok[ sizeof(MdlTri) == MDL_TRI_BYTES ? 1 : -1 ];
 
 /* One loaded model, shared by every monster of its kind. */
 typedef struct {
     short   loaded;
     short   ntri, nvert, nframe;
     QSurf   skin;
-    short   vtx_hnd;            /* qglGemAlloc: page 0 vertices, page 1 triangles */
+    short   vtx_hnd;            /* qglGemAlloc: vertex pages, then one of triangles */
     BspVec3 scale, origin;
     float   radius, zlo, zhi;   /* the box any frame at any yaw fits in */
     short   nstand, nrun, ndeath, npain, natk;
+    short   vpages, page_frames;
 } MdlState;
 
 /* One spawned monster: everything mdl_think owns, separate from the
@@ -78,7 +85,7 @@ typedef struct {
     float   pain_finished;      /* no new flinch before this */
     BspVec3 spawn;
     BspVec3 vel;                /* a leaper's, MOVETYPE_STEP off the ground */
-    short   leapt;              /* this leap has landed its damage */
+    short   leapt;              /* this leap has landed its damage, or MDL_THROWN */
     short   patrol, corner;     /* the map's path_corner, and the one bound for */
     float   idle_at;            /* the next roll for an idle sound */
     short   water;              /* SV_CheckWaterTransition's: 1 in a liquid,

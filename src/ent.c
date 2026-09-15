@@ -2,9 +2,8 @@
  * ent.c -- entities. C port of ent.bas.
  *
  * The per-frame math (ent_find_node, ent_place_models,
- * ent_check_teleport, ent_plat_touched, ent_move_plats,
- * ent_point_leaf) and the loading functions (ent_load_spawn,
- * ent_load_teleports, built on assets.h's asset_load_whole rather
+ * ent_check_teleport, ent_point_leaf) and the loading functions (ent_load_spawn,
+ * ent_load_world, built on pak.h's pak_load_whole rather
  * than a port of ent_get/ent_open_bin's own sequential UAR reads --
  * ents.bin is tiny, so reading it whole and walking a far pointer
  * through the records in memory is simpler than replicating BASIC's
@@ -19,13 +18,16 @@
 
 #include "ent.h"
 #include "snd.h"
-#include "ent_move.h"
+#include "doors.h"
+#include "triggers.h"
+#include "plats.h"
 #include "pl_move.h"    /* PL_FEET/PL_TELE_LIFT -- shared with pl_move.c, one fact one place */
 #include "r_bsp.h"      /* r_point_leaf -- r_bsp.bas, not yet ported */
-#include "assets.h"
+#include "pak.h"
 #include "item.h"
+#include "entitems.h"
 #include "mdl_ai.h"
-#include "mdl.h"   /* ent_load_items -- the records sit between the hides and the doors */
+#include "mdl.h"   /* mdl_load_monsters/mdl_spawn */
 
 /* Neither toolchain here defines F_FTOL@, the runtime helper bcc emits
    for a float/double-to-integer cast (checked bcpp31's and tc201's
@@ -140,92 +142,6 @@ void ent_place_models( World *world )
     }
 }
 
-/*
- * name: ent_plat_touched
- * desc: True when the player is standing on a plat, or in the column
- *       above it. Quake builds a trigger brush around the plat for
- *       this; the box is close enough and needs nothing from the
- *       compiler.
- */
-short ent_plat_touched( Player *player, World *world, short p )
-{
-    PlatEnt far *plt = &world->plat[p];
-    float top;
-
-    if ( player->pos.x + 16.0f < plt->mins.x ) return 0;
-    if ( player->pos.x - 16.0f > plt->maxs.x ) return 0;
-    if ( player->pos.y + 16.0f < plt->mins.y ) return 0;
-    if ( player->pos.y - 16.0f > plt->maxs.y ) return 0;
-
-    /* Above its surface and within a body's height of it. Anything
-       higher is someone on a walkway over the shaft, not a passenger. */
-    top = plt->maxs.z + world->brush[plt->model].ofs.z;
-
-    if ( player->pos.z - PL_FEET < top - 8.0f  ) return 0;
-    if ( player->pos.z - PL_FEET > top + 64.0f ) return 0;
-
-    return 1;
-}
-
-/*
- * name: ent_move_plats
- * desc: Drives every func_plat, and carries whoever is riding one.
- *
- *       A plat rises while the player is on it and returns when they
- *       leave, which is Quake's behaviour without the delay and the
- *       sounds.
- *
- *       The rider is moved by the same delta the plat moved. Quake
- *       does this properly in SV_PushMove, which re-traces everything
- *       the mover touches and telefrags what it cannot push; this
- *       carries the one entity that exists.
- */
-void ent_move_plats( World *world, Player *player, float dt )
-{
-    short p, snd;
-
-    for ( p = 0; p < world->plat_count; p++ ) {
-        PlatEnt far *plt = &world->plat[p];
-        BrushModel far *br = &world->brush[plt->model];
-        short riding = ent_plat_touched( player, world, p );
-        float goal, step_z, moved, was;
-
-        plt->state = riding ? ENT_PLAT_UP : ENT_PLAT_DOWN;
-        goal = ( plt->state == ENT_PLAT_UP ) ? 0.0f : -plt->travel;
-
-        was = br->ofs.z;
-        if ( br->ofs.z < goal ) {
-            step_z = plt->speed * dt;
-            br->ofs.z += step_z;
-            if ( br->ofs.z > goal ) br->ofs.z = goal;
-        } else if ( br->ofs.z > goal ) {
-            step_z = plt->speed * dt;
-            br->ofs.z -= step_z;
-            if ( br->ofs.z < goal ) br->ofs.z = goal;
-        }
-        moved = br->ofs.z - was;
-        if ( moved != 0.0f ) br->node = ENT_NODE_DIRTY;
-        /* trains share the array and their snd is train_next's */
-        if ( moved != 0.0f && plt->kind == ENT_PLAT_KIND_PLAT ) {
-            /* plat_go_up and _down: the move, looping; plat_hit_top and
-               _bottom: the stop, on the same channel */
-            snd = (short) ( SND_PLAT + ( plt->snd - 1 ) * 2 );
-            if ( !plt->moving ) ent_brush_sound( player, world, plt->model, snd );
-            plt->moving = (short) ( br->ofs.z != goal );
-            if ( !plt->moving ) ent_brush_sound( player, world, plt->model, (short) ( snd + 1 ) );
-        }
-
-        /* Carry the rider. Only upward: a descending plat drops out
-           from under the player and gravity does the rest, which is
-           what it looks like in Quake. Pushing them down would shove
-           them through the floor of the shaft on the last step of the
-           descent. */
-        if ( riding && moved > 0.0f ) {
-            player->pos.z += moved;
-        }
-    }
-}
-
 /* spawn_tfog: play_teleport's sound, 0.2 s after, where the fog was made */
 static void ent_fog( World *world, BspVec3 *org, float now )
 {
@@ -248,7 +164,7 @@ void ent_fog_tick( World *world, Player *player, float now )
         if ( world->fog_at[k] == 0.0f || now < world->fog_at[k] ) continue;
         world->fog_at[k] = 0.0f;
         at = world->fog_org[k];
-        snd_play( player, (short) ( SND_TELE + rand() % 5 ), &at );
+        snd_play( &world->snd, player, (short) ( SND_TELE + rng_int( &world->rng ) % 5 ), &at );
     }
 }
 
@@ -308,6 +224,7 @@ void ent_check_teleport( Player *player, World *world, float now, short scr_x_re
             player->vel.x = 0.0f;
             player->vel.y = 0.0f;
             player->vel.z = 0.0f;
+            player->fall_vz = 0.0f;
 
             /* Face the way the destination says. The camera reads its
                angle from the mouse, so the mouse is what has to move --
@@ -342,6 +259,12 @@ void ent_monster_teleport( World *world, float now, MdlEnt far *e )
     }
 }
 
+/* ents<N>.bin: mkassets ships one a skill */
+static void near ent_ents_name( char *name, short skill )
+{
+    sprintf( name, "ents%d.bin", (int) skill );
+}
+
 /*
  * name: ent_load_spawn
  * desc: The spawn point, from ents.bin -- the entities text mkassets.py
@@ -353,15 +276,24 @@ void ent_monster_teleport( World *world, float now, MdlEnt far *e )
 void ent_load_spawn( World *world, Camera *cam, Fight *fight )
 {
     long n;
-    unsigned char far *buf = asset_load_whole( "ents.bin", &n );
+    char name[12];
+    unsigned char far *buf;
     EntsHead h;
 
+    ent_ents_name( name, world->skill );
+    buf = pak_load_whole( &world->pak, name, &n );
     _fmemcpy( &h, buf, sizeof(EntsHead) );
     qglMemFree( (long) buf );
 
     if ( h.nmodels != world->model_count ) {
-        fprintf( stderr, "ents.bin is from another map\n" );
+        fprintf( stderr, "%s is from another map\n", name );
         exit( 1 );
+    }
+
+    /* SelectSpawnPoint: info_player_start2 once a rune is held */
+    if ( world->serverflags ) {
+        h.spawn = h.spawn2;
+        h.angle = h.angle2;
     }
 
     /* BSP is Z-up and the camera is Y-up, so y and z swap here. */
@@ -382,18 +314,12 @@ void ent_load_spawn( World *world, Camera *cam, Fight *fight )
     fight->worldtype = h.worldtype;
     fight->gravity   = h.gravity > 0.0f ? h.gravity : 800.0f;
 
-    /* the intermission camera and where this level leads. next_map is
-       space padded in the file and read back as a C string here. */
+    /* the intermission camera; where the level leads is the touched
+       changelevel's */
     fight->inter       = h.inter;
     fight->inter_pitch = h.inter_pitch;
     fight->inter_yaw   = h.inter_yaw;
-    {   short i, last = -1;
-        for ( i = 0; i < 8; i++ ) {
-            fight->next_map[i] = h.next_map[i];
-            if ( h.next_map[i] != ' ' && h.next_map[i] != '\0' ) last = i;
-        }
-        fight->next_map[ last + 1 ] = '\0';
-    }
+    fight->next_map[0] = '\0';
 }
 
 
@@ -403,14 +329,14 @@ void ent_load_spawn( World *world, Camera *cam, Fight *fight )
  * loader in the middle of a record, and the only symptom is nonsense
  * geometry several loaders later.
  */
-static void ent_load_doors( World *world, unsigned char far *buf, long *ofs, short count )
+static void near ent_load_doors( World *world, unsigned char far *buf, long *ofs, short count )
 {
     short i, m;
     float fx, fz;
 
     world->door_count = 0;
     world->door = (DoorEnt far *) qglMemAlloc( (long) ( count ? count : 1 ) * sizeof(DoorEnt) );
-    if ( !world->door ) { fprintf( stderr, "ents.bin: no room for the doors\n" ); exit( 1 ); }
+    if ( !world->door ) { fprintf( stderr, "ents: no room for the doors\n" ); exit( 1 ); }
 
     for ( i = 0; i < count; i++ ) {
         EntsDoor dr;
@@ -464,13 +390,13 @@ static void ent_load_doors( World *world, unsigned char far *buf, long *ofs, sho
     }
 }
 
-static void ent_load_trigs( World *world, unsigned char far *buf, long *ofs, short count )
+static void near ent_load_trigs( World *world, unsigned char far *buf, long *ofs, short count )
 {
     short i, m;
 
     world->trig_count = 0;
     world->trig = (TrigEnt far *) qglMemAlloc( (long) ( count ? count : 1 ) * sizeof(TrigEnt) );
-    if ( !world->trig ) { fprintf( stderr, "ents.bin: no room for the triggers\n" ); exit( 1 ); }
+    if ( !world->trig ) { fprintf( stderr, "ents: no room for the triggers\n" ); exit( 1 ); }
 
     for ( i = 0; i < count; i++ ) {
         EntsTrig xr;
@@ -496,6 +422,7 @@ static void ent_load_trigs( World *world, unsigned char far *buf, long *ofs, sho
         t->ofs_out = xr.travel;
         t->delay = xr.delay;
         t->delay_left = 0.0f;
+        if ( t->kind == ENT_TRIG_FIREBALL ) ent_fireball_spawn( world, t );
         t->msg   = xr.msg;
         t->mins  = world->models[m].mins;
         t->maxs  = world->models[m].maxs;
@@ -520,7 +447,7 @@ short ent_secret_total( World *world )
     return n;
 }
 
-static void ent_load_trains( World *world, unsigned char far *buf, long *ofs, short count )
+static void near ent_load_trains( World *world, unsigned char far *buf, long *ofs, short count )
 {
     short i, m;
 
@@ -551,23 +478,23 @@ static void ent_load_trains( World *world, unsigned char far *buf, long *ofs, sh
     }
 }
 
-static void ent_load_corners( World *world, unsigned char far *buf, long *ofs, short count )
+static void near ent_load_corners( World *world, unsigned char far *buf, long *ofs, short count )
 {
     world->corner_count = count;
     world->corner = (PathCorner far *) qglMemAlloc( (long) ( count ? count : 1 ) * sizeof(PathCorner) );
-    if ( !world->corner ) { fprintf( stderr, "ents.bin: no room for the path corners\n" ); exit( 1 ); }
+    if ( !world->corner ) { fprintf( stderr, "ents: no room for the path corners\n" ); exit( 1 ); }
     if ( count ) _fmemcpy( world->corner, buf + *ofs, (long) count * sizeof(PathCorner) );
     *ofs += (long) count * sizeof(PathCorner);
 }
 
-static void ent_load_lights( World *world, unsigned char far *buf, long *ofs, short count )
+static void near ent_load_lights( World *world, unsigned char far *buf, long *ofs, short count )
 {
     EntsLight lr;
     short i;
 
     world->light_count = count;
     world->light = (LightEnt far *) qglMemAlloc( (long) ( count ? count : 1 ) * sizeof(LightEnt) );
-    if ( !world->light ) { fprintf( stderr, "ents.bin: no room for the lights\n" ); exit( 1 ); }
+    if ( !world->light ) { fprintf( stderr, "ents: no room for the lights\n" ); exit( 1 ); }
     for ( i = 0; i < count; i++ ) {
         _fmemcpy( &lr, buf + *ofs, sizeof(EntsLight) );
         *ofs += sizeof(EntsLight);
@@ -583,63 +510,29 @@ static void ent_load_lights( World *world, unsigned char far *buf, long *ofs, sh
 /* The message table is last, so what is left of the file is what it
    holds -- and a header that disagrees with that is the tell that some
    record above was skipped by the wrong size. */
-static void ent_load_msgs( World *world, unsigned char far *buf, long *ofs, short count, long total )
+static void near ent_load_msgs( World *world, unsigned char far *buf, long *ofs, short count, long total )
 {
     if ( *ofs + (long) count * ENT_MSG_LEN != total ) {
-        fprintf( stderr, "ents.bin: %ld bytes of messages, header says %d\n",
+        fprintf( stderr, "ents: %ld bytes of messages, header says %d\n",
                  total - *ofs, (int) count );
         exit( 1 );
     }
     world->msg_count = count;
     world->msgs = (char far *) qglMemAlloc( (long) ( count ? count : 1 ) * ENT_MSG_LEN );
-    if ( !world->msgs ) { fprintf( stderr, "ents.bin: no room for the messages\n" ); exit( 1 ); }
+    if ( !world->msgs ) { fprintf( stderr, "ents: no room for the messages\n" ); exit( 1 ); }
     if ( count ) _fmemcpy( world->msgs, buf + *ofs, (long) count * ENT_MSG_LEN );
     *ofs += (long) count * ENT_MSG_LEN;
 }
 
-/*
- * name: ent_load_teleports
- * desc: Loads ents.bin: teleporter pairs already matched by
- *       targetname, plats and hidden submodels already validated, all
- *       by mkassets.py. What stays here is what needs the loaded
- *       submodels: trigger volumes and plat defaults come from
- *       world->models, which mkassets has no reason to duplicate.
- */
-void ent_load_teleports( World *world )
+/* Every submodel draws and blocks unless something claims it as a
+   trigger. Which submodel owns each face goes in the bits above
+   Face.side's one: the world's faces come first and the submodels'
+   follow in order, so this is a walk, not a search -- and an array of
+   its own was 11,032 bytes on e1m1 to hold a number under 64. */
+static void near ent_load_brushes( World *world )
 {
-    long n, ofs;
-    unsigned char far *buf = asset_load_whole( "ents.bin", &n );
-    EntsHead h;
-    short i, j, k, mdlnum;
+    short i, j, k;
 
-    _fmemcpy( &h, buf, sizeof(EntsHead) );
-    ofs = sizeof(EntsHead);
-
-    if ( h.nmodels != world->model_count ) {
-        fprintf( stderr, "ents.bin is from another map\n" );
-        exit( 1 );
-    }
-
-    /* Sized to the map, not a fixed bound: e1m3 has 106 submodels, and
-       ent_place_models/pl_trace walk every one of them. */
-    world->brush = (BrushModel far *) qglMemAlloc( (long) world->model_count * sizeof(BrushModel) );
-    world->tele = (Teleporter far *) qglMemAlloc( (long) (h.ntele ? h.ntele : 1) * sizeof(Teleporter) );
-    /* the trains ride this array too, so it is sized for both */
-    world->plat_max = (short) ( h.nplat + h.ntrain );
-    world->plat = (PlatEnt far *) qglMemAlloc( (long) (world->plat_max ? world->plat_max : 1) * sizeof(PlatEnt) );
-    if ( !world->brush || !world->tele || !world->plat ) {
-        fprintf( stderr, "ents.bin: out of memory\n" );
-        exit( 1 );
-    }
-
-    world->tele_count = 0;
-    world->plat_count = 0;
-
-    /* The monsters come first in the file, and the models the kinds
-       among them need come with them. */
-    mdl_load_monsters( world, buf, &ofs, h.nmon );
-
-    /* every submodel draws and blocks unless something claims it as a trigger */
     for ( i = 0; i < world->model_count; i++ ) {
         world->brush[i].draw  = 1;
         world->brush[i].solid = 1;
@@ -649,10 +542,6 @@ void ent_load_teleports( World *world )
         world->brush[i].node  = ENT_NODE_DIRTY;
     }
 
-    /* Which submodel owns each face, in the bits above Face.side's
-       one. The world's faces come first and the submodels' follow in
-       order, so this is a walk, not a search -- and an array of its
-       own was 11,032 bytes on e1m1 to hold a number under 64. */
     for ( i = 0; i < world->face_count; i++ )
         world->faces[i].side = (short) ( world->faces[i].side & 1 );
 
@@ -663,10 +552,17 @@ void ent_load_teleports( World *world )
                 world->faces[k].side = (short) ( ( world->faces[k].side & 1 ) | ( j << 1 ) );
         }
     }
+}
 
-    for ( i = 0; i < h.ntele; i++ ) {
+/* Teleporter pairs already matched by targetname; the volume is the
+   submodel's box. */
+static void near ent_load_teles( World *world, unsigned char far *buf, long *ofs, short count )
+{
+    short i, k, mdlnum;
+
+    for ( i = 0; i < count; i++ ) {
         EntsTele tr;
-        _fmemcpy( &tr, buf + ofs, sizeof(EntsTele) ); ofs += sizeof(EntsTele);
+        _fmemcpy( &tr, buf + *ofs, sizeof(EntsTele) ); *ofs += sizeof(EntsTele);
 
         mdlnum = tr.model;
         if ( mdlnum > 0 && mdlnum < world->model_count ) {
@@ -685,10 +581,16 @@ void ent_load_teleports( World *world )
     }
     for ( k = 0; k < ENT_FOGS; k++ ) world->fog_at[k] = 0.0f;
     world->mon_teles = 0;
+    world->mon_jumps = 0;
+}
 
-    for ( i = 0; i < h.nplat; i++ ) {
+static void near ent_load_plats( World *world, unsigned char far *buf, long *ofs, short count )
+{
+    short i, mdlnum;
+
+    for ( i = 0; i < count; i++ ) {
         EntsPlat pr;
-        _fmemcpy( &pr, buf + ofs, sizeof(EntsPlat) ); ofs += sizeof(EntsPlat);
+        _fmemcpy( &pr, buf + *ofs, sizeof(EntsPlat) ); *ofs += sizeof(EntsPlat);
 
         mdlnum = pr.model;
         if ( mdlnum > 0 && mdlnum < world->model_count ) {
@@ -716,54 +618,207 @@ void ent_load_teleports( World *world )
             world->plat_count++;
         }
     }
+}
 
-    for ( i = 0; i < h.nhide; i++ ) {
-        short hideidx;
-        _fmemcpy( &hideidx, buf + ofs, sizeof(short) ); ofs += sizeof(short);
+static void near ent_load_hides( World *world, unsigned char far *buf, long *ofs, short count )
+{
+    short i, hideidx;
+
+    for ( i = 0; i < count; i++ ) {
+        _fmemcpy( &hideidx, buf + *ofs, sizeof(short) ); *ofs += sizeof(short);
 
         if ( hideidx > 0 && hideidx < world->model_count ) {
             world->brush[hideidx].draw  = 0;
             world->brush[hideidx].solid = 0;
         }
     }
+}
 
-    ent_load_items( world, buf, &ofs, h.nitem );
+static void near ent_load_gates( World *world, unsigned char far *buf, long *ofs, short count )
+{
+    short i, held;
 
-    ent_load_doors( world, buf, &ofs, h.ndoor );
-    ent_load_trigs( world, buf, &ofs, h.ntrig );
+    for ( i = 0; i < count; i++ ) {
+        EntsGate g;
+        _fmemcpy( &g, buf + *ofs, sizeof(EntsGate) ); *ofs += sizeof(EntsGate);
 
-    /* the map's ambient_* points, recorded now and started by
-       snd_init with the card: their volume is the map's, their place
-       the mixer's to re-derive every frame. */
-    snd_statics( h.namb );
-    for ( i = 0; i < h.namb; i++ ) {
-        EntsAmb ar;
-        _fmemcpy( &ar, buf + ofs, sizeof(EntsAmb) ); ofs += sizeof(EntsAmb);
-        snd_ambient( ar.snd, ar.vol, &ar.org );
+        held = (short) ( world->serverflags & g.bits );
+        if ( ( g.boss ? held != g.bits : held != 0 ) ) continue;
+        if ( g.model > 0 && g.model < world->model_count ) {
+            world->brush[g.model].draw  = 0;
+            world->brush[g.model].solid = 0;
+        }
     }
+}
 
-    ent_load_trains( world, buf, &ofs, h.ntrain );
-    ent_load_corners( world, buf, &ofs, h.ncorner );
+/* The map's ambient_* points, recorded now and started by snd_init with
+   the card: their volume is the map's, their place the mixer's to
+   re-derive every frame. */
+static void near ent_load_ambs( World *world, unsigned char far *buf, long *ofs, short count )
+{
+    short i;
 
-    ent_load_crates( world, buf, &ofs, h.ncrate );
-    ent_load_lights( world, buf, &ofs, h.nlight );
+    snd_statics( &world->snd, count );
+    for ( i = 0; i < count; i++ ) {
+        EntsAmb ar;
+        _fmemcpy( &ar, buf + *ofs, sizeof(EntsAmb) ); *ofs += sizeof(EntsAmb);
+        snd_ambient( &world->snd, ar.snd, ar.vol, &ar.org );
+    }
+}
 
-    ent_load_msgs( world, buf, &ofs, h.nmsg, n );
+/* What needs everything loaded. Every train stands on its first corner,
+   which needs the corner table, and every door learns its group, which
+   needs them all. Then every pickup onto the floor under it, which needs
+   every plat and door at the position it loaded in: the trace walks
+   their hulls too. Then every monster onto it, which needs the same
+   hulls and, for a patrol, the corner table. */
+static void near ent_settle( World *world )
+{
+    short i;
 
-    /* Every train stands on its first corner, which needs the corner
-       table, and every door learns its group, which needs them all. */
     for ( i = 0; i < world->plat_count; i++ )
         if ( world->plat[i].kind == ENT_PLAT_KIND_TRAIN ) ent_train_init( world, &world->plat[i] );
     ent_link_doors( world );
-
-    /* and every pickup onto the floor under it, which needs every plat
-       and door already at the position it loaded in: the trace walks
-       their hulls too. */
-    pl_items_drop( world );
-
-    /* and every monster onto it, which needs the same hulls and, for a
-       patrol, the corner table this file reads two calls up. */
+    ent_items_drop( world );
     for ( i = 0; i < world->mon_count; i++ ) mdl_spawn( world, &world->mon[i] );
+}
+
+/*
+ * name: ent_load_world
+ * desc: Loads ents.bin a record kind at a time, in the file's order.
+ *       What mkassets.py can resolve offline arrives resolved; what
+ *       needs the loaded submodels -- trigger volumes and plat defaults
+ *       come from world->models -- is filled in here.
+ */
+void ent_load_world( World *world )
+{
+    long n, ofs;
+    char name[12];
+    unsigned char far *buf;
+    EntsHead h;
+
+    ent_ents_name( name, world->skill );
+    buf = pak_load_whole( &world->pak, name, &n );
+
+    _fmemcpy( &h, buf, sizeof(EntsHead) );
+    ofs = sizeof(EntsHead);
+
+    if ( h.nmodels != world->model_count ) {
+        fprintf( stderr, "%s is from another map\n", name );
+        exit( 1 );
+    }
+
+    /* Sized to the map, not a fixed bound: e1m3 has 106 submodels, and
+       ent_place_models/pl_trace walk every one of them. */
+    world->brush = (BrushModel far *) qglMemAlloc( (long) world->model_count * sizeof(BrushModel) );
+    world->tele = (Teleporter far *) qglMemAlloc( (long) (h.ntele ? h.ntele : 1) * sizeof(Teleporter) );
+    /* the trains ride this array too, so it is sized for both */
+    world->plat_max = (short) ( h.nplat + h.ntrain );
+    world->plat = (PlatEnt far *) qglMemAlloc( (long) (world->plat_max ? world->plat_max : 1) * sizeof(PlatEnt) );
+    if ( !world->brush || !world->tele || !world->plat ) {
+        fprintf( stderr, "ents: out of memory\n" );
+        exit( 1 );
+    }
+
+    world->tele_count = 0;
+    world->plat_count = 0;
+
+    /* The monsters come first in the file, and the models the kinds
+       among them need come with them. */
+    mdl_load_monsters( world, buf, &ofs, h.nmon );
+    ent_load_brushes( world );
+    ent_load_teles( world, buf, &ofs, h.ntele );
+    ent_load_plats( world, buf, &ofs, h.nplat );
+    ent_load_hides( world, buf, &ofs, h.nhide );
+    ent_load_gates( world, buf, &ofs, h.ngate );
+    ent_load_items( world, buf, &ofs, h.nitem );
+    ent_load_doors( world, buf, &ofs, h.ndoor );
+    ent_load_trigs( world, buf, &ofs, h.ntrig );
+    ent_load_ambs( world, buf, &ofs, h.namb );
+    ent_load_trains( world, buf, &ofs, h.ntrain );
+    ent_load_corners( world, buf, &ofs, h.ncorner );
+    ent_load_crates( world, buf, &ofs, h.ncrate );
+    ent_load_lights( world, buf, &ofs, h.nlight );
+    ent_load_msgs( world, buf, &ofs, h.nmsg, n );
+    ent_settle( world );
 
     qglMemFree( (long) buf );
+}
+
+/* A message by its 1-based id, or a pointer to 40 spaces for none.
+   Not NUL-terminated on disk, so the length travels with it. */
+char far *ent_msg( World *world, short id )
+{
+    if ( id < 1 || id > world->msg_count || !world->msgs ) return 0;
+    return world->msgs + (long) ( id - 1 ) * ENT_MSG_LEN;
+}
+
+/* The player's box against one grown by slack. */
+short ent_box_touched( Player *player, BspVec3 far *mins, BspVec3 far *maxs, float slack )
+{
+    if ( player->pos.x + PL_HALF + slack < mins->x ) return 0;
+    if ( player->pos.x - PL_HALF - slack > maxs->x ) return 0;
+    if ( player->pos.y + PL_HALF + slack < mins->y ) return 0;
+    if ( player->pos.y - PL_HALF - slack > maxs->y ) return 0;
+    if ( player->pos.z + PL_ZHI  + slack < mins->z ) return 0;
+    if ( player->pos.z + PL_ZLO  - slack > maxs->z ) return 0;
+    return 1;
+}
+
+void ent_brush_sound( Player *player, World *world, short m, short id )
+{
+    BspVec3 c;
+    Submodel far *sm = &world->models[m];
+    BrushModel far *b = &world->brush[m];
+
+    c.x = ( sm->mins.x + sm->maxs.x ) * 0.5f + b->ofs.x;
+    c.y = ( sm->mins.y + sm->maxs.y ) * 0.5f + b->ofs.y;
+    c.z = ( sm->mins.z + sm->maxs.z ) * 0.5f + b->ofs.z;
+    snd_start( &world->snd, player, (short) ( SND_ENT_BRUSH + m ), CHAN_VOICE, id, &c, ATTN_NORM );
+}
+
+void ent_reset( World *world, Fight *fight )
+{
+    short k;
+
+    for ( k = 0; k < world->door_count; k++ ) {
+        world->door[k].state = ENT_DOOR_SHUT;
+        world->door[k].hold_left = 0.0f;
+        world->door[k].pause_left = 0.0f;
+        world->brush[ world->door[k].model ].ofs = world->door[k].ofs_shut;
+    }
+    for ( k = 0; k < world->trig_count; k++ ) {
+        world->trig[k].state = ENT_TRIG_READY;
+        world->trig[k].left = world->trig[k].count;
+        world->trig[k].wait_left = 0.0f;
+        world->trig[k].delay_left = 0.0f;
+        if ( world->trig[k].kind == ENT_TRIG_FIREBALL ) ent_fireball_spawn( world, &world->trig[k] );
+        if ( world->trig[k].kind == ENT_TRIG_BUTTON ) {
+            world->brush[ world->trig[k].model ].ofs.x = 0.0f;
+            world->brush[ world->trig[k].model ].ofs.y = 0.0f;
+            world->brush[ world->trig[k].model ].ofs.z = 0.0f;
+        }
+    }
+    for ( k = 0; k < world->plat_count; k++ )
+        if ( world->plat[k].kind == ENT_PLAT_KIND_TRAIN ) ent_train_init( world, &world->plat[k] );
+    for ( k = 0; k < world->light_count; k++ ) {
+        world->light[k].on    = world->light[k].start_on;
+        world->light[k].stamp = k;
+    }
+    world->light_clock = world->light_count;
+
+    fight->msg_until = 0.0f;
+    fight->msg[0] = '\0';
+    for ( k = 1; k < world->model_count; k++ ) world->brush[k].node = ENT_NODE_DIRTY;
+}
+
+void ent_copy_map( char *dst, char far *src )
+{
+    short i, last = -1;
+
+    for ( i = 0; i < 8; i++ ) {
+        dst[i] = src[i];
+        if ( src[i] != ' ' && src[i] != '\0' ) last = i;
+    }
+    dst[ last + 1 ] = '\0';
 }

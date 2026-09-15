@@ -9,12 +9,47 @@
  * about files, the card or the game.
  */
 
+#define SND_LEAF    2               /* water and sky; id's slime and lava have no sound */
+#define SND_CHANS   8               /* MAX_DYNAMIC_CHANNELS */
+#define SND_VOICES  8               /* distinct static sounds: e1's maps use seven at most */
+#define SND_ALL     (SND_LEAF + SND_CHANS + SND_VOICES)
+#define SND_CHUNK   512
+#define SND_DTAB    512             /* 32 scales x 16 codes, mksnd.py's */
+
 /* an (offset, length, loop) into the sample stream, sndtab.raw's own
    record. The offset is in SAMPLES and lands on a block; the length is
    the wav's own, so the silence a block's tail is padded with never
    plays. loop is where a looping sound rejoins, -1 for one that plays
    once. */
 typedef struct { long ofs, len; short loop; } SndRec;
+
+typedef struct {
+    long  pos, end, beg;            /* end 0: free; beg >= 0 loops */
+    short vol, master;
+    short id, ent, chan, attn;
+    float x, y, z;
+} SndChan;
+
+/* a static's place, whole units, and the voice that plays it */
+typedef struct { unsigned char voice, vol; short x, y, z; } SndPoint;
+
+/* The mixer. The table and the channels live in dsp.asm's scratch block,
+   beyond its ring; the codec table and one decoded run live here. */
+typedef struct {
+    short hnd, count, lastpos, under, loops, wraps;
+    long  time;                     /* samples the DMA has played */
+    long  painted;                  /* samples written */
+    long  fade_acc;
+    unsigned char far *ring;
+    int           far *paint;       /* SND_CHUNK ints */
+    SndRec        far *tab;
+    SndChan       far *chan;
+    SndPoint      far *pts;
+    short npts, ptmax, nvoice;
+    short voice_id[SND_VOICES];
+    signed char dtab[SND_DTAB];     /* scale row, then code */
+    signed char dbuf[SND_CHUNK];    /* one run, decoded */
+} SndMix;
 
 /* the entity whose sounds are never spatialised and never stolen by
    another's: cl.viewentity */
@@ -30,7 +65,7 @@ typedef struct { long ofs, len; short loop; } SndRec;
  *       512 bytes of it, the codec's whole contract. water and sky are
  *       the leaves' two ambient loops. Starts every recorded static.
  */
-short snd_mix_setup( short hnd, unsigned char far *ring, void far *scratch,
+short snd_mix_setup( SndMix *mix, short hnd, unsigned char far *ring, void far *scratch,
                       SndRec far *tab, short count, short scratch_bytes,
                       signed char far *dec, short water, short sky );
 
@@ -38,37 +73,37 @@ short snd_mix_setup( short hnd, unsigned char far *ring, void far *scratch,
    free one or the one with least left, never the player's for another
    entity's sound. vol 1..255, attn ATTN_*, org where it starts, ear the
    listener. A sound silent from there takes nothing. The channel, or -1. */
-short snd_mix_start( short id, short vol, short ent, short chan, short attn,
+short snd_mix_start( SndMix *mix, short id, short vol, short ent, short chan, short attn,
                       BspVec3 *org, BspVec3 *ear );
 
 /* room for n static points, before any snd_mix_ambient */
-short snd_mix_statics( short n );
+short snd_mix_statics( SndMix *mix, short n );
 
 /* S_StaticSound, before the card is up: a point playing id at vol. Every
    point of one sound shares one looping channel, its volume the points'
    sum -- Quake's combine, and what lets 71 torches play on eight
    channels. -1 when full. */
-short snd_mix_ambient( short id, short vol, BspVec3 *org );
+short snd_mix_ambient( SndMix *mix, short id, short vol, BspVec3 *org );
 
 /* static points playing, and the channels they share */
-short snd_mix_loops( void );
-short snd_mix_voices( void );
+short snd_mix_loops( const SndMix *mix );
+short snd_mix_voices( const SndMix *mix );
 
 /* times an entity's looping sound rejoined its loop */
-short snd_mix_wraps( void );
+short snd_mix_wraps( const SndMix *mix );
 
 /* the sounds on the dynamic channels now, up to 8, and how many */
-short snd_mix_live( short *ids );
+short snd_mix_live( const SndMix *mix, short *ids );
 
 /* the water (0) or sky (1) ambient's volume now */
-short snd_mix_leaf_vol( short i );
+short snd_mix_leaf_vol( const SndMix *mix, short i );
 
 /* Every sound in the table decoded through the paint's own fetch and
    summed, table order, the duplicates twice: the only headless view of
    what the card is handed, since a decode that reads the wrong nibble
    or the wrong page still fills the ring and every counter stays
    right. -sndsum prints it; test-sndcodec.sh has mksnd.py's own answer. */
-unsigned long snd_mix_sum( void );
+unsigned long snd_mix_sum( SndMix *mix );
 
 /*
  * name: snd_mix_frame
@@ -81,6 +116,6 @@ unsigned long snd_mix_sum( void );
  *       loop, and a stretch left unpainted is played again. Returns the
  *       underruns so far.
  */
-short snd_mix_frame( short pos, long adv, BspVec3 *ear, unsigned char amb );
+short snd_mix_frame( SndMix *mix, short pos, long adv, BspVec3 *ear, unsigned char amb );
 
 #endif

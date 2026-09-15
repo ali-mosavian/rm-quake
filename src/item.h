@@ -8,7 +8,7 @@
 
 /*
  * item.h -- the pickups. q_ent.bi's ItemEnt and pl_move.bas's
- * pl_items_drop / pl_items_touch: what the map put down, dropped to the
+ * ent_items_drop / pl_items_touch: what the map put down, dropped to the
  * floor once at load, and taken when the player's box reaches it.
  *
  * They live in World because that is where the map's entity arrays live,
@@ -33,6 +33,10 @@
 #define ENT_ITEM_RL       15
 #define ENT_ITEM_PENT     16
 #define ENT_ITEM_SIGIL    17     /* the rune: its target wakes Chthon */
+#define ENT_ITEM_ARMOR3   18     /* item_armorInv, 200 at 0.8 */
+#define ENT_ITEM_CELLS    19     /* item_cells, 6 or 12 */
+#define ENT_ITEM_INVIS    20     /* item_artifact_invisibility; amount is its seconds */
+#define ENT_ITEM_KINDS    21
 
 #define ENT_ITEM_HALF    10.0f   /* the flat box's half width */
 #define ENT_ITEM_TOP     20.0f   /* and its height */
@@ -52,32 +56,25 @@
 #define ENT_COL_GREEN   176      /* the suit */
 
 /*
- * name: ent_load_items
- * desc: ents.bin's item records, from the reader's own offset. Reads
- *       forward and leaves *ofs past the last one, like every other
- *       loader in ent.c.
- */
-void ent_load_items( World *world, unsigned char far *buf, long *ofs, short count );
-
-/*
- * name: ent_load_crates
- * desc: The b_*.bsp boxes, straight out of ents.bin -- they sit between
- *       the corners and the messages, and only d_alias.c reads them.
- */
-void ent_load_crates( World *world, unsigned char far *buf, long *ofs, short count );
-
-/*
- * name: pl_items_drop
- * desc: Every item onto the floor under it, once, at load.
- */
-void pl_items_drop( World *world );
-
-/*
  * name: pl_items_touch
  * desc: Takes whatever the player's box overlaps, and rots what
  *       megahealth put over 100.
  */
 void pl_items_touch( World *world, Player *player, Fight *fight, Renderer *rdr );
+
+/*
+ * name: item_selftest
+ * desc: 1 when every row of the pickup table sits at its kind and has a
+ *       handler.
+ */
+short item_selftest( void );
+
+/*
+ * name: item_box_colours
+ * desc: The flat box's side and top colours for a kind, from the same
+ *       table the touch reads.
+ */
+void item_box_colours( short kind, short *side, short *top );
 
 /*
  * name: item_taken

@@ -55,13 +55,36 @@ cp "$ROOT"/src/*.h "$W/" 2>/dev/null || true
   # CDEFS is the build's -D list (see src/qrcfg.h). It rides the
   # same 127-char DOS command line as everything else here, so keep it
   # to a handful of short defines.
-  echo "b:\\bin\\bcc.exe -c${DBG}${DEFS} -B -3 -f87 -mm -Ox -IW:\\ -IB:\\INCLUDE $base.c > w:\\cc.txt"
+  # COLD modules build for size with -Os, which leaves their x87 code as
+  # -Ox emits it, block for block (bcc -S listings compared); only struct
+  # copies become F_SCOPY@ calls. -O1 does not: it drops the fabs
+  # intrinsic and reloads values -Ox keeps at 80 bits. COLD="" builds
+  # everything -Ox.
+  COLD="${COLD- host mdl_ai weapons entitems combat }"
+  OPT=-Ox; [[ " $COLD " == *" $base "* ]] && OPT="-Ox -Os"
+  # LIST=1 writes the -S listing to <out> instead of an object, for
+  # tools/x87cmp.py. -B would hand the listing to TASM and delete it.
+  ASM=" -B"; [[ -n "${LIST:-}" ]] && ASM=" -S"
+  echo "b:\\bin\\bcc.exe -c${DBG}${DEFS}${ASM} -3 -f87 -mm ${OPT} -IW:\\ -IB:\\INCLUDE $base.c > w:\\cc.txt"
   echo "exit"
 } > "$W/build.conf"
 
 ## Headless: a -j8 build launches several of these at once, and without
 ## this every one of them pops a real window.
 SDL_VIDEODRIVER=dummy timeout "${TIMEOUT:-120}" "$DOSBOX_BIN" -nolog -conf "$W/build.conf" >/dev/null 2>&1 || true
+
+if [[ -n "${LIST:-}" ]]; then
+    lst=""
+    for f in "$W/$up.ASM" "$W/$base.asm"; do if [[ -f "$f" ]]; then lst=$f; fi; done
+    if [[ -z "$lst" ]]; then
+        echo "== bcc -S FAILED: $SRC" >&2
+        [[ -f "$W/cc.txt" ]] && tr -d '\r' < "$W/cc.txt" | tail -30 >&2
+        exit 1
+    fi
+    mkdir -p "$(dirname "$OUT")"
+    cp "$lst" "$OUT"
+    exit 0
+fi
 
 if [[ ! -f "$W/$up.OBJ" && ! -f "$W/$base.obj" ]]; then
     echo "== bcc FAILED: $SRC" >&2

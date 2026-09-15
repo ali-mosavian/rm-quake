@@ -1,0 +1,13 @@
+# from 5f8c8a1+uncommitted, -lm -nostats -nosound; e1m3 sums from s10 (trains skip the plat tick); next blank from s12 (each changelevel carries its map); skill in gs_state from s16
+dm3ish-spawn 0c822c414b91f30a62148295061fee39 pos=232,206,-16 gs_state_1_map_dm3ish.qmp_next__secrets_0/0_skill_0 sums=2:70f637c08b99d4aa33a9d0658ba295e6 keys=24a1b1fb873e97275cfd9fa7b3f4318b
+e1m1-spawn 524900f6bf8e0909cb89adcdd2f2a637 pos=480,110,-352 gs_state_1_map_e1m1.qmp_next__secrets_0/6_skill_0 sums=2:e6df8a9acdab97a359bf8228f761a28e keys=24a1b1fb873e97275cfd9fa7b3f4318b
+e1m1-door 84322e851777ac4dd3881e5bc010c8eb pos=96,46,569 gs_state_1_map_e1m1.qmp_next__secrets_0/6_skill_0 sums=2:6b9d70cfe7d9000b8b9e0e074eae1f48 keys=24a1b1fb873e97275cfd9fa7b3f4318b
+e1m1-styles a4e39401474b4f0d58a690f60b169841 pos=398,-145,2130 gs_state_1_map_e1m1.qmp_next__secrets_0/6_skill_0 sums=2:39f941ad2be3b2ff013fcd46455cb293 keys=24a1b1fb873e97275cfd9fa7b3f4318b
+e1m3-spawn fd91f0fb04aadf6ab85b782de3849422 pos=-736,110,-1592 gs_state_1_map_e1m3.qmp_next__secrets_0/3_skill_0 sums=2:dc638aa12837f7e8ade62497235d5449 keys=24a1b1fb873e97275cfd9fa7b3f4318b
+e1m3-trigger ba8899f38d39a1db1bc40c3f23a8a0fa pos=-194,134,-1724 gs_state_1_map_e1m3.qmp_next__secrets_0/3_skill_0 sums=2:66d00a06e345c1611701b48679604697 keys=24a1b1fb873e97275cfd9fa7b3f4318b
+e1m4-spawn 2c146b61bda80f00ace39541babb8879 pos=-256,1246,2272 gs_state_1_map_e1m4.qmp_next__secrets_0/3_skill_0 sums=2:3e4d743bacb83d971e03a68897ce2e89 keys=24a1b1fb873e97275cfd9fa7b3f4318b
+e1m7-spawn 017e12863a4c7d3065e785eacf962169 pos=-448,78,64 gs_state_1_map_e1m7.qmp_next__secrets_0/0_skill_0 sums=2:3dfd3b81e24cd0a6732a7e0b1721f06d keys=24a1b1fb873e97275cfd9fa7b3f4318b
+e1m1-live 7085c11d92f2eca7211fb8f5131f45a1 pos=507,46,687 gs_state_1_map_e1m1.qmp_next__secrets_0/6_skill_0 sums=10:aed5b62774014381e7b634a9d96b88c5 keys=24a1b1fb873e97275cfd9fa7b3f4318b
+e1m3-live f60e99f425873416aa4bbb5acd1edba7 pos=-639,126,-1951 gs_state_1_map_e1m3.qmp_next__secrets_0/3_skill_0 sums=10:5705880d0d355b27c75e1aed2b52f83f keys=24a1b1fb873e97275cfd9fa7b3f4318b
+e1m1-replay 7085c11d92f2eca7211fb8f5131f45a1 pos=507,46,687 gs_state_1_map_e1m1.qmp_next__secrets_0/6_skill_0 sums=10:aed5b62774014381e7b634a9d96b88c5 keys=24a1b1fb873e97275cfd9fa7b3f4318b div=0
+e1m3-replay f60e99f425873416aa4bbb5acd1edba7 pos=-639,126,-1951 gs_state_1_map_e1m3.qmp_next__secrets_0/3_skill_0 sums=10:5705880d0d355b27c75e1aed2b52f83f keys=24a1b1fb873e97275cfd9fa7b3f4318b div=0

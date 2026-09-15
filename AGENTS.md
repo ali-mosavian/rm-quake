@@ -833,7 +833,10 @@ now writes to a far buffer and touches no file during a run.
 
 **Tools built for this, worth keeping:**
 
-- `-record F` / `-play F` in `qmain.c`. One fixed record a frame: nine
+- `-record F` / `-play F` in `demo.c`. Until `tools/test-demo.sh` the
+  file was never the recording: `fwrite` takes a near pointer, the far
+  buffer lost its segment, and every R.BIN was DGROUP -- identical run to
+  run, so two recordings agreeing proved nothing. One fixed record a frame: nine
   shorts of real mouse/key state, then the camera position and yaw that
   frame produced. `-play` feeds the input back through `host_advance`
   (no position override) and reports the first frame that drifts more
@@ -1405,7 +1408,7 @@ and grows freely.
 
 **The vertex page is the frame budget.** One EMS page holds the whole
 model: 170 vertices x 3 bytes = 510 a frame, 32 frames = 16,320 of
-16,384; the triangles are page 1 of the same handle, read by
+16,384; the triangles are the page after the vertices, read by
 `d_alias.c` through `CM_SLOT`. `stand,run,death,pain` fills it; the soldier's shoot set does
 not fit, so a volley has no animation. `mkmdl.py` emits the frameset in
 the order given and writes each set's count into the `.geo` header --
@@ -1464,7 +1467,7 @@ that time and the respawn reads 100.
 atta` (177 vertices, 30 frames): no death set, since zombie_die is a
 gib -- a dead one with `ndeath` 0 is not drawn -- and no paine, so a
 dropped one lies on paina's last frame. zombie_pain's rules are in
-`mdl_damage`: the health back to 60 after every hit, so only one hit of
+`combat_damage_monster`: the health back to 60 after every hit, so only one hit of
 60 kills (the SSG's 56 does not, as in Quake); under 9 ignored; 25 or
 more, or any hit, sets `pain_finished` -- three seconds down, or one
 flinching -- and nothing flinches it again before. CheckAttack with a
@@ -1606,7 +1609,7 @@ fired into a spent grenade's slot kept `grenade` and bounced. The
 e1m4 gate's second arm stands on the map's super nailgun with fire
 held a second and wants weapon 64 and 49 nails, its 30 and the pack
 beside it less three shots; e1m4's rocket launcher is deathmatch-only, so the launcher's arm
-waits for e1m5. That arm found `pl_items_drop` tracing the origin
+waits for e1m5. That arm found `ent_items_drop` tracing the origin
 itself through hull 1: an item the map put within 24 of its floor
 started inside the grown solid, and where a room lay under it within
 256 -- the super nailgun's, 192 down -- it fell through, while one
@@ -1651,12 +1654,11 @@ which hangs 630 over its floor, and at tick 400 wants the body over
 -600: the jump goes 364 up by v^2/2g against 48 under 800. `peak_z`
 read 0 on any map under z 0 -- nothing set it -- so `pl_init` starts
 it at the spawn, and the gate wants e1m8's -104. Not ported:
-`trigger_monsterjump` -- e1m6's one sits at the foot of a targeted
-door and no easy-skill monster can reach it, so no arm; `func_wall`
-draws as any solid brush model.
+`func_wall` draws as any solid brush model.
 
-**Chthon is a trigger, unseen.** boss.mdl has over a thousand vertices
-against `MDL_MAXV`'s 236, so `monster_boss` is `ENT_TRIG_BOSS`: the
+**Chthon is a trigger, unseen.** boss.mdl has 325 vertices and 106
+frames -- seven pages of vertices against `MDL_MAXV`'s 236 and the one
+page a model gets -- so `monster_boss` is `ENT_TRIG_BOSS`: the
 rune (`item_sigil`, "You got the rune!", its target fired as any
 pickup's) wakes him to ARMED with boss_awake's health, 1 on easy and 3
 above; `event_lightning` is `ENT_TRIG_BOLT`, lightning_use with both
@@ -1673,31 +1675,57 @@ spike is, since it leaves from inside the lava, under the map's
 gravity, gone on a wall or at five seconds, 20 to the player's box
 (fire_touch); monsters are not bitten. id's default speed is
 `self.speed == 1000`, a compare, so an unset one is 0; every map sets
-it. Drawn as an 8-unit red and yellow box. e1m6's gate counts the
-balls sent in ten seconds, in the emitters' `left`.
+it. Drawn as an 8-unit red and yellow box. Nothing armed an emitter
+until `ent_move_trigs` ran fire_fly's timer, so e1m6 threw no ball.
+`tools/test-fireball.sh` wants 15 in ten seconds, from the summary's
+`balls=`: the emitters' `left`.
 e1m7's gate stands on the rune and wants Chthon ARMED; the bolt is
 read, not run -- its buttons cannot be pressed headlessly. The chain
 closes: e1m7 exits to start, e1m8 to e1m5.
 
+**`trigger_monsterjump` is a trigger kind**, `ENT_TRIG_MJUMP`, its
+throw in `ofs_out`: movedir times speed, and height up, 200 each
+unless the map says. `ent_monster_jump` runs for a monster that moved
+that tick, as id's touch runs at a link, against id's box for its
+kind. A walker in it takes the push; one on the ground goes into the
+leap state with the throw, `leapt` at `MDL_THROWN` so it bites
+nothing. The wizard is left alone: qcc binds `&` tighter than `!=`,
+so id's flags test is the walker test it reads as. A thrown monster
+runs on landing where id's keeps its think, and cannot attack in the
+air. Its brush used to be hidden and nothing more, though e1m6's easy
+ogre behind the t44 doors reaches it once their button opens them.
+`tools/test-monsterjump.sh` presses that button and wants `mjumps=`,
+throws that rose, above 0.
+
 **start, the hub, is in `MAPS`** with its spawn frame as the gate.
-Its four `func_episodegate` ship hidden -- draw off, solid off, as a
-trigger's brush -- since misc.qc spawns one only for its rune held,
-and no rune is ever taken here; the `func_bossgate` is the reverse,
-removed only with all four, so it stays a solid brush model.
+Its gates are `EntsGate` records the loader decides by
+`World.serverflags`: a `func_episodegate` stands only for its rune
+held, the `func_bossgate` until all four are, and a gone one is draw
+off, solid off. The rune ORs its spawnflags' low four bits into
+`Fight.serverflags`, CARRY.BIN takes them on, and any flag spawns the
+player at `info_player_start2` (the header's second spawn) and, on
+start, drops the carried kit. `-sflags N` sets them when nothing is
+carried; `tools/test-serverflags.sh`.
 `trigger_onlyregistered` is OnlyRegisteredTouch's shareware branch:
 a multiple with its message and no target, so the episode 2 to 4
 doors it would open stay shut and "For registered users only!" is
 said every two seconds -- the gate's second frame stands in the
-episode 2 hall's. `trigger_setskill` hides by the generic trigger
-case, the skill being the assets'; every changelevel here names a
-map the shareware PAK has only for e1m1.
+episode 2 hall's. `trigger_setskill` is `ENT_TRIG_SKILL`, the skill
+the next map loads by; every changelevel here names a map the
+shareware PAK has only for e1m1.
 
 **The powerups are thirty-second clocks on `fight`**: the quad
 (`quad_until`) makes every pellet and nail four times (T_Damage's
 super_damage_finished), the envirosuit (`suit_until`) turns the slime
 off and lava down to a bite a second, the pentagram (`pent_until`)
-makes `pl_damage` return -- T_Damage's invincible_finished, protect3
-two seconds apart while it does; e1m8's gate stands on its own. Slime and lava hurt at all now,
+makes `combat_damage_player` return after the armor's share is taken --
+T_Damage's invincible_finished, protect3 two seconds apart while it
+does; returning first left armor unworn (`tools/test-fall.sh` arm 3).
+The ring (`invis_until`) hides the player from FindTarget's look at
+the stand and the walk, not from a hunt already on or a hurt monster,
+drops PainSound and the view model, and whispers items/inv3 every
+1..4 s. `-noitems` only hides pickups: they are still taken, so a
+control for a pickup starts off it. e1m8's gate stands on its own. Slime and lava hurt at all now,
 `pl_env_damage`, PlayerPreThink's 4 and 10 a water level; e1m1 has 112
 slime leaves and no lava. Drowning is WaterMove's: `PL_AIR` seconds
 of breath from the last tick with the eyes out, then a bite a second,
@@ -1719,9 +1747,21 @@ beyond "any corner behind the near plane drops the box", which at ten
 units wide means the player is in it. A box far down the hall is in
 the bench frame: 24 pixels at the centre. `item_armor1` and `item_armor2`
 are two more kinds, 100 at 0.3 and 150 at 0.6: armor_touch takes one
-only when type * value beats what is worn, and `pl_damage` is T_Damage's
+only when type * value beats what is worn, and `combat_damage_player` is T_Damage's
 split, the armor taking ceil(type * damage) and losing its type with its
-last point. The bar shows the icon and the count at 0 and 24 while any is
+last point. That was `-(long)-x`, and a cast chops (`F_FTOL@`), so it
+was trunc: four drowning bites under red armor saved 21 where id saves 24.
+It is `ceil()` of a product stored in a float first, as QuakeC's is: at
+80 bits 0.8 * 10 is 8.00000012 and would save 9. `item_armorInv`
+is 200 at 0.8 and `item_cells` 6, or 12 with WEAPON_BIG2, to 100; both
+are deathmatch-only on start, so their arms stand on dm3ish, and the
+cells `CARRY.BIN` carries are untested for the same reason.
+
+**A landing reads the fall speed from before the floor.** `pl_gravity`
+sees ground a tick after `pl_step_move`'s slide has clipped `vel.z` to 0,
+so `pl_land` testing `vel.z` never thudded or hurt: a 426-unit fall left
+health 100. `fall_vz` is id's `jump_flag`, stored before gravity on each
+airborne tick and zeroed wherever the velocity is. `tools/test-fall.sh`. The bar shows the icon and the count at 0 and 24 while any is
 worn -- Quake draws a 0 there too, left out so the references stand.
 `trigger_secret` is a once with "You found a secret area!" unless the map
 says, counted in `fight.secrets`; six on e1m1. The e1m1 gate's last two
@@ -1918,7 +1958,7 @@ them one pool. The faces store takes 56K of UMB; the far heap goes
 bsp_arrays 79K, leaves 34K, marksurf 14K, nodes 60K, clipnodes 32K,
 textures 17K, surface cache 57K, models 12K. Cut so far: the status bar's
 28K into its EMS surface, `face_mdl` (11K) into the bits above
-`Face.side`'s one, written at load by `ent_load_teleports` and read back
+`Face.side`'s one, written at load by `ent_load_brushes` and read back
 as `side >> 1` in `d_faces.c`, and `CacheSlot.cls` (11K), which only the
 selftest read and `sc_bord` already held per block. Then, for the dog:
 a model's triangles into page 1 of its EMS handle (20K, the four arrays
@@ -2012,6 +2052,13 @@ atlas is there: a yellow hazard floor at the spawn, the slipgate pad
 brown. `mod_load_textures` refuses an atlas shorter than its table
 (`0x0018`), and the gate copies all four in and all four back.
 
+**`make build` rebuilds dm3ish's assets.** It copied
+`data/assets/dm3ish.qmp` with nothing tying that file to mkassets, so
+an ents.bin header change shipped the old one: the reader took its
+blank map name for 8,224 messages and hung in the first frame, and
+test-exit's run-after-run arm read 0 of 2. `tools/test-assetdeps.sh`,
+run from `make test`, asks make for its plan with mkassets.py newer.
+
 **Every `trigger_*` brush is a volume.** Only `trigger_teleport` hid its
 submodel; e1m1's `trigger_changelevel` drew as a column of the
 `trigger` texture in front of the exit. `parse_entities` hides them all.
@@ -2022,11 +2069,19 @@ monster ring `main.bas` scatters on a map with no monsters of its own
 is seeded from the map's angle as before, so the crowd the fight and
 model gates stand beside stays put. The gate aims with `-yaw 270`.
 
-**The map's monsters come from ents.bin, and the skill is the assets'.**
-`mkassets.py map base out [skill]` keeps every entity its skill allows
--- NOT_EASY 256, NOT_MEDIUM 512, NOT_HARD 1024, on monsters, items and
-triggers alike; nightmare is hard's set -- and `make assets SKILL=2`
-builds a hard dm3ish. Easy is the default and what every gate plays.
+**The map's monsters come from `ents<N>.bin`, one a skill.** mkassets
+spawns the map four times -- NOT_EASY 256, NOT_MEDIUM 512, NOT_HARD 1024,
+on monsters, items and triggers alike; nightmare is hard's set, with
+Chthon's health baked per variant -- against one CrateSet, easy first,
+so the crate records and the atlas are the union's. The run loads
+`World.skill`'s: the carried one under `-carry`, else `-skill N`, else
+easy, which is what every gate plays; id's cvar defaults to normal.
+start's `trigger_setskill` sets `Fight.skill` on every touch, and
+CARRY.BIN takes it to the next map, as the cvar outlives a changelevel.
+`tools/test-skill.sh` stands in start's hard brush and walks the e1m1
+slipgate at `-skill 2` and `-skill 0`. Not ported, nightmare's rules:
+pain_finished +5 on every hit (`combat.qc`), SUB_AttackFinished and
+SUB_CheckRefire (`subs.qc`), the shambler's second bolt (`shambler.qc`).
 e1m1 has 10 monsters on easy, 23 on normal, 42 on hard; `MDL_MAX_ENTS`
 is 48 for it. The monsters ship with origin and angle, first in the file;
 `ent_load_monsters` spawns them through `mdl_spawn` and faces them the
@@ -2147,6 +2202,52 @@ more frame over the same 200 ticks and draws more polygons, which is
 the change working. Mutation-checked by moving `lm_on = 1` inside a
 `#if QR_PROF`.
 
+**`mark()` writes to port E9h, not a file** (`src/dbg.c`). DOSBox-X
+logs it with `bochs debug port e9=true`, one line per `\n`, as
+`Bochs port E9h: ...`; `tools/run.sh` and `tools/viz.sh` set that and a
+`[log] logfile`, and run.sh turns the lines into cstep.txt -- only when
+there are any, so a `QR_LOG=0` arm still leaves none. A line is in
+dosbox.log the moment it is written: grep it while the run is in flight
+instead of waiting for the run to end.
+
+**`tools/test-frames.sh` is the refactor gate**, against
+`tools/ref/frames.txt`: eight still cases (`-noai -ticks 120`) and two
+live ones (`-walk -fire -ticks 600`, AI on), each comparing the last
+frame's md5, `pos=`, `gs_state` and the hash of every `sum` line --
+`host_state_sum` prints the player, the monsters, the brush offsets,
+trigger states, items taken and the kit every 60 ticks. `tools/ledger.sh
+<build> <label>` appends segment sizes, DGROUP, near heap, and per map
+`mem_far_largest`, `stack_untouched` and the frame timings (CORE=normal)
+to `docs/ledger.tsv`.
+
+**Two replay cases play `tools/ref/<case>.rec`**, saved by `--save`
+from the live run, and fail on any `DIVERGED` line. The `sum` lines
+cannot catch a broken dt feed: `-ticks` bounds the run, so the end
+state is the same whatever the frames were. Only the camera path can.
+Doubling dt on records 100..110 of e1m1's went unseen -- the player
+stood against a wall there -- and on 20..30, walking, it failed.
+
+**The game state has one owner.** `main` is `host_init`, `host_frame`
+and `host_shutdown` on a `Host` on its stack (`src/host.c`); the
+player's respawn and carry are `client.c`. `World` holds `Rng`
+(Borland's `rand()` exactly, so no reference moved), `Pak` and `Sound`,
+and a function without the World takes the one it needs as a pointer.
+
+**`tools/bcc.sh` builds the `COLD` modules -- host, mdl_ai, weapons --
+with `-Ox -Os`.** The explicit state cost 2,634 bytes of code, and every
+map's far block lost the same. Putting `Rng` first in World, making
+`snd_play`/`snd_self` functions and handing `combat_damage_player` the World took
+back 515; `-Os` took back 2,048, leaving +71 on p6. `-Os` changes no
+float: the modules' `bcc -S` listings match -Ox's x87 code block for
+block, struct copies becoming `F_SCOPY@` calls. `-O1` came out
+different: it drops the `fabs` intrinsic for a library call on a
+double, and reloads from 32 bits a value -Ox keeps at 80. The frames
+gate cannot stand in for that comparison: a float path no gate run
+reaches changes unseen. A module joins COLD when `tools/x87cmp.py`
+reads 0 for every function it defines, both arms listed with `LIST=1
+tools/bcc.sh`. make cannot see COLD, so a change to it wants a fresh
+build directory, as CDEFS does.
+
 **bench.txt timers are `name min mean max`, three decimals.** `pt_<phase>`
 is ms a frame; `pt_tk_<call>` is one `host_tick` call in ms, over the
 ticks it ran in. `sys_rdtsc` wraps about once a minute, and
@@ -2164,6 +2265,12 @@ up by the same delta (`ent_mover_ridden`). e1m2's two lifts end on a
 pair of corners at one point, and bounce between them standing still.
 `tools/check.sh --e1m2`'s first arm stands on their button and wants
 both at that corner. Not ported: the ratchet sounds, blocking damage.
+
+**The plat tick walked the trains too.** `ent_move_plats` set every
+entry's state to plat UP or DOWN each tick, so no train reached its
+wait or left its first corner: e1m5's four untargeted trains read one
+brush checksum for ten seconds. It skips trains now, and
+`tools/test-trains.sh` wants three distinct `br` values on e1m5.
 
 **Keys.** `item_key1`/`item_key2` are item kinds: taken once into
 `fight.items` as `PL_IT_KEY1`/`KEY2`, "You got the silver key" (the
@@ -2268,7 +2375,7 @@ The ninth e1m1 arm stands in `*54` and wants `*51` DONE.
 
 `trigger_changelevel` is the level's end: touching it is `GS_EXIT`,
 the view cut to the map's first `info_intermission` at its mangle
-(`ent_intermission`: noclip, held still, no gun), LEVEL COMPLETE with
+(`pl_intermission`: noclip, held still, no gun), LEVEL COMPLETE with
 the worldspawn's message -- the map's title -- above it and the kills,
 secrets and time under it, and fire starts the map over: `pl_game_reset`
 puts the monsters, items and player back, on foot and facing the
@@ -2288,8 +2395,11 @@ for every map in `MAPS` and the build stages them -- over the ones
 beside the exe; dosbox.sh's run.bat copies NEXT.BAT to RUN1.BAT,
 deletes it and calls it while one is written, since a batch deleted
 while it runs is "Batch file missing". `-carry` reads CARRY.BIN over
-`pl_reset_player`. The map's `map` key rides in ents.bin's header, and
-bench.txt says `map`. The e1m1 gate's last arm walks into the slipgate
+`pl_reset_player`; a missing or short file logs `carry refused` and plays
+the fresh kit, and test-exit's fifth arm is the missing half. Each changelevel's `map` key ships as a message whose
+id is its trigger's `count`, and the touch copies it into `next_map`.
+The header's one `next_map`, the last changelevel read, is gone: every
+slipgate on start led to `end`. bench.txt says `map`. The e1m1 gate's last arm walks into the slipgate
 with fire held and the soldier awake and wants e1m2's bench with the
 damage carried: e1m1's shells 25 and fire's 14 shots read `pl_shells
 11` there.
@@ -2480,7 +2590,7 @@ does, `CL_DecayLights`, and the emitters -- a muzzle flash for every
 player weapon and the soldier's volley, the quad's and pentagram's
 EF_DIMLIGHT, EF_ROCKET on rockets and lava balls, TE_EXPLOSION on every
 blast. They change in `host_tick` and never in a frame, and the flicker
-has its own LCG so `rand()`'s sequence is the game's. `-nodlight` is the
+has its own LCG so `World.rng`'s sequence is the game's. `-nodlight` is the
 A/B. Not ported: the shambler's flash (NetQuake's monster QuakeC is not
 on disk to say it has one) and model lighting (the models draw unshaded).
 
@@ -2648,6 +2758,19 @@ the regression test. Moving the state structs off main's stack into
 `static` makes this WORSE, not better -- it moves them into the same
 DGROUP -- which is why that attempt did not revive the build and read as
 evidence against the stack theory.
+
+**A far address handed to a near pointer reads DGROUP, and BC says
+nothing.** In the medium model a plain `T *` parameter is near, so
+`&ent->pos` with `ent` a `MdlEnt far *` loses its segment on the way in,
+and an explicit `(BspVec3 *)` cast does the same without a warning.
+`mdl_spawn`'s drop to the floor traced from DGROUP: on e1m4 a different
+soldier stood somewhere else, or in mid-air, in every build, with the
+frame and the player identical. Only `host_state_sum`'s monster total
+moved, and it moved with the binary, not the timing -- 236979 at 59
+frames and at 25. `-record` wrote DGROUP the same way through `fwrite`.
+Copy to the stack. `tools/farnear.py` finds the pattern and runs in
+`make test`; `tools/test-layout.sh` compares a default build's state
+sums with a `QR_PROF=0` build's, which is the symptom.
 
 ## The alias pass was not drawing, it was asking
 

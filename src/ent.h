@@ -7,19 +7,33 @@
 
 short ent_find_node( short m, World *world );
 short ent_point_leaf( BspVec3 *p, World *world );
-short ent_plat_touched( Player *player, World *world, short p );
 void  ent_check_teleport( Player *player, World *world, float now, short scr_x_res );
 void  ent_fog_tick( World *world, Player *player, float now );
 void  ent_monster_teleport( World *world, float now, MdlEnt far *e );
-void  ent_move_plats( World *world, Player *player, float dt );
 void  ent_place_models( World *world );
+char far *ent_msg( World *world, short id );
+
+/* A space-padded map name of up to 8 into a 9-byte C string. */
+void  ent_copy_map( char *dst, char far *src );
+short ent_box_touched( Player *player, BspVec3 far *mins, BspVec3 far *maxs, float slack );
+
+/* sound() on a mover: submodel m's own voice channel, from the middle
+   of its brush where it is now -- SV_StartSound's origin for a brush */
+void  ent_brush_sound( Player *player, World *world, short m, short id );
+
+/*
+ * name: ent_reset
+ * desc: Every door shut and every trigger, button and train as the map
+ *       loaded. pl_game_reset's half of the world.
+ */
+void  ent_reset( World *world, Fight *fight );
 
 /* q_ent.bi's EntsHead/EntsTele/EntsPlat -- ents.bin's own layout,
    mkassets.py's already-resolved entity data (targetname pairing,
    trigger/plat validation, all done offline; nothing here parses the
    map's entity TEXT, which BASIC's own 32,767-byte string cap made
    impossible for some maps in the first place). */
-/* q_ent.bi's EntsHead -- 76 bytes, the whole of what mkassets.py now
+/* q_ent.bi's EntsHead -- the whole of what mkassets.py now
    resolves out of the entities text. cport reads the spawn, the
    teleporters, the plats and the hidden submodels; the rest are counts
    it skips over, and they are here because the records they size sit
@@ -45,9 +59,11 @@ typedef struct {
     short   worldtype;
     short   ncrate;
     float   gravity;
-    char    next_map[8];    /* space padded, blank for none */
     short   nmsg;
     short   nlight;
+    BspVec3 spawn2;         /* info_player_start2, or the start where a map has none */
+    float   angle2;
+    short   ngate;
 } EntsHead;
 
 /* A monster record. Not read -- the file puts the monsters FIRST, ahead
@@ -75,7 +91,7 @@ typedef struct {
 } EntsPlat;
 
 /* The records between the ones cport reads. ents.bin's order is
-   monsters, teleporters, plats, hides, items, doors, triggers,
+   monsters, teleporters, plats, hides, gates, items, doors, triggers,
    ambients, trains, corners, crates, lights, messages. */
 typedef struct {
     short   kind, amount, target, crate;
@@ -115,11 +131,17 @@ typedef struct {
     short name, style, on;
 } EntsLight;
 
+/* misc.qc: func_episodegate (boss 0) stands while a rune in bits is held,
+   func_bossgate (boss 1) until all of them are */
+typedef struct {
+    short model, boss, bits;
+} EntsGate;
+
 /* q_ent.bi's PathCorner is the file record too. */
 
 /* ents.bin's own records, checked the same way bsptypes.h checks the
    map's -- see the note there. */
-#define REC_ENTSHEAD 78
+#define REC_ENTSHEAD 88
 #define REC_ENTSMON  22
 #define REC_ENTSTELE 22
 #define REC_ENTSPLAT 12
@@ -131,6 +153,8 @@ typedef struct {
 #define REC_ENTSTRAIN 12
 #define REC_PATHCORNER 18
 #define REC_ENTSLIGHT 6
+#define REC_ENTSGATE  6
+typedef char rec_entsgate_ok[ sizeof(EntsGate) == REC_ENTSGATE ? 1 : -1 ];
 typedef char rec_entslight_ok[ sizeof(EntsLight) == REC_ENTSLIGHT ? 1 : -1 ];
 
 typedef char rec_entshead_ok[ sizeof(EntsHead) == REC_ENTSHEAD ? 1 : -1 ];
@@ -153,16 +177,11 @@ typedef char rec_pathcorner_ok[ sizeof(PathCorner) == REC_PATHCORNER ? 1 : -1 ];
 void ent_load_spawn( World *world, Camera *cam, Fight *fight );
 
 /*
- * name: ent_load_teleports
- * desc: Loads ents.bin: teleporter pairs already matched by
- *       targetname, plats and hidden submodels already validated, all
- *       by mkassets.py. What stays here is what needs the loaded
- *       submodels -- trigger volumes and plat defaults come from
- *       world->models, which mkassets has no reason to duplicate.
- *       Builds world->brush/face_mdl/tele/plat and sets world->
- *       tele_count/plat_count.
+ * name: ent_load_world
+ * desc: Loads every ents.bin record kind into world, and spawns the
+ *       monsters and drops the items onto the floor.
  */
-void ent_load_teleports( World *world );
+void ent_load_world( World *world );
 
 /* the map's trigger_secret count, for the intermission's tally */
 short ent_secret_total( World *world );

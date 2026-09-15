@@ -36,6 +36,7 @@
 #define MDL_ATK_NEAR_MELEE 0.2f
 #define MDL_ATK_MID     0.05f
 #define MDL_HALF        16.0f /* monster_army's setsize */
+#define MDL_THROWN      (-2)  /* leapt: a trigger_monsterjump throw, no bite */
 #define MDL_ZLO         (-24.0f)
 #define MDL_ZHI         40.0f
 #define MDL_FLASH       0.12f /* seconds the muzzle flash shows */
@@ -180,17 +181,26 @@ float mdl_vectoyaw( float dx, float dy );
  */
 void mdl_ai_stats( World *world, short *hunting, short *moved );
 
-/*
- * name: pl_damage
- * desc: T_Damage on the player: the pentagram, then the armor's share,
- *       then the health.
- */
-void pl_damage( Player *player, Fight *fight, Renderer *rdr, short dmg );
-
 /* A monster's own sound: 0 sight, 1 attack, 2 pain, 3 death. */
-void mdl_say( Player *player, MdlEnt far *ent, short which );
+void mdl_say( Player *player, Sound *snd, MdlEnt far *ent, short which );
 
 /* sound() from a monster: its own entity channel, at where it stands */
-void mdl_voice( Player *player, MdlEnt far *ent, short chan, short id, short attn );
+void mdl_voice( Player *player, Sound *snd, MdlEnt far *ent, short chan, short id, short attn );
+
+/* What a kind is, read by the AI and by T_Damage alike: each .qc's
+   numbers. mdl_ai.c defines it; far, in its FAR_DATA. */
+typedef struct {
+    short health;
+    short flyer;          /* FL_FLY: no droptofloor, SV_movestep's fly case */
+    short voice;          /* sight, attack, pain, death: voice + 0..3 */
+    short gib_below;      /* dead under this: udeath, not its death sound */
+    float pain_time;      /* pain_finished's gap; 0 rolls short or long */
+    float flinch_roll;    /* a hit under random() * this does not flinch; 0 none */
+    short pain_long_snd;  /* played on the long roll in place of the flinch; 0 none */
+    short pain_resets;    /* zombie_pain's own rules */
+    short backpack;       /* drops one dead */
+} MonsterFacts;
+
+extern const MonsterFacts far mon_facts[];
 
 #endif

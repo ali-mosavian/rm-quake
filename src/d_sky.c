@@ -9,7 +9,7 @@
 
 #include "qgl.h"
 #include "d_sky.h"
-#include "assets.h"
+#include "pak.h"
 #include "qglsurf.h"
 
 #define SKY_SIZE   128
@@ -32,9 +32,9 @@ void d_sky_init( World *world )
     world->sky_layers = 0;
     world->sky_dc     = 0;
     world->sky_shift  = -1;
-    if ( !asset_has( "sky.raw" ) ) return;
+    if ( !pak_has( &world->pak, "sky.raw" ) ) return;
 
-    world->sky_layers = qgl_surf_from_member( "sky.raw", SKY_SIZE, QGL_SURF_EMS, 0 );
+    world->sky_layers = qgl_surf_from_member( &world->pak, "sky.raw", SKY_SIZE, QGL_SURF_EMS, 0 );
     if ( !world->sky_layers ) return;
     world->sky_dc = (QSurf) qglSfNew( SKY_SIZE, SKY_SIZE, QGL_SURF_EMS );
 }

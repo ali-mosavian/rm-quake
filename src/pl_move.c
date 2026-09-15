@@ -14,10 +14,10 @@
 
 #include "pl_move.h"
 #include "snd.h"
-#include "mdl_ai.h"   /* pl_damage -- the landing costs five */
+#include "combat.h"   /* combat_damage_player -- the landing costs five */
 #include "pl_trace.h"
 #include "r_bsp.h"
-#include "assets.h"
+#include "pak.h"
 
 /*
  * name: pl_point_contents
@@ -236,22 +236,25 @@ static void pl_step_move( World *world, Player *player, BspVec3 *org, BspVec3 *v
  */
 /* PlayerPostThink's landing: a splash in water, else a thud past 300
    down, a grunt and five points past 650. */
-static void pl_land( Player *player, Fight *fight, Renderer *rdr )
+static void pl_land( Player *player, World *world, Fight *fight, Renderer *rdr )
 {
-    if ( player->vel.z > PL_LAND_SOFT || fight->health <= 0 ) return;
+    Sound *snd = &world->snd;
+
+    if ( player->fall_vz > PL_LAND_SOFT || fight->health <= 0 ) return;
     if ( player->water_level > 0 && player->water_type == CONTENTS_WATER ) {
-        snd_self( player, CHAN_BODY, SND_H2OJUMP );
+        snd_self( snd, player, CHAN_BODY, SND_H2OJUMP );
         return;
     }
-    if ( player->vel.z > PL_LAND_HARD ) { snd_self( player, CHAN_VOICE, SND_LAND ); return; }
-    snd_self( player, CHAN_VOICE, SND_LAND2 );
-    pl_damage( player, fight, rdr, 5 );
+    if ( player->fall_vz > PL_LAND_HARD ) { snd_self( snd, player, CHAN_VOICE, SND_LAND ); return; }
+    snd_self( snd, player, CHAN_VOICE, SND_LAND2 );
+    combat_damage_player( player, world, fight, rdr, 5 );
 }
 
 /* client.qc's WaterMove: breath and drowning, the gasp on surfacing,
    slime and lava's bites, and the splash in and out. */
-static void pl_water_check( Player *player, Fight *fight, Renderer *rdr, float dt )
+static void pl_water_check( Player *player, World *world, Fight *fight, Renderer *rdr, float dt )
 {
+    Sound *snd = &world->snd;
     float now = rdr->anim_time;
     short d;
 
@@ -259,8 +262,8 @@ static void pl_water_check( Player *player, Fight *fight, Renderer *rdr, float d
     if ( now < fight->suit_until ) fight->air_used = 0.0f;   /* CheckPowerups: the suit breathes */
 
     if ( player->water_level != 3 ) {
-        if ( fight->air_used > PL_AIR )           snd_self( player, CHAN_VOICE, SND_GASP1 + 1 );
-        else if ( fight->air_used > PL_AIR_GASP ) snd_self( player, CHAN_VOICE, SND_GASP1 );
+        if ( fight->air_used > PL_AIR )           snd_self( snd, player, CHAN_VOICE, SND_GASP1 + 1 );
+        else if ( fight->air_used > PL_AIR_GASP ) snd_self( snd, player, CHAN_VOICE, SND_GASP1 );
         fight->air_used = 0.0f;
         fight->drown_dmg = 0;
     } else {
@@ -269,29 +272,29 @@ static void pl_water_check( Player *player, Fight *fight, Renderer *rdr, float d
             d = (short) ( ( fight->drown_dmg ? fight->drown_dmg : 2 ) + 2 );
             if ( d > 15 ) d = 10;
             fight->drown_dmg = d;
-            pl_damage( player, fight, rdr, d );
+            combat_damage_player( player, world, fight, rdr, d );
             fight->pain_at = now + 1.0f;
         }
     }
 
     if ( player->water_level == 0 ) {
-        if ( fight->in_water ) snd_self( player, CHAN_BODY, SND_OUTWATER );
+        if ( fight->in_water ) snd_self( snd, player, CHAN_BODY, SND_OUTWATER );
         fight->in_water = 0;
         return;
     }
     if ( player->water_type == CONTENTS_LAVA && now >= fight->dmg_at ) {
         fight->dmg_at = now + ( now < fight->suit_until ? 1.0f : 0.2f );
-        pl_damage( player, fight, rdr, (short) ( 10 * player->water_level ) );
+        combat_damage_player( player, world, fight, rdr, (short) ( 10 * player->water_level ) );
     } else if ( player->water_type == CONTENTS_SLIME && now >= fight->dmg_at &&
                 now >= fight->suit_until ) {
         fight->dmg_at = now + 1.0f;
-        pl_damage( player, fight, rdr, (short) ( 4 * player->water_level ) );
+        combat_damage_player( player, world, fight, rdr, (short) ( 4 * player->water_level ) );
     }
     if ( fight->in_water ) return;
     switch ( player->water_type ) {
-    case CONTENTS_LAVA:  snd_self( player, CHAN_BODY, SND_INLAVA ); break;
-    case CONTENTS_WATER: snd_self( player, CHAN_BODY, SND_INH2O );  break;
-    case CONTENTS_SLIME: snd_self( player, CHAN_BODY, SND_SLIME );  break;
+    case CONTENTS_LAVA:  snd_self( snd, player, CHAN_BODY, SND_INLAVA ); break;
+    case CONTENTS_WATER: snd_self( snd, player, CHAN_BODY, SND_INH2O );  break;
+    case CONTENTS_SLIME: snd_self( snd, player, CHAN_BODY, SND_SLIME );  break;
     }
     fight->in_water = 1;
     fight->dmg_at = 0.0f;       /* id's order: the entry bites twice */
@@ -306,11 +309,14 @@ static void pl_gravity( World *world, Player *player, Fight *fight,
     pl_trace( world, &player->pos, &below, tr );
 
     if ( tr->frac < 1.0f && tr->norm.z > PL_GROUND_NRM ) {
-        if ( !player->on_ground ) pl_land( player, fight, rdr );
+        if ( !player->on_ground ) pl_land( player, world, fight, rdr );
         player->on_ground = 1;
         if ( player->vel.z < 0.0f ) player->vel.z = 0.0f;
     } else {
         player->on_ground = 0;
+        /* the slide clips vel.z to 0 on the tick it meets the floor, a tick
+           before this sees ground; id's jump_flag is the speed from before */
+        player->fall_vz = player->vel.z;
         if ( player->water_level == 0 ) player->vel.z -= PL_FALLACC*dt;
     }
 }
@@ -574,7 +580,7 @@ void pl_move( World *world, Player *player, Camera *cam, Fight *fight,
     }
 
     pl_water_level( player, world );
-    pl_water_check( player, fight, rdr, dt );
+    pl_water_check( player, world, fight, rdr, dt );
 
     pl_gravity( world, player, fight, rdr, dt, &tr );
 
@@ -599,13 +605,13 @@ void pl_move( World *world, Player *player, Camera *cam, Fight *fight,
             player->on_ground = 0;
             if ( rdr->anim_time >= fight->swim_at ) {
                 fight->swim_at = rdr->anim_time + 1.0f;
-                snd_self( player, CHAN_BODY, (short) ( SND_SWIM1 + ( rand() & 1 ) ) );
+                snd_self( &world->snd, player, CHAN_BODY, (short) ( SND_SWIM1 + ( rng_int( &world->rng ) & 1 ) ) );
             }
         }
     } else if ( jump && player->on_ground ) {
         player->vel.z     = PL_JUMP;
         player->on_ground = 0;
-        snd_self( player, CHAN_BODY, SND_JUMP );
+        snd_self( &world->snd, player, CHAN_BODY, SND_JUMP );
     }
 
     /*
@@ -636,6 +642,6 @@ void pl_move( World *world, Player *player, Camera *cam, Fight *fight,
 
 void pl_load_hulls( World *world, short clip_count )
 {
-    world->clip = (ClipNode far *) asset_load( "clip.pag",
+    world->clip = (ClipNode far *) pak_load( &world->pak, "clip.pag",
                                                 (long) clip_count * sizeof(ClipNode) );
 }

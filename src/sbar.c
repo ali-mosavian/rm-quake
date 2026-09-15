@@ -9,7 +9,7 @@
 
 #include "sbar.h"
 #include "qgl.h"
-#include "assets.h"
+#include "pak.h"
 #include "pl_move.h"    /* PL_ARMOR2_TYPE lives with the player's kit */
 
 static QSurf sbar_work, sbar_view;
@@ -17,7 +17,7 @@ static QSurf sbar_work, sbar_view;
    over 21 cells and is skipped while every number is the same */
 static short sbar_health = -1, sbar_shells, sbar_face, sbar_armor, sbar_weapon;
 
-void scr_sbar_load( void )
+void scr_sbar_load( Pak *pak )
 {
     short h, y, i;
     long  bytes;
@@ -35,7 +35,7 @@ void scr_sbar_load( void )
        window and the file layer's read takes any far address, so no
        staging buffer is needed. The handle is shared and sequential,
        which is why each member is read through before the next. */
-    h = asset_seek( "sbar.raw", &bytes );
+    h = pak_seek( pak, "sbar.raw", &bytes );
     if ( bytes < (long) SBARC_W * SBARC_H ) {
         fprintf( stderr, "0x3004, sbar.raw is %ld bytes, wanted %ld\n",
                  bytes, (long) SBARC_W * SBARC_H );
@@ -44,7 +44,7 @@ void scr_sbar_load( void )
     for ( y = 0; y < SBARC_H; y++ )
         qglFileRead( h, qglSfWrRow( sbar_work, y ), (long) SBARC_W );
 
-    h = asset_seek( "sbnum.raw", &bytes );
+    h = pak_seek( pak, "sbnum.raw", &bytes );
     if ( bytes < (long) SBARC_CELLS * SBARC_CELL * SBARC_CELL ) {
         fprintf( stderr, "0x3006, sbnum.raw is %ld bytes, wanted %ld\n",
                  bytes, (long) SBARC_CELLS * SBARC_CELL * SBARC_CELL );

@@ -1,6 +1,8 @@
 #ifndef __SCREEN_H__
 #define __SCREEN_H__
 
+
+#include "pak.h"
 #include "world.h"
 #include "fight.h"
 #include "renderer.h"
@@ -27,11 +29,11 @@
  *       "font" id, then 256 glyphs of 4 words / 8 bytes each) straight
  *       into font->glyph, no uGL DC involved at all -- see hud.h's own
  *       note on why draw_load_font's 256-masked-DC approach doesn't
- *       carry over. Fatal (via asset_load_whole's own sys_error) on a
+ *       carry over. Fatal (via pak_load_whole's own sys_error) on a
  *       missing file or a short read, matching draw_init_font's own
  *       "could not load font" fatal one level up in the original.
  */
-void font_load( Font far *font, char *flname );
+void font_load( Pak *pak, Font far *font, char *flname );
 
 /* Text in a chosen colour -- the original's draw_string always drew
    in the one colour draw_load_font baked the glyphs at (LP_TEXT, 254);

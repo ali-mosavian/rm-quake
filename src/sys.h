@@ -15,7 +15,7 @@
  *       redirected stdout, gone the instant the program ends. A failed
  *       run then looks exactly like a slow one from outside, which
  *       cost real debugging time in this project before error.log
- *       existed. Every fatal path in cport/ (mod.c/assets.c/
+ *       existed. Every fatal path in cport/ (mod.c/pak.c/
  *       mod_tex.c/config.c's own *_fatal helpers) should call this
  *       instead of writing to stderr on its own -- one fact in one
  *       place, and the one place that gets it right. Exits with
@@ -75,9 +75,12 @@ typedef struct {
     short no_view;            /* -noview: the view weapon left out */
     short no_sound;           /* -nosound: the card left alone */
     short sndsum;             /* -sndsum: every sound decoded and summed */
+    short mdlsum;             /* -mdlsum: every model's frames fetched and summed, at exit */
     short no_ai;              /* -noai: they stand still, so a frame repeats */
     short fire;               /* -fire: the trigger held, for a headless shot */
     short carry;              /* -carry: CARRY.BIN holds the last level's kit */
+    short skill;              /* -skill N: the skill when nothing is carried */
+    short sflags;             /* -sflags N: the runes held when nothing is carried */
     short bad_order;          /* -badorder: brush entities after the world, depth or not */
     short ent_insert;         /* -entinsert: inserted into the walk, depth or not */
     short comp;                /* -comp */

@@ -15,7 +15,7 @@
 
 #include "mod_tex.h"
 #include "bsphdr.h"  /* DiskMipTex */
-#include "assets.h"
+#include "pak.h"
 #include "sys.h"     /* sys_error */
 #include "qglsurf.h"  /* qgl_surf_from_file, TEX_ATLAS_W/LM_ATLAS_W */
 #include "d_sky.h"
@@ -119,7 +119,7 @@ PalRgb far * mod_load_textures( World *world, MapCounts *counts )
     short j;
     PalRgb far *pal;
 
-    world->texinfo = (TexInfo far *) asset_load( "texinf.bld",
+    world->texinfo = (TexInfo far *) pak_load( &world->pak, "texinf.bld",
                                                   counts->tex_infos * (long) sizeof(TexInfo) );
 
     /* The miptex headers, which used to be seeked out of the raw .bsp
@@ -127,7 +127,7 @@ PalRgb far * mod_load_textures( World *world, MapCounts *counts )
        mkassets ships them back to back instead, one per texture the map
        owns; a texture the map lists with no lump is 40 zero bytes,
        which is a blank name, which is neither a liquid nor a chain. */
-    t_mip_inf = (DiskMipTex far *) asset_load( "miptex.bin",
+    t_mip_inf = (DiskMipTex far *) pak_load( &world->pak, "miptex.bin",
                                                 counts->textures * (long) sizeof(DiskMipTex) );
     world->miptex = (MipTex far *) qglMemAlloc( counts->textures * (long) sizeof(MipTex) );
     if ( !world->miptex ) modtex_fatal( "out of memory for texture headers" );
@@ -164,18 +164,18 @@ PalRgb far * mod_load_textures( World *world, MapCounts *counts )
      * BMP_OPT_NO332 to stop it remapping already-correct indices into
      * its own 3-3-2 palette, and qgl has no decoder to defend against.
      */
-    world->tex_raw    = qgl_surf_from_member( "texr.raw", TEX_ATLAS_W, QGL_SURF_EMS, 0 );
-    world->tex_shaded = qgl_surf_from_member( "texs.raw", TEX_ATLAS_W, QGL_SURF_EMS, 0 );
+    world->tex_raw    = qgl_surf_from_member( &world->pak, "texr.raw", TEX_ATLAS_W, QGL_SURF_EMS, 0 );
+    world->tex_shaded = qgl_surf_from_member( &world->pak, "texs.raw", TEX_ATLAS_W, QGL_SURF_EMS, 0 );
     if ( !world->tex_raw || !world->tex_shaded ) modtex_fatal( "texture atlas would not load" );
 
     /* texofs.bld is sized to the map's own texture count (mkassets.py:
        ntex*MIPS longs), not to tex_ofs[]'s fixed 256-texture capacity --
-       asset_load demands an exact byte count, so a fixed sizeof() here
+       pak_load demands an exact byte count, so a fixed sizeof() here
        is always wrong except at the one texture count that happens to
-       fill the array. asset_load_whole reads whatever the file holds. */
+       fill the array. pak_load_whole reads whatever the file holds. */
     {
         long n;
-        unsigned char far *ofsbuf = asset_load_whole( "texofs.bld", &n );
+        unsigned char far *ofsbuf = pak_load_whole( &world->pak, "texofs.bld", &n );
         _fmemcpy( world->tex_ofs, ofsbuf, n );
         qglMemFree( (long) ofsbuf );
     }
@@ -202,7 +202,7 @@ PalRgb far * mod_load_textures( World *world, MapCounts *counts )
 
        Still loaded here because vid.c's v_init installs it and frees
        it; nothing in this routine looks at its contents. */
-    pal = (PalRgb far *) asset_load( "pal.raw", 768L );
+    pal = (PalRgb far *) pak_load( &world->pak, "pal.raw", 768L );
 
     return pal;
 }

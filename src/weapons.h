@@ -51,23 +51,14 @@ void pl_spikes_tick( World *world, Player *player, Fight *fight,
 void pl_traps_tick( World *world, Player *player, Fight *fight, Renderer *rdr );
 
 /*
- * name: mdl_damage
- * desc: T_Damage on a monster: its death at 0 -- and a soldier's
- *       backpack -- or its pain, gated by pain_finished, and the player
- *       is now its enemy.
- */
-void mdl_damage( World *world, Player *player, Fight *fight, Renderer *rdr,
-                  MdlEnt far *ent, short dmg );
-
-/*
  * name: mdl_spike / mdl_grenade / mdl_gib
  * desc: The three monster attacks that leave a projectile: the wizard's
  *       spikes, the ogre's grenade and the zombie's gib.
  */
 void mdl_spike( World *world, Player *player, Fight *fight, Renderer *rdr,
                  MdlEnt far *ent );
-void mdl_grenade( Player *player, Fight *fight, Renderer *rdr, MdlEnt far *ent );
-void mdl_gib( Player *player, Fight *fight, Renderer *rdr, MdlEnt far *ent );
+void mdl_grenade( Player *player, Sound *snd, Fight *fight, Renderer *rdr, MdlEnt far *ent );
+void mdl_gib( Player *player, Sound *snd, Fight *fight, Renderer *rdr, MdlEnt far *ent );
 
 /*
  * name: pl_ray_box / pl_spread_dir / pl_nail_free
@@ -78,7 +69,7 @@ void mdl_gib( Player *player, Fight *fight, Renderer *rdr, MdlEnt far *ent );
 float pl_ray_box( BspVec3 *mins, BspVec3 *maxs, BspVec3 *org,
                    BspVec3 *dir, float maxt );
 float mdl_ray_player( BspVec3 *pl, BspVec3 *org, BspVec3 *dir, float maxt );
-void  pl_spread_dir( BspVec3 *dir, float sx, float sy, BspVec3 *out );
+void  pl_spread_dir( Rng *rng, BspVec3 *dir, float sx, float sy, BspVec3 *out );
 short pl_nail_free( Fight *fight );
 
 #endif

@@ -72,7 +72,7 @@ typedef struct {
     short hc_good, hc_warn, hc_bad;
     short hc_text;
 
-    Font font;   /* font_load is fatal on failure (asset_load_whole's own
+    Font font;   /* font_load is fatal on failure (pak_load_whole's own
                     sys_error), so nothing here needs a "did it load" flag
                     -- draw_string et al. can assume a real font once
                     font_load has returned at all */

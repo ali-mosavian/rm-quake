@@ -5,7 +5,7 @@
  *
  * Lights change in the tick and never in a frame, so a -ticks run ends
  * on the same picture at any frame rate. The flicker draws from its own
- * LCG: rand() is the AI's and the weapons', and a light must not move
+ * LCG: World.rng is the AI's and the weapons', and a light must not move
  * their sequences.
  */
 

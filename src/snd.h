@@ -3,7 +3,8 @@
 
 #include "bsptypes.h"
 #include "pl_move.h"
-#include "snd_mix.h"    /* SND_ENT_PLAYER */
+#include "pak.h"
+#include "sound.h"
 
 /*
  * snd.h -- the sound layer: Quake's snd_dma.c without the stereo.
@@ -19,9 +20,9 @@
  */
 
 /* the sounds, in tools/mksnd.py's SOUNDS order -- q_pl.bi's own
-   numbering, and sndtab.raw's. SND_MON + kind * 4 is a monster's
-   four for kinds 0..4, SND_MON2 + (kind - 5) * 4 for the rest. */
-#define SND_COUNT       169
+   numbering, and sndtab.raw's; SND_COUNT is sound.h's. SND_MON + kind * 4
+   is a monster's four for kinds 0..4, SND_MON2 + (kind - 5) * 4 for the
+   rest. */
 #define SND_SHOTGUN     0
 #define SND_SSG         1
 #define SND_NAIL        2
@@ -112,6 +113,9 @@
 #define SND_BOSS_PAIN   166
 #define SND_BOSS_DEATH  167
 #define SND_CRUC_IDLE   168
+#define SND_INV         169   /* the ring taken, fading, its whisper */
+#define SND_INV_END     170
+#define SND_INV_IDLE    171
 
 /* sound()'s attenuations and entity channels, id's numbers */
 #define ATTN_NONE   0
@@ -137,10 +141,10 @@
  *       with no sounds in the container: every call below then returns
  *       at once.
  */
-void snd_init( short off );
+void snd_init( Sound *snd, Pak *pak, short off );
 
 /* room for the map's n static points, before the first snd_ambient */
-void snd_statics( short n );
+void snd_statics( Sound *snd, short n );
 
 /*
  * name: snd_ambient
@@ -148,7 +152,7 @@ void snd_statics( short n );
  *       started with it and looped for good. The mixer re-places it
  *       from the player every frame.
  */
-void snd_ambient( short id, short vol, BspVec3 *org );
+void snd_ambient( Sound *snd, short id, short vol, BspVec3 *org );
 
 /*
  * name: snd_start
@@ -157,11 +161,10 @@ void snd_ambient( short id, short vol, BspVec3 *org );
  *       an entity's channel (not CHAN_AUTO) ends the one there, which is
  *       how a mover's stop ends its looping move.
  */
-void snd_start( Player *player, short ent, short chan, short id, BspVec3 *org, short attn );
+void snd_start( Sound *snd, Player *player, short ent, short chan, short id, BspVec3 *org, short attn );
 
-#define snd_play( player, id, org ) snd_start( player, 0, CHAN_AUTO, id, org, ATTN_NORM )
-#define snd_self( player, chan, id ) \
-    snd_start( player, SND_ENT_PLAYER, chan, id, &(player)->pos, ATTN_NORM )
+void snd_play( Sound *snd, Player *player, short id, BspVec3 *org );
+void snd_self( Sound *snd, Player *player, short chan, short id );
 
 /*
  * name: snd_frame
@@ -170,21 +173,21 @@ void snd_start( Player *player, short ent, short chan, short id, BspVec3 *org, s
  *       frame's real time: it tells one wrap of the ring from two, and
  *       fades the ambients of the leaf the eye is in.
  */
-void snd_frame( World *world, Player *player, float dt );
+void snd_frame( Sound *snd, World *world, Player *player, float dt );
 
-void snd_shutdown( void );
+void snd_shutdown( Sound *snd );
 
 /* -sndsum's: every sound decoded through the mixer's own fetch and
    summed. See snd_mix.h. */
-unsigned long snd_sum( void );
+unsigned long snd_sum( Sound *snd );
 
 /* for bench.txt: sounds started, ambients looping, and the frames that
    found the DMA past what had been painted */
-void snd_stats( short *started, short *loops, short *under );
+void snd_stats( const Sound *snd, short *started, short *loops, short *under );
 
 /* the run's sound record, one line: every id started as a bitmap in hex,
    the ids on the dynamic channels now, loop wraps, the leaf ambients'
    volumes and the statics */
-void snd_report( char *buf );
+void snd_report( const Sound *snd, char *buf );
 
 #endif

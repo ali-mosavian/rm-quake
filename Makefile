@@ -69,7 +69,7 @@ EXE  := $(BUILD)/QCPORT.EXE
 # ONE file per map: <map>.qmp carries every lump, both atlases, the
 # palette, the font and the colormap, and the run takes its name.
 DATA_SRC := $(CURDIR)/data/assets
-DATA     := dm3ish.qmp
+DATA     := $(basename $(MAP)).qmp
 # stuff.ini is read by name out of the working directory -- it is the
 # run's configuration, not the map's, and config.c opens it with plain
 # fopen.
@@ -129,22 +129,31 @@ $(EXE): $(OBJS)
 # dm3ish: assets.zip for qgl's suite, dm3ish.qmp for the gates.
 ASSETS     := data/assets/assets.zip
 MAP_ASSETS := $(if $(wildcard $(PAK)),$(foreach m,$(MAPS),data/maps/$(m)/assets.zip))
-MKASSETS   := tools/mkassets.py tools/mkportals.py tools/mksnd.py tools/texquant.py tools/fsdither.c
+MKASSETS   := tools/mkassets.py tools/mkportals.py tools/mksnd.py tools/texquant.py tools/fsdither.c \
+              tools/mkmdl.py tools/mkgfx.py tools/mdlview.py
 
 assets: $(ASSETS)               ## dm3ish's assets and .qmp
 maps: $(MAP_ASSETS)             ## e1m1..e1m8 and start, a .qmp each
 
+# the .qmp is written by the same run: without this the build copied one
+# older than mkassets.py
+$(DATA_SRC)/$(DATA): $(ASSETS) ;
+
 $(ASSETS): data/$(MAP) data/base.dat $(MKASSETS)
-	@python3 tools/mkassets.py data/$(MAP) data/base.dat data/assets $(or $(SKILL),0) $(PAK)
+	@python3 tools/mkassets.py data/$(MAP) data/base.dat data/assets $(PAK)
 
 $(foreach m,$(MAPS),data/$(m).bsp): data/%.bsp: $(PAK) tools/pakget.py
 	@python3 tools/pakget.py $(PAK) maps/$*.bsp $@
 
 data/maps/%/assets.zip: data/%.bsp data/base.dat $(MKASSETS)
-	@python3 tools/mkassets.py data/$*.bsp data/base.dat data/maps/$* $(or $(SKILL),0) $(PAK)
+	@python3 tools/mkassets.py data/$*.bsp data/base.dat data/maps/$* $(PAK)
 
-test:                           ## header deps, then qgl's suite, native; needs `make assets`
+test:                           ## header deps, far-to-near pointers, then qgl's suite, native; needs `make assets`
 	@tools/depcheck.sh
+	@tools/test-assetdeps.sh
+	@python3 tools/farnear.py
+	@tools/test-x87cmp.sh
+	@tools/test-bufcheck.sh
 	@$(MAKE) --no-print-directory -C qgl/test
 
 run: $(EXE)                     ## headless run; cport.txt/cstep.txt land in $(BUILD)

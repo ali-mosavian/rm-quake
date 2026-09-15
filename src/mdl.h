@@ -1,6 +1,8 @@
 #ifndef __MDL_H__
 #define __MDL_H__
 
+
+#include "pak.h"
 #include "world.h"
 #include "mdltypes.h"
 
@@ -9,10 +11,11 @@
  * d_mdl.bas's MdlState/MdlEnt, minus the AI, which is not ported yet:
  * a monster here stands where the map put it, facing the map's way.
  *
- * The model's vertices live in EMS, one page for all its frames and a
- * second for its triangles -- 32K of an EMS handle, nothing in the far
- * heap. That is what decides the frame count: the dog's 236 vertices
- * leave room for 23 frames, the soldier's 170 for 32.
+ * The model's vertices live in EMS, whole frames to a 16K page over as
+ * many pages as the frames take, and its triangles on the page after --
+ * nothing in the far heap. mkmdl.py writes the page count and the frames
+ * a page into the .geo header, so neither the loader nor the fetch
+ * derives the layout.
  */
 /*
  * name: mdl_load
@@ -20,7 +23,19 @@
  *       m->loaded 0 and says why on stderr if the model will not fit
  *       or is not there.
  */
-void mdl_load( MdlState *m, char *name );
+void mdl_load( Pak *pak, MdlState *m, char *name );
+
+/* A frame's nvert*3 vertex bytes, mapped through slot. The one place
+   that knows the layout: the draw and -mdlsum both fetch through it. */
+unsigned char far *mdl_frame_verts( const MdlState *m, short frame, short slot );
+
+/* The triangles, on the page after the last vertex page. */
+MdlTri far *mdl_tris( const MdlState *m, short slot );
+
+/* -mdlsum: "mdl_sum <name> <frames> <pages> <sum>" on E9 for every
+   loaded model, each frame through mdl_frame_verts, every byte weighted
+   by (its index in the frame-major stream % 251) + 1. */
+void mdl_report_sums( World *world );
 
 /*
  * name: mdl_load_monsters

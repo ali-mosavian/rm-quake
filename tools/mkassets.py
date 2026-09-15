@@ -16,6 +16,7 @@ import hashlib
 import struct, sys, os, math
 import re
 import zlib
+from collections.abc import Callable
 from dataclasses import dataclass
 from dataclasses import field
 
@@ -175,7 +176,8 @@ def build_models(pak: str, kinds: set[int], tmp: str) -> dict[str, bytes]:
     return out
 
 
-ENTS_HEAD  = '<4f3fff13hf8shh'   # ent.h's EntsHead; the monsters follow it
+SKILLS     = 4   # easy, normal, hard, nightmare: an ents<N>.bin each
+ENTS_HEAD  = '<4f3fff13hfhh3ffh'   # ent.h's EntsHead; the monsters follow it
 ENTS_MON   = '<h3ffhh'           # ent.h's EntsMon
 
 QMAP_VER   = 1
@@ -186,7 +188,7 @@ QMAP_ALIGN = 16
 
 
 def write_qmap(path: str, name: str, bsp: bytes, members: dict[str, bytes]) -> None:
-    # src/assets.h's QMAP_MAX: the runtime reads the directory into
+    # src/pak.h's QMAP_MAX: the runtime reads the directory into
     # a fixed array and is fatal past it, which is a dead run rather
     # than a bad build unless this says so here.
     if len(members) > 80:
@@ -638,6 +640,8 @@ TRIG_ONCE, TRIG_MULTI, TRIG_COUNTER, TRIG_BUTTON, TRIG_EXIT, TRIG_SHOOT, TRIG_SE
 TRIG_SHOOTER = 7
 TRIG_RELAY, TRIG_BOSS, TRIG_BOLT = 8, 9, 10   # a use passed on; Chthon, unseen; event_lightning
 TRIG_FIREBALL = 11   # misc_fireball: a lava ball up from its origin every 3 to 8 seconds
+TRIG_MJUMP = 12   # trigger_monsterjump
+TRIG_SKILL = 13   # trigger_setskill
 KEY_NAMES = ('key', 'runekey', 'keycard')   # items.qc's netname by worldtype
 
 
@@ -731,6 +735,8 @@ def crate_name(classname: str, amount: int) -> str | None:
         case 'item_spikes', _: return 'b_nail0'
         case 'item_rockets', 10: return 'b_rock1'
         case 'item_rockets', _: return 'b_rock0'
+        case 'item_cells', 12: return 'b_batt1'
+        case 'item_cells', _: return 'b_batt0'
         case 'misc_explobox', _: return 'b_explob'
         case _: return None
 
@@ -767,310 +773,522 @@ class CrateSet:
         return [(b, o) for _, b, o in self.tex]
 
 
-def parse_entities(text: str, nmodels: int, boxes: list[tuple[float, ...]], skill: int, gravity: float,
-                   crates: CrateSet) -> bytes:
+MON_KIND = {'monster_army': 0, 'monster_knight': 1, 'monster_dog': 2, 'monster_ogre': 3, 'monster_demon1': 4,
+            'monster_zombie': 5, 'monster_wizard': 6, 'monster_shambler': 7}   # MDL_KIND_*; no model for the rest
+ITEM_KIND = {'item_health': 0, 'item_shells': 1, 'item_armor1': 2, 'item_armor2': 3,
+             'weapon_supershotgun': 4, 'item_spikes': 5, 'weapon_nailgun': 6,
+             'item_artifact_super_damage': 7, 'item_artifact_envirosuit': 8, 'misc_explobox': 9,
+             'item_key1': 10, 'item_key2': 11, 'weapon_grenadelauncher': 12, 'item_rockets': 13,
+             'weapon_supernailgun': 14, 'weapon_rocketlauncher': 15,
+             'item_artifact_invulnerability': 16, 'item_sigil': 17, 'item_armorInv': 18, 'item_cells': 19,
+             'item_artifact_invisibility': 20}
+# misc.qc's ambientsound calls: the wav and its volume, ATTN_STATIC
+AMB_KIND = {'ambient_comp_hum': ('ambience/comp1', 1.0), 'ambient_drone': ('ambience/drone6', 0.5),
+            'ambient_drip': ('ambience/drip1', 0.5), 'ambient_swamp1': ('ambience/swamp1', 0.5),
+            'ambient_swamp2': ('ambience/swamp2', 0.5),
+            # FireAmbient, and light_fluoro's and light_fluorospark's own
+            'light_torch_small_walltorch': ('ambience/fire1', 0.5),
+            'light_flame_large_yellow': ('ambience/fire1', 0.5),
+            'light_flame_small_yellow': ('ambience/fire1', 0.5),
+            'light_flame_small_white': ('ambience/fire1', 0.5),
+            'light_fluoro': ('ambience/fl_hum1', 0.5), 'light_fluorospark': ('ambience/buzz1', 0.5)}
+
+
+@dataclass(slots=True)
+class Ents:
+    # What parse_entities gathers, in the map's entity order. The spawn
+    # functions append to it, which is why they are not pure: the order is
+    # the file's, and ids, crate numbers and the bolt doors' indices follow it.
+    nmodels: int
+    boxes: list[tuple[float, ...]]
+    skill: int
+    crates: CrateSet
+    spawn: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    title: str = ''
+    worldtype: int = 0
+    angle: float = 0.0
+    spawn2: tuple[float, float, float] | None = None   # info_player_start2
+    angle2: float = 0.0
+    inter: tuple[tuple[float, float, float], float, float] | None = None   # origin, pitch, yaw
+    dests: dict[str, tuple[tuple[float, float, float], float]] = field(default_factory=dict)
+    trigs: list[tuple[str, int, int, int]] = field(default_factory=list)   # target, model, targetname id, PLAYER_ONLY
+    hides: list[int] = field(default_factory=list)
+    gates: list[tuple[int, int, int]] = field(default_factory=list)   # model, 1 the boss gate, rune bits
+    bolt_doors: list[int] = field(default_factory=list)   # the electrode doors, target "lightning"
+    plats: list[tuple] = field(default_factory=list)
+    doors: list[tuple] = field(default_factory=list)
+    items: list[tuple] = field(default_factory=list)
+    uses: list[tuple] = field(default_factory=list)
+    names: dict[str, int] = field(default_factory=dict)
+    mons: list[tuple] = field(default_factory=list)
+    ambs: list[tuple[int, int, tuple[float, float, float]]] = field(default_factory=list)
+    # targetname, origin, wait, target
+    corners: list[tuple[str, tuple[float, float, float], float, str]] = field(default_factory=list)
+    trains: list[tuple] = field(default_factory=list)   # model, speed, targetname id, first corner, sounds
+    lights: list[tuple[int, int, int]] = field(default_factory=list)   # targetname id, style, starts on
+
+
+def ent_vec(v: str) -> tuple[float, float, float]:
+    x, y, z = (float(t) for t in v.split())
+    return (x, y, z)
+
+
+def ent_item_amount(classname: str, flags: int) -> int:
+    # items.qc: H_ROTTEN 15, H_MEGA 100, else 25; WEAPON_BIG2 40 shells,
+    # else 20; armor_touch's 100 green, 150 yellow, 200 red; weapon_touch's
+    # 5 shells with the super shotgun, 30 nails with either nailgun and
+    # 5 rockets with either launcher; item_rockets 5, WEAPON_BIG2 10;
+    # item_spikes 25, WEAPON_BIG2 50; a powerup's 30 seconds; the
+    # exploding box's 20 health
+    match classname, flags & 1, flags & 2:
+        case 'item_sigil', _, _: return flags & 15   # sigil_touch's serverflags bits
+        case ('item_artifact_super_damage' | 'item_artifact_envirosuit' | 'item_artifact_invulnerability'
+              | 'item_artifact_invisibility'), _, _:
+            return 30
+        case 'misc_explobox', _, _: return 20
+        case 'weapon_supershotgun', _, _: return 5
+        case 'weapon_nailgun', _, _: return 30
+        case 'weapon_grenadelauncher' | 'weapon_rocketlauncher', _, _: return 5
+        case 'weapon_supernailgun', _, _: return 30
+        case 'item_rockets', 1, _: return 10
+        case 'item_rockets', _, _: return 5
+        case 'item_spikes', 1, _: return 50
+        case 'item_spikes', _, _: return 25
+        case 'item_cells', 1, _: return 12
+        case 'item_cells', _, _: return 6
+        case 'item_armor1', _, _: return 100
+        case 'item_armor2', _, _: return 150
+        case 'item_armorInv', _, _: return 200
+        case 'item_health', 1, _: return 15
+        case 'item_health', _, 2: return 100
+        case 'item_health', _, _: return 25
+        case _, 1, _: return 40
+        case _: return 20
+
+
+def ent_name_id(e: Ents, s: str) -> int:
+    # targetnames become ids; 0 is none
+    return e.names.setdefault(s, len(e.names) + 1) if s else 0
+
+
+def ent_msg(kv: dict[str, str]) -> bytes:
+    # the first line: a map's newline is a literal backslash-n, and the
+    # overlay draws one line of 40; only start's registered notice has more
+    return kv.get('message', '').split('\\n')[0][:40].encode('latin1').ljust(40)
+
+
+def ent_movedir(angle: float) -> tuple[float, float, float]:
+    # SetMovedir: angle -1 up, -2 down, anything else a heading
+    match angle:
+        case -1.0: return (0.0, 0.0, 1.0)
+        case -2.0: return (0.0, 0.0, -1.0)
+        case _: return (math.cos(math.radians(angle)), math.sin(math.radians(angle)), 0.0)
+
+
+def ent_travel(angle: float, box: tuple[float, ...], lip: float) -> tuple[float, float, float]:
+    # the brush moves its size along its movedir, less the lip
+    mdir = ent_movedir(angle)
+    size = [box[k + 3] - box[k] for k in range(3)]
+    dist = max(sum(abs(mdir[k]) * size[k] for k in range(3)) - lip, 0.0)
+    return (mdir[0] * dist, mdir[1] * dist, mdir[2] * dist)
+
+
+def ent_model(e: Ents, v: str) -> int:
+    m = int(v[1:]) if v.startswith('*') and v[1:].isdigit() else 0
+    return m if 0 < m < e.nmodels else 0
+
+
+def ent_door(e: Ents, m: int, kv: dict[str, str], box: tuple[float, ...]) -> tuple:
+    # func_door: speed 100, wait 3, lip 8 unless the map says
+    speed = float(kv.get('speed', '0')) or 100.0
+    hold = float(kv.get('wait', '0')) or 3.0
+    lip = float(kv.get('lip', '0')) or 8.0
+    flags = int(kv.get('spawnflags', '0'))
+    travel = ent_travel(float(kv.get('angle', '0')), box, lip)
+    # DOOR_SILVER_KEY 16, DOOR_GOLD_KEY 8: door_touch's "You need the
+    # silver key" stands in for a message the map does not give
+    key = 1 if flags & 16 else 2 if flags & 8 else 0
+    msg = ent_msg(kv)
+    if key and not kv.get('message'):
+        msg = f"You need the {'silver' if key == 1 else 'gold'} {KEY_NAMES[e.worldtype]}".encode('latin1').ljust(40)
+    return (m, travel, (0.0, 0.0, 0.0), speed, hold, 1 if flags & 1 else 0, 1 if flags & 4 else 0,
+            ent_name_id(e, kv.get('targetname', '')), 0, 0, int(kv.get('sounds', '0')), key, msg)
+
+
+def ent_secret(e: Ents, m: int, kv: dict[str, str], box: tuple[float, ...]) -> tuple:
+    # func_door_secret, fd_secret_use: back t_width along v_right (or
+    # down), then t_length along v_forward; speed 50, wait 5, open_once
+    # stays; shot open unless named, or no_shoot, or always_shoot
+    flags = int(kv.get('spawnflags', '0'))
+    yaw = math.radians(float(kv.get('angle', '0')))
+    fwd = (math.cos(yaw), math.sin(yaw), 0.0)
+    right = (math.sin(yaw), -math.cos(yaw), 0.0)
+    size = [box[k + 3] - box[k] for k in range(3)]
+    width = float(kv.get('t_width', '0')) or (size[2] if flags & 4 else abs(sum(right[k] * size[k] for k in range(3))))
+    length = float(kv.get('t_length', '0')) or abs(sum(fwd[k] * size[k] for k in range(3)))
+    temp = 1.0 - (flags & 2)
+    mid = (0.0, 0.0, -width) if flags & 4 else tuple(right[k] * width * temp for k in range(3))
+    travel = tuple(mid[k] + fwd[k] * length for k in range(3))
+    speed = float(kv.get('speed', '0')) or 50.0
+    hold = -1.0 if flags & 1 else (float(kv.get('wait', '0')) or 5.0)
+    name = ent_name_id(e, kv.get('targetname', ''))
+    shoot = 0 if flags & 8 else (1 if not name or flags & 16 else 0)
+    return (m, travel, mid, speed, hold, 0, 1, name, 1, shoot, int(kv.get('sounds', '0')) or 3, 0, ent_msg(kv))
+
+
+def ent_trig(e: Ents, m: int, kv: dict[str, str]) -> tuple:
+    # trigger_once is a multiple with wait -1; a multiple re-arms after
+    # wait, 0.2 unless the map says; a counter fires at count, 2
+    match kv['classname']:
+        case 'trigger_secret': kind, wait, count = TRIG_SECRET, -1.0, 0
+        case 'trigger_once': kind, wait, count = TRIG_ONCE, -1.0, 0
+        case 'trigger_multiple': kind, wait, count = TRIG_MULTI, float(kv.get('wait', '0')) or 0.2, 0
+        case _: kind, wait, count = TRIG_COUNTER, -1.0, int(kv.get('count', '0')) or 2
+    if int(kv.get('health', '0')) > 0:
+        kind = TRIG_SHOOT   # multi_killed: shot, not touched; wait as above
+    msg = ent_msg(kv)
+    snd = int(kv.get('sounds', '0'))
+    if kind == TRIG_SECRET:
+        snd = snd or 1
+        if not kv.get('message'):
+            msg = b'You found a secret area!'.ljust(40)
+    # delay: SUB_UseTargets' DelayThink, seconds before the target fires
+    return (m, kind, ent_name_id(e, kv.get('target', '')), ent_name_id(e, kv.get('targetname', '')),
+            ent_name_id(e, kv.get('killtarget', '')), count, wait, 0.0, (0.0, 0.0, 0.0), snd, msg,
+            (0.0, 0.0, 0.0), float(kv.get('delay', '0')))
+
+
+def ent_button(e: Ents, m: int, kv: dict[str, str], box: tuple[float, ...]) -> tuple:
+    # func_button: speed 40, wait 1, lip 4; wait -1 stays pressed
+    speed = float(kv.get('speed', '0')) or 40.0
+    wait = float(kv.get('wait', '0')) or 1.0
+    lip = float(kv.get('lip', '0')) or 4.0
+    travel = ent_travel(float(kv.get('angle', '0')), box, lip)
+    return (m, TRIG_BUTTON, ent_name_id(e, kv.get('target', '')), ent_name_id(e, kv.get('targetname', '')),
+            ent_name_id(e, kv.get('killtarget', '')), 0, wait, speed, travel, int(kv.get('sounds', '0')), ent_msg(kv))
+
+
+# The spawn functions: each returns False where it declines the entity -- no
+# brush, a second intermission, a light under style 32, an onlyregistered with no
+# message -- and ent_spawn then
+# tries what a declined classname can still be.
+
+def sp_worldspawn(e: Ents, kv: dict[str, str]) -> bool:
+    e.title = kv.get('message', '')
+    e.worldtype = int(kv.get('worldtype', '0') or 0)
+    return True
+
+
+def sp_player_start(e: Ents, kv: dict[str, str]) -> bool:
+    e.spawn = ent_vec(kv.get('origin', '0 0 0'))
+    e.angle = float(kv.get('angle', '0'))
+    return True
+
+
+def sp_player_start2(e: Ents, kv: dict[str, str]) -> bool:
+    e.spawn2 = ent_vec(kv.get('origin', '0 0 0'))
+    e.angle2 = float(kv.get('angle', '0'))
+    return True
+
+
+def sp_intermission(e: Ents, kv: dict[str, str]) -> bool:
+    # FindIntermission picks one at random; the first is as good
+    if e.inter is not None:
+        return False
+    mangle = ent_vec(kv.get('mangle', '0 0 0'))
+    e.inter = (ent_vec(kv.get('origin', '0 0 0')), mangle[0], mangle[1])
+    return True
+
+
+def sp_teleport_dest(e: Ents, kv: dict[str, str]) -> bool:
+    e.dests[kv.get('targetname', '')] = (ent_vec(kv.get('origin', '0 0 0')), float(kv.get('angle', '0')))
+    return True
+
+
+def sp_teleport(e: Ents, kv: dict[str, str]) -> bool:
+    if not (m := ent_model(e, kv.get('model', ''))):
+        return False
+    e.trigs.append((kv.get('target', ''), m, ent_name_id(e, kv.get('targetname', '')),
+                    int(kv.get('spawnflags', '0')) & 1))
+    e.hides.append(m)
+    return True
+
+
+def sp_trigger(e: Ents, kv: dict[str, str]) -> bool:
+    # trigger_once, trigger_multiple, trigger_secret
+    if not (m := ent_model(e, kv.get('model', ''))):
+        return False
+    e.hides.append(m)
+    e.uses.append(ent_trig(e, m, kv))
+    return True
+
+
+def sp_counter(e: Ents, kv: dict[str, str]) -> bool:
+    if m := ent_model(e, kv.get('model', '')):
+        e.hides.append(m)
+    e.uses.append(ent_trig(e, m, kv))
+    return True
+
+
+def sp_spikeshooter(e: Ents, kv: dict[str, str]) -> bool:
+    # spikeshooter_use: a spike along movedir at 500 when used;
+    # SUPERSPIKE (1) bites 18 for 9. wait carries the damage
+    e.uses.append((0, TRIG_SHOOTER, 0, ent_name_id(e, kv.get('targetname', '')), 0,
+                   18 if int(kv.get('spawnflags', '0')) & 1 else 9, 0.0, 500.0,
+                   ent_movedir(float(kv.get('angle', '0'))), 0, b''.ljust(40), ent_vec(kv.get('origin', '0 0 0'))))
+    return True
+
+
+def sp_changelevel(e: Ents, kv: dict[str, str]) -> bool:
+    # the level ends here; its message is the map's title
+    if not (m := ent_model(e, kv.get('model', ''))):
+        return False
+    e.hides.append(m)
+    # count carries the trigger's own map, a message id once packed: one next_map a
+    # file kept the last read, and e1m4's main exit led to e1m8
+    e.uses.append((m, TRIG_EXIT, 0, 0, 0, kv.get('map', '')[:40].encode('latin1').ljust(40), -1.0, 0.0,
+                   (0.0, 0.0, 0.0), 0, e.title[:40].encode('latin1').ljust(40)))
+    return True
+
+
+def sp_button(e: Ents, kv: dict[str, str]) -> bool:
+    if not (m := ent_model(e, kv.get('model', ''))):
+        return False
+    e.uses.append(ent_button(e, m, kv, e.boxes[m]))
+    return True
+
+
+def sp_fireball(e: Ents, kv: dict[str, str]) -> bool:
+    # speed as the map gives it: id's default is `self.speed == 1000`,
+    # a compare, so an unset one leaves 0 and the ball rises 0..200
+    e.uses.append((0, TRIG_FIREBALL, 0, 0, 0, 0, 0.0, float(kv.get('speed', '0')),
+                   (0.0, 0.0, 0.0), 0, b''.ljust(40), ent_vec(kv.get('origin', '0 0 0'))))
+    return True
+
+
+def sp_monsterjump(e: Ents, kv: dict[str, str]) -> bool:
+    # a walking monster in it takes movedir * speed, and height up from the ground;
+    # travel carries that velocity
+    if not (m := ent_model(e, kv.get('model', ''))):
+        return False
+    e.hides.append(m)
+    speed, height = float(kv.get('speed', '0')) or 200.0, float(kv.get('height', '0')) or 200.0
+    dx, dy, _ = ent_movedir(float(kv.get('angle', '0')))
+    e.uses.append((m, TRIG_MJUMP, 0, 0, 0, 0, 0.0, 0.0, (dx * speed, dy * speed, height), 0, b''.ljust(40)))
+    return True
+
+
+def sp_setskill(e: Ents, kv: dict[str, str]) -> bool:
+    # trigger_skill_touch: the skill cvar on every touch, which the next map loads by
+    if not (m := ent_model(e, kv.get('model', ''))):
+        return False
+    e.hides.append(m)
+    skill = min(max(int(float(kv.get('message', '0') or '0')), 0), SKILLS - 1)
+    e.uses.append((m, TRIG_SKILL, 0, 0, 0, skill, 0.0, 0.0, (0.0, 0.0, 0.0), 0, b''.ljust(40)))
+    return True
+
+
+def sp_relay(e: Ents, kv: dict[str, str]) -> bool:
+    # SUB_UseTargets passed on, at once: delay is not ported
+    e.uses.append((0, TRIG_RELAY, ent_name_id(e, kv.get('target', '')), ent_name_id(e, kv.get('targetname', '')),
+                   ent_name_id(e, kv.get('killtarget', '')), 0, 0.0, 0.0, (0.0, 0.0, 0.0), 0, ent_msg(kv)))
+    return True
+
+
+def sp_boss(e: Ents, kv: dict[str, str]) -> bool:
+    # Chthon, unseen (boss.mdl is past MDL_MAXV): the rune wakes him, his
+    # health boss_awake's 1 on easy else 3, a bolt a point, dead his target fires
+    e.uses.append((0, TRIG_BOSS, ent_name_id(e, kv.get('target', '')), ent_name_id(e, kv.get('targetname', '')),
+                   0, 1 if e.skill == 0 else 3, 0.0, 0.0, (0.0, 0.0, 0.0), 0, b''.ljust(40),
+                   ent_vec(kv.get('origin', '0 0 0'))))
+    return True
+
+
+def sp_lightning(e: Ents, kv: dict[str, str]) -> bool:
+    # lightning_use: a point off Chthon with both electrode doors up; travel
+    # carries the doors' indices, patched once every door is read
+    e.uses.append((0, TRIG_BOLT, 0, ent_name_id(e, kv.get('targetname', '')),
+                   0, 0, 0.0, 0.0, (0.0, 0.0, 0.0), 0, b''.ljust(40), ent_vec(kv.get('origin', '0 0 0'))))
+    return True
+
+
+def sp_onlyregistered(e: Ents, kv: dict[str, str]) -> bool:
+    # OnlyRegisteredTouch on the shareware: the message and misc/talk
+    # every two seconds, its target never fired -- a multiple with no target
+    if not ((m := ent_model(e, kv.get('model', ''))) and kv.get('message')):
+        return False
+    e.hides.append(m)
+    e.uses.append(ent_trig(e, m, {'classname': 'trigger_multiple', 'message': kv['message'], 'wait': '2'}))
+    return True
+
+
+def sp_episodegate(e: Ents, kv: dict[str, str]) -> bool:
+    # misc.qc: there for its rune held, so the runtime decides
+    if not (m := ent_model(e, kv.get('model', ''))):
+        return False
+    e.gates.append((m, 0, int(kv.get('spawnflags', '0')) & 15))
+    return True
+
+
+def sp_bossgate(e: Ents, kv: dict[str, str]) -> bool:
+    # there until all four are held
+    if not (m := ent_model(e, kv.get('model', ''))):
+        return False
+    e.gates.append((m, 1, 15))
+    return True
+
+
+def sp_door(e: Ents, kv: dict[str, str]) -> bool:
+    if not (m := ent_model(e, kv.get('model', ''))):
+        return False
+    if kv.get('target') == 'lightning':
+        e.bolt_doors.append(len(e.doors))
+    e.doors.append(ent_door(e, m, kv, e.boxes[m]))
+    return True
+
+
+def sp_door_secret(e: Ents, kv: dict[str, str]) -> bool:
+    if not (m := ent_model(e, kv.get('model', ''))):
+        return False
+    e.doors.append(ent_secret(e, m, kv, e.boxes[m]))
+    return True
+
+
+def sp_light(e: Ents, kv: dict[str, str]) -> bool:
+    # light_use toggles its style between "m" and "a", START_OFF (1)
+    # starting it "a"; a plain light with no targetname is removed
+    # before it sets anything
+    if int(kv.get('style', '0') or 0) < 32:
+        return False
+    if kv.get('targetname') or kv['classname'] == 'light_fluoro':
+        e.lights.append((ent_name_id(e, kv.get('targetname', '')), int(kv['style']),
+                         0 if int(kv.get('spawnflags', '0')) & 1 else 1))
+    if kv['classname'] == 'light_fluoro':
+        e.ambs.append((mksnd.SOUNDS.index('ambience/fl_hum1'), 127, ent_vec(kv.get('origin', '0 0 0'))))
+    return True
+
+
+def sp_corner(e: Ents, kv: dict[str, str]) -> bool:
+    e.corners.append((kv.get('targetname', ''), ent_vec(kv.get('origin', '0 0 0')), float(kv.get('wait', '0')),
+                      kv.get('target', '')))
+    return True
+
+
+def sp_train(e: Ents, kv: dict[str, str]) -> bool:
+    # func_train: speed 100; a targetname waits for its trigger
+    if not (m := ent_model(e, kv.get('model', ''))):
+        return False
+    e.trains.append((m, float(kv.get('speed', '0')) or 100.0, ent_name_id(e, kv.get('targetname', '')),
+                     kv.get('target', ''), int(kv.get('sounds', '0') or 0)))
+    return True
+
+
+def sp_plat(e: Ents, kv: dict[str, str]) -> bool:
+    # sounds 0 is 2, medplat
+    if not (m := ent_model(e, kv.get('model', ''))):
+        return False
+    e.plats.append((m, float(kv.get('speed', '0')), float(kv.get('height', '0')),
+                    int(kv.get('sounds', '0') or 0) or 2))
+    return True
+
+
+SPAWN: dict[str, Callable[[Ents, dict[str, str]], bool]] = {
+    'worldspawn': sp_worldspawn,
+    'info_player_start': sp_player_start,
+    'info_player_start2': sp_player_start2,
+    'info_intermission': sp_intermission,
+    'info_teleport_destination': sp_teleport_dest,
+    'trigger_teleport': sp_teleport,
+    'trigger_once': sp_trigger,
+    'trigger_multiple': sp_trigger,
+    'trigger_secret': sp_trigger,
+    'trigger_counter': sp_counter,
+    'trap_spikeshooter': sp_spikeshooter,
+    'trigger_changelevel': sp_changelevel,
+    'func_button': sp_button,
+    'misc_fireball': sp_fireball,
+    'trigger_monsterjump': sp_monsterjump,
+    'trigger_setskill': sp_setskill,
+    'trigger_relay': sp_relay,
+    'monster_boss': sp_boss,
+    'event_lightning': sp_lightning,
+    'trigger_onlyregistered': sp_onlyregistered,
+    'func_episodegate': sp_episodegate,
+    'func_bossgate': sp_bossgate,
+    'func_door': sp_door,
+    'func_door_secret': sp_door_secret,
+    'light': sp_light,
+    'light_fluoro': sp_light,
+    'path_corner': sp_corner,
+    'func_train': sp_train,
+    'func_plat': sp_plat,
+}
+
+
+def ent_spawn(e: Ents, kv: dict[str, str]) -> None:
+    # ED_FindFunction: the classname's spawn function, and for one it has
+    # not or one that declined, the kinds a classname can still name
+    c = kv.get('classname')
+    if c is None:
+        return
+    if (fn := SPAWN.get(c)) and fn(e, kv):
+        return
+    m = ent_model(e, kv.get('model', ''))
+    match c:
+        case str() if c.startswith('trigger_') and m:
+            # any trigger's brush is a volume: e1m1 drew its changelevel
+            # as a column of the "trigger" texture
+            e.hides.append(m)
+        case str() if c in MON_KIND:
+            # SPAWN_CRUCIFIED: a zombie nailed up, never walkmonster_start
+            e.mons.append((MON_KIND[c], ent_vec(kv.get('origin', '0 0 0')), float(kv.get('angle', '0')),
+                           kv.get('target', ''), int(kv.get('spawnflags', '0')) & 1 if c == 'monster_zombie' else 0))
+        case str() if c in ITEM_KIND:
+            amount = ent_item_amount(c, int(kv.get('spawnflags', '0')))
+            e.items.append((ITEM_KIND[c], amount, ent_name_id(e, kv.get('target', '')),
+                            e.crates.crate(crate_name(c, amount)), ent_vec(kv.get('origin', '0 0 0'))))
+        case str() if c in AMB_KIND:
+            wav, fvol = AMB_KIND[c]
+            e.ambs.append((mksnd.SOUNDS.index(wav), int(255 * fvol), ent_vec(kv.get('origin', '0 0 0'))))
+
+
+def spawn_entities(text: str, nmodels: int, boxes: list[tuple[float, ...]], skill: int,
+                   crates: CrateSet) -> Ents:
     # Resolved here, not on the target: BASIC strings cap at 32,767 bytes
     # and e1m3's entities lump is 45,762 -- mod_find_spawn died at error 5
     # before anything else could. The renderer wants four facts out of the
     # text, so those are what ships: spawn, matched teleporter pairs,
     # func_plats, func_doors, what fires them, the monsters, and which
     # submodels a trigger hides. Layout must match the Ents* types in q_ent.bi.
-    spawn: tuple[float, float, float] = (0.0, 0.0, 0.0)
-    title = ''
-    worldtype = 0
-    angle = 0.0
-    inter: tuple[tuple[float, float, float], float, float] | None = None   # origin, pitch, yaw
-    next_map = ''
-    dests: dict[str, tuple[tuple[float, float, float], float]] = {}
-    trigs: list[tuple[str, int, int, int]] = []   # target, model, targetname id, PLAYER_ONLY
-    hides: list[int] = []
-    bolt_doors: list[int] = []   # the electrode doors, target "lightning"
-    plats: list[tuple[int, float, float]] = []
-    doors: list[tuple[int, tuple[float, float, float], float, float, int, int, int]] = []
-    items: list[tuple[int, int, tuple[float, float, float]]] = []
-    uses: list[tuple] = []
-    names: dict[str, int] = {}
-    mons: list[tuple[int, tuple[float, float, float], float]] = []
-    ambs: list[tuple[int, int, tuple[float, float, float]]] = []
-    corners: list[tuple[str, tuple[float, float, float], float, str]] = []   # targetname, origin, wait, target
-    trains: list[tuple[int, float, int, str]] = []                           # model, speed, targetname id, first corner
-    # misc.qc's ambientsound calls: the wav and its volume, ATTN_STATIC
-    amb_kind = {'ambient_comp_hum': ('ambience/comp1', 1.0), 'ambient_drone': ('ambience/drone6', 0.5),
-                'ambient_drip': ('ambience/drip1', 0.5), 'ambient_swamp1': ('ambience/swamp1', 0.5),
-                'ambient_swamp2': ('ambience/swamp2', 0.5),
-                # FireAmbient, and light_fluoro's and light_fluorospark's own
-                'light_torch_small_walltorch': ('ambience/fire1', 0.5),
-                'light_flame_large_yellow': ('ambience/fire1', 0.5),
-                'light_flame_small_yellow': ('ambience/fire1', 0.5),
-                'light_flame_small_white': ('ambience/fire1', 0.5),
-                'light_fluoro': ('ambience/fl_hum1', 0.5), 'light_fluorospark': ('ambience/buzz1', 0.5)}
-    mon_kind = {'monster_army': 0, 'monster_knight': 1, 'monster_dog': 2, 'monster_ogre': 3, 'monster_demon1': 4,
-                'monster_zombie': 5, 'monster_wizard': 6, 'monster_shambler': 7}   # MDL_KIND_*; no model for the rest
-    item_kind = {'item_health': 0, 'item_shells': 1, 'item_armor1': 2, 'item_armor2': 3,
-                 'weapon_supershotgun': 4, 'item_spikes': 5, 'weapon_nailgun': 6,
-                 'item_artifact_super_damage': 7, 'item_artifact_envirosuit': 8, 'misc_explobox': 9,
-                 'item_key1': 10, 'item_key2': 11, 'weapon_grenadelauncher': 12, 'item_rockets': 13,
-                 'weapon_supernailgun': 14, 'weapon_rocketlauncher': 15,
-                 'item_artifact_invulnerability': 16, 'item_sigil': 17}
-
-    def vec(v: str) -> tuple[float, float, float]:
-        x, y, z = (float(t) for t in v.split())
-        return (x, y, z)
-
-    def item_amount(classname: str, flags: int) -> int:
-        # items.qc: H_ROTTEN 15, H_MEGA 100, else 25; WEAPON_BIG2 40 shells,
-        # else 20; armor_touch's 100 green, 150 yellow; weapon_touch's
-        # 5 shells with the super shotgun, 30 nails with either nailgun and
-        # 5 rockets with either launcher; item_rockets 5, WEAPON_BIG2 10;
-        # item_spikes 25, WEAPON_BIG2 50; a powerup's 30 seconds; the
-        # exploding box's 20 health
-        match classname, flags & 1, flags & 2:
-            case 'item_artifact_super_damage' | 'item_artifact_envirosuit' | 'item_artifact_invulnerability', _, _:
-                return 30
-            case 'misc_explobox', _, _: return 20
-            case 'weapon_supershotgun', _, _: return 5
-            case 'weapon_nailgun', _, _: return 30
-            case 'weapon_grenadelauncher' | 'weapon_rocketlauncher', _, _: return 5
-            case 'weapon_supernailgun', _, _: return 30
-            case 'item_rockets', 1, _: return 10
-            case 'item_rockets', _, _: return 5
-            case 'item_spikes', 1, _: return 50
-            case 'item_spikes', _, _: return 25
-            case 'item_armor1', _, _: return 100
-            case 'item_armor2', _, _: return 150
-            case 'item_health', 1, _: return 15
-            case 'item_health', _, 2: return 100
-            case 'item_health', _, _: return 25
-            case _, 1, _: return 40
-            case _: return 20
-
-    def name_id(s: str) -> int:
-        # targetnames become ids; 0 is none
-        return names.setdefault(s, len(names) + 1) if s else 0
-
-    def msg_of(kv: dict[str, str]) -> bytes:
-        # the first line: a map's newline is a literal backslash-n, and the
-        # overlay draws one line of 40; only start's registered notice has more
-        return kv.get('message', '').split('\\n')[0][:40].encode('latin1').ljust(40)
-
-    def movedir(angle: float) -> tuple[float, float, float]:
-        # SetMovedir: angle -1 up, -2 down, anything else a heading
-        match angle:
-            case -1.0: return (0.0, 0.0, 1.0)
-            case -2.0: return (0.0, 0.0, -1.0)
-            case _: return (math.cos(math.radians(angle)), math.sin(math.radians(angle)), 0.0)
-
-    def travel_of(angle: float, box: tuple[float, ...], lip: float) -> tuple[float, float, float]:
-        # the brush moves its size along its movedir, less the lip
-        mdir = movedir(angle)
-        size = [box[k + 3] - box[k] for k in range(3)]
-        dist = max(sum(abs(mdir[k]) * size[k] for k in range(3)) - lip, 0.0)
-        return (mdir[0] * dist, mdir[1] * dist, mdir[2] * dist)
-
-    def door_record(m: int, kv: dict[str, str], box: tuple[float, ...]) -> tuple:
-        # func_door: speed 100, wait 3, lip 8 unless the map says
-        speed = float(kv.get('speed', '0')) or 100.0
-        hold = float(kv.get('wait', '0')) or 3.0
-        lip = float(kv.get('lip', '0')) or 8.0
-        flags = int(kv.get('spawnflags', '0'))
-        travel = travel_of(float(kv.get('angle', '0')), box, lip)
-        # DOOR_SILVER_KEY 16, DOOR_GOLD_KEY 8: door_touch's "You need the
-        # silver key" stands in for a message the map does not give
-        key = 1 if flags & 16 else 2 if flags & 8 else 0
-        msg = msg_of(kv)
-        if key and not kv.get('message'):
-            msg = f"You need the {'silver' if key == 1 else 'gold'} {KEY_NAMES[worldtype]}".encode('latin1').ljust(40)
-        return (m, travel, (0.0, 0.0, 0.0), speed, hold, 1 if flags & 1 else 0, 1 if flags & 4 else 0,
-                name_id(kv.get('targetname', '')), 0, 0, int(kv.get('sounds', '0')), key, msg)
-
-    def secret_record(m: int, kv: dict[str, str], box: tuple[float, ...]) -> tuple:
-        # func_door_secret, fd_secret_use: back t_width along v_right (or
-        # down), then t_length along v_forward; speed 50, wait 5, open_once
-        # stays; shot open unless named, or no_shoot, or always_shoot
-        flags = int(kv.get('spawnflags', '0'))
-        yaw = math.radians(float(kv.get('angle', '0')))
-        fwd = (math.cos(yaw), math.sin(yaw), 0.0)
-        right = (math.sin(yaw), -math.cos(yaw), 0.0)
-        size = [box[k + 3] - box[k] for k in range(3)]
-        width = float(kv.get('t_width', '0')) or (size[2] if flags & 4 else abs(sum(right[k] * size[k] for k in range(3))))
-        length = float(kv.get('t_length', '0')) or abs(sum(fwd[k] * size[k] for k in range(3)))
-        temp = 1.0 - (flags & 2)
-        mid = (0.0, 0.0, -width) if flags & 4 else tuple(right[k] * width * temp for k in range(3))
-        travel = tuple(mid[k] + fwd[k] * length for k in range(3))
-        speed = float(kv.get('speed', '0')) or 50.0
-        hold = -1.0 if flags & 1 else (float(kv.get('wait', '0')) or 5.0)
-        name = name_id(kv.get('targetname', ''))
-        shoot = 0 if flags & 8 else (1 if not name or flags & 16 else 0)
-        return (m, travel, mid, speed, hold, 0, 1, name, 1, shoot, int(kv.get('sounds', '0')) or 3, 0, msg_of(kv))
-
-    def trig_record(m: int, kv: dict[str, str]) -> tuple:
-        # trigger_once is a multiple with wait -1; a multiple re-arms after
-        # wait, 0.2 unless the map says; a counter fires at count, 2
-        match kv['classname']:
-            case 'trigger_secret': kind, wait, count = TRIG_SECRET, -1.0, 0
-            case 'trigger_once': kind, wait, count = TRIG_ONCE, -1.0, 0
-            case 'trigger_multiple': kind, wait, count = TRIG_MULTI, float(kv.get('wait', '0')) or 0.2, 0
-            case _: kind, wait, count = TRIG_COUNTER, -1.0, int(kv.get('count', '0')) or 2
-        if int(kv.get('health', '0')) > 0:
-            kind = TRIG_SHOOT   # multi_killed: shot, not touched; wait as above
-        msg = msg_of(kv)
-        snd = int(kv.get('sounds', '0'))
-        if kind == TRIG_SECRET:
-            snd = snd or 1
-            if not kv.get('message'):
-                msg = b'You found a secret area!'.ljust(40)
-        # delay: SUB_UseTargets' DelayThink, seconds before the target fires
-        return (m, kind, name_id(kv.get('target', '')), name_id(kv.get('targetname', '')),
-                name_id(kv.get('killtarget', '')), count, wait, 0.0, (0.0, 0.0, 0.0), snd, msg,
-                (0.0, 0.0, 0.0), float(kv.get('delay', '0')))
-
-    def button_record(m: int, kv: dict[str, str], box: tuple[float, ...]) -> tuple:
-        # func_button: speed 40, wait 1, lip 4; wait -1 stays pressed
-        speed = float(kv.get('speed', '0')) or 40.0
-        wait = float(kv.get('wait', '0')) or 1.0
-        lip = float(kv.get('lip', '0')) or 4.0
-        travel = travel_of(float(kv.get('angle', '0')), box, lip)
-        return (m, TRIG_BUTTON, name_id(kv.get('target', '')), name_id(kv.get('targetname', '')),
-                name_id(kv.get('killtarget', '')), 0, wait, speed, travel, int(kv.get('sounds', '0')), msg_of(kv))
-
-    def model(v: str) -> int:
-        m = int(v[1:]) if v.startswith('*') and v[1:].isdigit() else 0
-        return m if 0 < m < nmodels else 0
-
+    e = Ents(nmodels, boxes, skill, crates)
     # NOT_EASY 256, NOT_MEDIUM 512, NOT_HARD 1024, on any entity -- e1m1's
     # ambush hints exist only below hard; nightmare is hard's set
     skip = 256 << min(skill, 2)
-    lights: list[tuple[int, int, int]] = []   # targetname id, style, starts on
     for block in text.split('{')[1:]:
         kv = dict(ENT_PAIR.findall(block.split('}')[0]))
         if int(kv.get('spawnflags', '0')) & skip:
             # an entity the skill removes never links its brush: e1m3's NOT_EASY
             # trigger_once *67 drew as a solid wall of the "trigger" texture
-            if model(kv.get('model', '')):
-                hides.append(model(kv['model']))
+            if ent_model(e, kv.get('model', '')):
+                e.hides.append(ent_model(e, kv['model']))
             continue
-        match kv.get('classname'):
-            case 'worldspawn':
-                title = kv.get('message', '')
-                worldtype = int(kv.get('worldtype', '0') or 0)
-            case 'info_player_start':
-                spawn = vec(kv.get('origin', '0 0 0'))
-                angle = float(kv.get('angle', '0'))
-            case 'info_intermission' if inter is None:
-                # FindIntermission picks one at random; the first is as good
-                mangle = vec(kv.get('mangle', '0 0 0'))
-                inter = (vec(kv.get('origin', '0 0 0')), mangle[0], mangle[1])
-            case 'info_teleport_destination':
-                dests[kv.get('targetname', '')] = (
-                    vec(kv.get('origin', '0 0 0')), float(kv.get('angle', '0')))
-            case 'trigger_teleport' if model(kv.get('model', '')):
-                trigs.append((kv.get('target', ''), model(kv['model']), name_id(kv.get('targetname', '')),
-                              int(kv.get('spawnflags', '0')) & 1))
-                hides.append(model(kv['model']))
-            case 'trigger_once' | 'trigger_multiple' if model(kv.get('model', '')):
-                hides.append(model(kv['model']))
-                uses.append(trig_record(model(kv['model']), kv))
-            case 'trigger_secret' if model(kv.get('model', '')):
-                hides.append(model(kv['model']))
-                uses.append(trig_record(model(kv['model']), kv))
-            case 'trigger_counter':
-                if model(kv.get('model', '')):
-                    hides.append(model(kv['model']))
-                uses.append(trig_record(model(kv.get('model', '')), kv))
-            case 'trap_spikeshooter':
-                # spikeshooter_use: a spike along movedir at 500 when used;
-                # SUPERSPIKE (1) bites 18 for 9. wait carries the damage
-                uses.append((0, TRIG_SHOOTER, 0, name_id(kv.get('targetname', '')), 0,
-                             18 if int(kv.get('spawnflags', '0')) & 1 else 9, 0.0, 500.0,
-                             movedir(float(kv.get('angle', '0'))), 0, b''.ljust(40), vec(kv.get('origin', '0 0 0'))))
-            case 'trigger_changelevel' if model(kv.get('model', '')):
-                # the level ends here; its message is the map's title
-                hides.append(model(kv['model']))
-                uses.append((model(kv['model']), TRIG_EXIT, 0, 0, 0, 0, -1.0, 0.0, (0.0, 0.0, 0.0), 0,
-                             title[:40].encode('latin1').ljust(40)))
-                next_map = kv.get('map', '')
-            case 'func_button' if model(kv.get('model', '')):
-                uses.append(button_record(model(kv['model']), kv, boxes[model(kv['model'])]))
-            case 'misc_fireball':
-                # speed as the map gives it: id's default is `self.speed == 1000`,
-                # a compare, so an unset one leaves 0 and the ball rises 0..200
-                uses.append((0, TRIG_FIREBALL, 0, 0, 0, 0, 0.0, float(kv.get('speed', '0')),
-                             (0.0, 0.0, 0.0), 0, b''.ljust(40), vec(kv.get('origin', '0 0 0'))))
-            case 'trigger_relay':
-                # SUB_UseTargets passed on, at once: delay is not ported
-                uses.append((0, TRIG_RELAY, name_id(kv.get('target', '')), name_id(kv.get('targetname', '')),
-                             name_id(kv.get('killtarget', '')), 0, 0.0, 0.0, (0.0, 0.0, 0.0), 0, msg_of(kv)))
-            case 'monster_boss':
-                # Chthon, unseen (boss.mdl is past MDL_MAXV): the rune wakes him, his
-                # health boss_awake's 1 on easy else 3, a bolt a point, dead his target fires
-                uses.append((0, TRIG_BOSS, name_id(kv.get('target', '')), name_id(kv.get('targetname', '')),
-                             0, 1 if skill == 0 else 3, 0.0, 0.0, (0.0, 0.0, 0.0), 0, b''.ljust(40),
-                             vec(kv.get('origin', '0 0 0'))))
-            case 'event_lightning':
-                # lightning_use: a point off Chthon with both electrode doors up; travel
-                # carries the doors' indices, patched below once every door is read
-                uses.append((0, TRIG_BOLT, 0, name_id(kv.get('targetname', '')),
-                             0, 0, 0.0, 0.0, (0.0, 0.0, 0.0), 0, b''.ljust(40), vec(kv.get('origin', '0 0 0'))))
-            case 'trigger_onlyregistered' if model(kv.get('model', '')) and kv.get('message'):
-                # OnlyRegisteredTouch on the shareware: the message and misc/talk
-                # every two seconds, its target never fired -- a multiple with no target
-                hides.append(model(kv['model']))
-                uses.append(trig_record(model(kv['model']), {
-                    'classname': 'trigger_multiple', 'message': kv['message'], 'wait': '2'}))
-            case str(c) if c.startswith('trigger_') and model(kv.get('model', '')):
-                # any trigger's brush is a volume: e1m1 drew its changelevel
-                # as a column of the "trigger" texture
-                hides.append(model(kv['model']))
-            case 'func_episodegate' if model(kv.get('model', '')):
-                # misc.qc spawns it only for a rune held, and none ever is here;
-                # func_bossgate is the reverse, gone with all four, so it stays
-                hides.append(model(kv['model']))
-            case 'func_door' if model(kv.get('model', '')):
-                if kv.get('target') == 'lightning':
-                    bolt_doors.append(len(doors))
-                doors.append(door_record(model(kv['model']), kv, boxes[model(kv['model'])]))
-            case 'func_door_secret' if model(kv.get('model', '')):
-                doors.append(secret_record(model(kv['model']), kv, boxes[model(kv['model'])]))
-            case 'light' | 'light_fluoro' if int(kv.get('style', '0') or 0) >= 32:
-                # light_use toggles its style between "m" and "a", START_OFF (1)
-                # starting it "a"; a plain light with no targetname is removed
-                # before it sets anything
-                if kv.get('targetname') or kv['classname'] == 'light_fluoro':
-                    lights.append((name_id(kv.get('targetname', '')), int(kv['style']),
-                                   0 if int(kv.get('spawnflags', '0')) & 1 else 1))
-                if kv['classname'] == 'light_fluoro':
-                    ambs.append((mksnd.SOUNDS.index('ambience/fl_hum1'), 127, vec(kv.get('origin', '0 0 0'))))
-            case 'path_corner':
-                corners.append((kv.get('targetname', ''), vec(kv.get('origin', '0 0 0')), float(kv.get('wait', '0')),
-                                kv.get('target', '')))
-            case 'func_train' if model(kv.get('model', '')):
-                # func_train: speed 100; a targetname waits for its trigger
-                trains.append((model(kv['model']), float(kv.get('speed', '0')) or 100.0,
-                               name_id(kv.get('targetname', '')), kv.get('target', ''),
-                               int(kv.get('sounds', '0') or 0)))
-            case 'func_plat' if model(kv.get('model', '')):
-                # sounds 0 is 2, medplat
-                plats.append((model(kv['model']),
-                              float(kv.get('speed', '0')),
-                              float(kv.get('height', '0')),
-                              int(kv.get('sounds', '0') or 0) or 2))
-            case str(c) if c in mon_kind:
-                # SPAWN_CRUCIFIED: a zombie nailed up, never walkmonster_start
-                mons.append((mon_kind[c], vec(kv.get('origin', '0 0 0')), float(kv.get('angle', '0')),
-                             kv.get('target', ''), int(kv.get('spawnflags', '0')) & 1 if c == 'monster_zombie' else 0))
-            case str(c) if c in item_kind:
-                amount = item_amount(c, int(kv.get('spawnflags', '0')))
-                items.append((item_kind[c], amount, name_id(kv.get('target', '')),
-                              crates.crate(crate_name(c, amount)), vec(kv.get('origin', '0 0 0'))))
-            case str(c) if c in amb_kind:
-                wav, fvol = amb_kind[c]
-                ambs.append((mksnd.SOUNDS.index(wav), int(255 * fvol), vec(kv.get('origin', '0 0 0'))))
+        ent_spawn(e, kv)
+    return e
+
+
+def pack_entities(e: Ents, nmodels: int, gravity: float, crates: CrateSet) -> bytes:
+    # every skill spawned before any is packed: the crate records are the union's,
+    # so one atlas serves all four
+    spawn, angle, inter, worldtype = e.spawn, e.angle, e.inter, e.worldtype
+    trigs, dests, hides, bolt_doors, plats, doors = e.trigs, e.dests, e.hides, e.bolt_doors, e.plats, e.doors
+    items, uses, mons, ambs, corners, trains, lights = e.items, e.uses, e.mons, e.ambs, e.corners, e.trains, e.lights
 
     # a teleporter with no destination still hides its brush
     teles = [(m, *dests[t], name, only) for t, m, name, only in trigs if t in dests]
 
     if inter is None:
         inter = (spawn, 0.0, angle)   # no info_intermission: the start, as Quake does
+    spawn2, angle2 = (e.spawn2, e.angle2) if e.spawn2 else (spawn, angle)
     # corners by index, each pointing at the next; a train at one with no target stays
     corner_at = {name: i for i, (name, _, _, _) in reversed(list(enumerate(corners))) if name}
     trains = [(m, speed, targeted, corner_at[first], snd) for m, speed, targeted, first, snd in trains
@@ -1090,10 +1308,12 @@ def parse_entities(text: str, nmodels: int, boxes: list[tuple[float, ...]], skil
         msg_id(d[-1])
     for u in uses:
         msg_id(u[10])
+        if u[1] == TRIG_EXIT:
+            msg_id(u[5])
     buf = bytearray(struct.pack(ENTS_HEAD, *spawn, angle, *inter[0], inter[1], inter[2], nmodels,
                                 len(teles), len(plats), len(hides), len(items), len(doors), len(uses), len(mons),
                                 len(ambs), len(trains), len(corners), worldtype, len(crates.used), gravity,
-                                next_map[:8].encode('latin1').ljust(8), len(msgs), len(lights)))
+                                len(msgs), len(lights), *spawn2, angle2, len(e.gates)))
     for kind, org, yaw, target, cruc in mons:
         buf += struct.pack(ENTS_MON, kind, *org, yaw, corner_at.get(target, -1), cruc)   # its patrol's first corner
     for m, org, yaw, name, only in teles:
@@ -1102,6 +1322,8 @@ def parse_entities(text: str, nmodels: int, boxes: list[tuple[float, ...]], skil
         buf += struct.pack('<hffh', m, speed, height, snd)
     for m in hides:
         buf += struct.pack('<h', m)
+    for m, boss, bits in e.gates:
+        buf += struct.pack('<hhh', m, boss, bits)
     for kind, amount, target, crate, org in items:
         buf += struct.pack('<hhhh3f', kind, amount, target, crate, *org)
     for m, travel, mid, speed, hold, start_open, nolink, targeted, secret, shoot, snd, key, msg in doors:
@@ -1110,6 +1332,7 @@ def parse_entities(text: str, nmodels: int, boxes: list[tuple[float, ...]], skil
     for m, kind, target, name, kill, count, wait, speed, travel, snd, msg, *rest in uses:
         org = rest[0] if rest else (0.0, 0.0, 0.0)   # a shooter's
         delay = rest[1] if len(rest) > 1 else 0.0
+        count = msg_id(count) if kind == TRIG_EXIT else count
         buf += struct.pack('<6hff3f3fhhf', m, kind, target, name, kill, count, wait, speed, *travel, *org, snd,
                            msg_id(msg), delay)
     for snd, vol, org in ambs:
@@ -1133,7 +1356,7 @@ def parse_entities(text: str, nmodels: int, boxes: list[tuple[float, ...]], skil
     return bytes(buf)
 
 
-def convert_lumps(d, lumps, outdir, skill, gravity, crates):
+def convert_lumps(d, lumps, outdir, gravity, crates):
     """Convert each lump from its on-disk layout to the renderer's own.
 
     model.bas did this per element, in BASIC, copying field by field -- and
@@ -1231,7 +1454,11 @@ def convert_lumps(d, lumps, outdir, skill, gravity, crates):
     ent_text = lump(0).split(b'\0')[0].decode('latin-1')
     nmodels = lumps[14][1] // 64
     boxes = [struct.unpack_from('<6f', lump(14), m * 64) for m in range(nmodels)]
-    out['ents.bin'] = parse_entities(ent_text, nmodels, boxes, skill, gravity, crates)
+    # one a skill, chosen at load (trigger_setskill): NOT_EASY 256, NOT_MEDIUM 512,
+    # NOT_HARD 1024; nightmare is hard's set
+    spawned = [spawn_entities(ent_text, nmodels, boxes, skill, crates) for skill in range(SKILLS)]
+    for skill, e in enumerate(spawned):
+        out[f'ents{skill}.bin'] = pack_entities(e, nmodels, gravity, crates)
 
     # marksurfaces: identical either side. models: 64 -> 32, bspfile.bi's
     # Submodel -- the box, hulls 0 and 1, the face run
@@ -1339,10 +1566,9 @@ def convert_lumps(d, lumps, outdir, skill, gravity, crates):
 
 def main():
     if len(sys.argv) < 4:
-        raise SystemExit("usage: mkassets.py <map.bsp> <base.dat> <outdir> [skill 0..3, 0] [pak0.pak: the pickups' b_*.bsp]")
+        raise SystemExit("usage: mkassets.py <map.bsp> <base.dat> <outdir> [pak0.pak: the pickups' b_*.bsp]")
     bsp, packpath, outdir = sys.argv[1], sys.argv[2], sys.argv[3]
-    skill = int(sys.argv[4]) if len(sys.argv) > 4 else 0
-    pak = sys.argv[5] if len(sys.argv) > 5 else ''
+    pak = sys.argv[4] if len(sys.argv) > 4 else ''
     os.makedirs(outdir, exist_ok=True)
     d   = open(bsp, 'rb').read()
     pal = load_palette(pack_read(packpath, 'color/palette.lmp'))
@@ -1374,7 +1600,7 @@ def main():
     print("converting lumps ...", flush=True)
     # world.qc: sv_gravity 100 on e1m8, 800 everywhere else
     gravity = 100.0 if os.path.basename(bsp).lower() == 'e1m8.bsp' else 800.0
-    convert_lumps(d, lumps, outdir, skill, gravity, crates)
+    convert_lumps(d, lumps, outdir, gravity, crates)
     cells = [(d, toff + o) if o >= 0 else None for o in offs] + crates.cells()
     ntex  = len(cells)
     if ntex * MIPS > 1024:
@@ -1576,9 +1802,9 @@ def main():
     # ents.bin just written rather than kept on the side: the file is
     # what the runtime loads, so it is what decides which models ship.
     head = struct.calcsize('<3ff3fff')
-    nmon = struct.unpack_from('<13h', OUT['ents.bin'], head)[7]
-    kinds = {struct.unpack_from('<h', OUT['ents.bin'], struct.calcsize(ENTS_HEAD) + i * struct.calcsize(ENTS_MON))[0]
-             for i in range(nmon)}
+    kinds = {struct.unpack_from('<h', ents, struct.calcsize(ENTS_HEAD) + i * struct.calcsize(ENTS_MON))[0]
+             for ents in (OUT[f'ents{skill}.bin'] for skill in range(SKILLS))
+             for i in range(struct.unpack_from('<13h', ents, head)[7])}
     models = build_models(pak, kinds, os.path.join(outdir, '.mdl'))
     sbar = build_sbar(pak, os.path.join(outdir, '.gfx'))
     sounds = build_sounds(pak, os.path.join(outdir, '.snd'))
@@ -1586,4 +1812,6 @@ def main():
                dict(OUT, **models, **sbar, **sounds,
                     **{'texr.raw': qmap_texr, 'texs.raw': qmap_texs, 'pal.raw': qmap_pal}))
 
-main()
+
+if __name__ == "__main__":
+    main()

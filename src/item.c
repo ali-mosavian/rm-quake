@@ -1,10 +1,9 @@
 /*
- * item.c -- the pickups. pl_move.bas's pl_items_drop, pl_item_sound's
- * caller-visible half, pl_key_name and pl_items_touch.
+ * item.c -- the pickups: the table of what each kind is when touched, and
+ * pl_items_touch.
  *
- * Nothing here traces the player: the touch is a box test against the
- * item's, exactly as Quake's own touch is, and the only trace is the
- * one that drops each item onto the floor once at load.
+ * Nothing here traces: the touch is a box test against the item's,
+ * exactly as Quake's own touch is.
  *
  * Not ported with the rest: pl_boxes_sync -- an exploding box is solid in the BASIC branch
  * because pl_trace keeps a table of solid boxes, which cport's
@@ -17,82 +16,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stddef.h>   /* offsetof */
 
 #include "item.h"
 #include "snd.h"
 #include "ent.h"
-#include "ent_move.h"
+#include "triggers.h"
 #include "pl_trace.h"
 #include "qgl.h"
-
-void ent_load_items( World *world, unsigned char far *buf, long *ofs, short count )
-{
-    short i;
-
-    /* Room for the map's own plus one backpack a monster: a dead
-       soldier drops one, and nothing else is ever added. */
-    world->item_count = count;
-    world->item_max = (short) ( count + world->mon_count );
-    world->item = (ItemEnt far *) qglMemAlloc(
-                     (long) ( world->item_max ? world->item_max : 1 ) * sizeof(ItemEnt) );
-    if ( !world->item ) {
-        fprintf( stderr, "ents.bin: out of memory for %d items\n", (int) count );
-        exit( 1 );
-    }
-
-    for ( i = 0; i < count; i++ ) {
-        EntsItem it;
-        ItemEnt far *p = &world->item[i];
-
-        _fmemcpy( &it, buf + *ofs, sizeof(EntsItem) ); *ofs += sizeof(EntsItem);
-
-        p->kind   = it.kind;
-        p->amount = it.amount;
-        p->target = it.target;
-        p->crate  = it.crate;
-        p->pos    = it.org;
-        p->gone   = 0;
-    }
-}
-
-void ent_load_crates( World *world, unsigned char far *buf, long *ofs, short count )
-{
-    world->crate_count = count;
-    world->crate = (CrateModel far *) qglMemAlloc( (long) ( count ? count : 1 ) * sizeof(CrateModel) );
-    if ( !world->crate ) {
-        fprintf( stderr, "ents.bin: out of memory for %d crates\n", (int) count );
-        exit( 1 );
-    }
-    if ( count ) _fmemcpy( world->crate, buf + *ofs, (long) count * sizeof(CrateModel) );
-    *ofs += (long) count * sizeof(CrateModel);
-}
-
-/*
- * The trace starts PL_FEET ABOVE the origin, not at it:
- * SV_ClipMoveToEntity offsets the hull's clip_mins against the item's
- * mins, and an item the map put within 24 units of its floor otherwise
- * starts inside hull 1's grown solid. Where a room lay under it within
- * 256 it fell through; where none did it stopped 24 above the floor and
- * floated.
- */
-void pl_items_drop( World *world )
-{
-    short i;
-    BspVec3 org, fin;
-    TraceResult tr;
-
-    for ( i = 0; i < world->item_count; i++ ) {
-        org = world->item[i].pos;
-        org.z += PL_FEET;
-        fin = org;
-        fin.z -= 256.0f;
-        pl_trace( world, &org, &fin, &tr );
-        if ( tr.frac < 1.0f && !tr.all_solid ) {
-            world->item[i].pos = tr.end_pos;
-            world->item[i].pos.z -= PL_FEET;
-        }
-    }
-}
 
 /* items.qc's netname for a key: silver or gold, then the worldtype's word */
 static void pl_key_name( char *out, short wt, short kind )
@@ -102,47 +33,192 @@ static void pl_key_name( char *out, short wt, short kind )
     strcat( out, wt == 1 ? "runekey" : ( wt == 2 ? "keycard" : "key" ) );
 }
 
-/* which sound a pickup makes: the ammo's, the weapon's, the armor's,
-   the powerup's, or one of health's three by how much it heals. A key's
-   is the worldtype's, as its name is. */
-static short pl_item_sound( Fight *fight, ItemEnt far *it )
-{
-    short wt = (short) ( fight->worldtype > 1 ? 1 : fight->worldtype );
+typedef struct ItemInfo ItemInfo;
 
-    switch ( it->kind ) {
-    case ENT_ITEM_KEY1:
-    case ENT_ITEM_KEY2:    return (short) ( SND_KEY + wt );
-    case ENT_ITEM_SHELLS:
-    case ENT_ITEM_NAILS:
-    case ENT_ITEM_ROCKETS: return SND_AMMO;
-    case ENT_ITEM_SSG:
-    case ENT_ITEM_NAILGUN:
-    case ENT_ITEM_GL:
-    case ENT_ITEM_SNG:
-    case ENT_ITEM_RL:      return SND_WEAPON;
-    case ENT_ITEM_ARMOR1:
-    case ENT_ITEM_ARMOR2:  return SND_ARMOR;
-    case ENT_ITEM_QUAD:    return SND_QUAD;
-    case ENT_ITEM_SUIT:    return SND_SUIT;
-    case ENT_ITEM_PENT:    return SND_PENT;
-    case ENT_ITEM_SIGIL:   return SND_KEY + 1;    /* misc/runekey */
+/* the pickup's sound, or -1 when the item is refused */
+typedef short (near *ItemTake)( Fight *fight, Renderer *rdr, ItemEnt far *it, const ItemInfo far *inf );
+
+struct ItemInfo {
+    ItemTake take;
+    short    kind;         /* the row's own index: item_selftest checks the order */
+    short    ofs;          /* the Fight field an ammo, weapon or powerup adds to */
+    short    cap;
+    short    bit;          /* PL_IT_* */
+    float    atype;        /* armor_touch's type */
+    short    snd;
+    short    side, top;    /* the flat box's colours */
+};
+
+#define FIGHT_SHORT( f, o ) ( (short *) ( (char *) (f) + (o) ) )
+#define FIGHT_FLOAT( f, o ) ( (float *) ( (char *) (f) + (o) ) )
+
+/* ofs columns are read as short and float: a retyped field stops the build here */
+typedef char item_short_ok[ sizeof(((Fight *) 0)->shells) == sizeof(short) &&
+                            sizeof(((Fight *) 0)->nails) == sizeof(short) &&
+                            sizeof(((Fight *) 0)->rockets) == sizeof(short) &&
+                            sizeof(((Fight *) 0)->cells) == sizeof(short) ? 1 : -1 ];
+typedef char item_float_ok[ sizeof(((Fight *) 0)->quad_until) == sizeof(float) &&
+                            sizeof(((Fight *) 0)->suit_until) == sizeof(float) &&
+                            sizeof(((Fight *) 0)->pent_until) == sizeof(float) ? 1 : -1 ];
+
+/* ammo_touch: refused at the cap, capped after */
+static short near item_take_ammo( Fight *fight, Renderer *rdr, ItemEnt far *it, const ItemInfo far *inf )
+{
+    short *v = FIGHT_SHORT( fight, inf->ofs );
+
+    (void) rdr;
+    if ( *v >= inf->cap ) return -1;
+    *v = (short) ( *v + it->amount );
+    if ( *v > inf->cap ) *v = inf->cap;
+    return inf->snd;
+}
+
+/* ammo_touch's cells: refused at 200, not at the 100 bound_other_ammo caps to */
+static short near item_take_cells( Fight *fight, Renderer *rdr, ItemEnt far *it, const ItemInfo far *inf )
+{
+    (void) rdr;
+    if ( fight->cells >= PL_CELLS_TAKE ) return -1;
+    fight->cells = (short) ( fight->cells + it->amount );
+    if ( fight->cells > inf->cap ) fight->cells = inf->cap;
+    return inf->snd;
+}
+
+/* weapon_touch: the weapon, its ammo, and it is the one in hand */
+static short near item_take_weapon( Fight *fight, Renderer *rdr, ItemEnt far *it, const ItemInfo far *inf )
+{
+    short *v = FIGHT_SHORT( fight, inf->ofs );
+
+    (void) rdr;
+    fight->items |= inf->bit;
+    fight->weapon = inf->bit;
+    *v = (short) ( *v + it->amount );
+    if ( *v > inf->cap ) *v = inf->cap;
+    return inf->snd;
+}
+
+/* powerup_touch: the item's own seconds from the pickup */
+static short near item_take_powerup( Fight *fight, Renderer *rdr, ItemEnt far *it, const ItemInfo far *inf )
+{
+    *FIGHT_FLOAT( fight, inf->ofs ) = rdr->anim_time + it->amount;
+    return inf->snd;
+}
+
+/* armor_touch: only what beats the armor worn, type * value */
+static short near item_take_armor( Fight *fight, Renderer *rdr, ItemEnt far *it, const ItemInfo far *inf )
+{
+    (void) rdr;
+    if ( fight->armor_type * fight->armor < inf->atype * it->amount ) {
+        fight->armor_type = inf->atype;
+        fight->armor = it->amount;
+        return inf->snd;
     }
+    return -1;
+}
+
+/* key_touch: one of each; the name and the sound are the worldtype's */
+static short near item_take_key( Fight *fight, Renderer *rdr, ItemEnt far *it, const ItemInfo far *inf )
+{
+    char line[ENT_MSG_LEN + 1];
+
+    if ( fight->items & inf->bit ) return -1;
+    fight->items |= inf->bit;
+    memset( line, 0, sizeof(line) );
+    pl_key_name( line, fight->worldtype, it->kind );
+    ent_say( fight, rdr, (char far *) line );
+    return (short) ( SND_KEY + ( fight->worldtype > 1 ? 1 : fight->worldtype ) );
+}
+
+/* sigil_touch: its bits held from here on, and its target fired */
+static short near item_take_rune( Fight *fight, Renderer *rdr, ItemEnt far *it, const ItemInfo far *inf )
+{
+    fight->serverflags |= it->amount;
+    ent_say( fight, rdr, (char far *) "You got the rune!" );
+    return inf->snd;
+}
+
+/* T_Heal: the mega one ignores the 100 cap and stops at 250 */
+static short near item_take_health( Fight *fight, Renderer *rdr, ItemEnt far *it, const ItemInfo far *inf )
+{
+    short cap = (short) ( it->amount == ENT_ITEM_MEGA ? PL_HEALTH_MEGA : PL_HEALTH );
+
+    (void) inf;
+    if ( fight->health >= cap ) return -1;
+    fight->health = (short) ( fight->health + it->amount );
+    if ( fight->health > cap ) fight->health = cap;
+    if ( fight->health > PL_HEALTH ) fight->rot_at = rdr->anim_time + PL_ROT_DELAY;
     if ( it->amount == ENT_ITEM_MEGA ) return SND_HEALTH_MEGA;
     return (short) ( it->amount < 15 ? SND_HEALTH_ROT : SND_HEALTH );
 }
 
+/* the exploding box: shot, never taken */
+static short near item_take_none( Fight *fight, Renderer *rdr, ItemEnt far *it, const ItemInfo far *inf )
+{
+    (void) fight; (void) rdr; (void) it; (void) inf;
+    return -1;
+}
+
+#define B ENT_COL_BROWN
+#define Y ENT_COL_YELLOW
+#define W ENT_COL_WHITE
+static const ItemInfo far item_info[] = {
+    { item_take_health, ENT_ITEM_HEALTH,  0,                           0,              0,             0.0f,           0,          ENT_COL_RED,   W },   /* HEALTH */
+    { item_take_ammo, ENT_ITEM_SHELLS,    offsetof(Fight, shells),     PL_SHELLS_MAX,  0,             0.0f,           SND_AMMO,   B,             Y },   /* SHELLS */
+    { item_take_armor, ENT_ITEM_ARMOR1,   0,                           0,              0,             PL_ARMOR1_TYPE, SND_ARMOR,  B,             Y },   /* ARMOR1 */
+    { item_take_armor, ENT_ITEM_ARMOR2,   0,                           0,              0,             PL_ARMOR2_TYPE, SND_ARMOR,  B,             Y },   /* ARMOR2 */
+    { item_take_weapon, ENT_ITEM_SSG,  offsetof(Fight, shells),     PL_SHELLS_MAX,  PL_IT_SSG,     0.0f,           SND_WEAPON, B,             Y },   /* SSG */
+    { item_take_ammo, ENT_ITEM_NAILS,    offsetof(Fight, nails),      PL_NAILS_CAP,   0,             0.0f,           SND_AMMO,   B,             Y },   /* NAILS */
+    { item_take_weapon, ENT_ITEM_NAILGUN,  offsetof(Fight, nails),      PL_NAILS_CAP,   PL_IT_NAILGUN, 0.0f,           SND_WEAPON, B,             Y },   /* NAILGUN */
+    { item_take_powerup, ENT_ITEM_QUAD, offsetof(Fight, quad_until), 0,              0,             0.0f,           SND_QUAD,   ENT_COL_BLUE,  W },   /* QUAD */
+    { item_take_powerup, ENT_ITEM_SUIT, offsetof(Fight, suit_until), 0,              0,             0.0f,           SND_SUIT,   ENT_COL_GREEN, W },   /* SUIT */
+    { item_take_none, ENT_ITEM_EXPLOBOX,    0,                           0,              0,             0.0f,           0,          B,             Y },   /* EXPLOBOX */
+    { item_take_key, ENT_ITEM_KEY1,     0,                           0,              PL_IT_KEY1,    0.0f,           0,          B,             Y },   /* KEY1 */
+    { item_take_key, ENT_ITEM_KEY2,     0,                           0,              PL_IT_KEY2,    0.0f,           0,          B,             Y },   /* KEY2 */
+    { item_take_weapon, ENT_ITEM_GL,  offsetof(Fight, rockets),    PL_ROCKETS_CAP, PL_IT_GL,      0.0f,           SND_WEAPON, B,             Y },   /* GL */
+    { item_take_ammo, ENT_ITEM_ROCKETS,    offsetof(Fight, rockets),    PL_ROCKETS_CAP, 0,             0.0f,           SND_AMMO,   B,             Y },   /* ROCKETS */
+    { item_take_weapon, ENT_ITEM_SNG,  offsetof(Fight, nails),      PL_NAILS_CAP,   PL_IT_SNG,     0.0f,           SND_WEAPON, B,             Y },   /* SNG */
+    { item_take_weapon, ENT_ITEM_RL,  offsetof(Fight, rockets),    PL_ROCKETS_CAP, PL_IT_RL,      0.0f,           SND_WEAPON, B,             Y },   /* RL */
+    { item_take_powerup, ENT_ITEM_PENT, offsetof(Fight, pent_until), 0,              0,             0.0f,           SND_PENT,   ENT_COL_RED,   Y },   /* PENT */
+    { item_take_rune, ENT_ITEM_SIGIL,    0,                           0,              0,             0.0f,           SND_KEY + 1, B,            Y },   /* SIGIL: misc/runekey */
+    { item_take_armor, ENT_ITEM_ARMOR3,   0,                           0,              0,             PL_ARMOR3_TYPE, SND_ARMOR,  B,             Y },   /* ARMOR3 */
+    { item_take_cells, ENT_ITEM_CELLS,    offsetof(Fight, cells),      PL_CELLS_CAP,   0,             0.0f,           SND_AMMO,   B,             Y },   /* CELLS */
+    { item_take_powerup, ENT_ITEM_INVIS, offsetof(Fight, invis_until), 0,            0,             0.0f,           SND_INV,    B,             Y }    /* INVIS */
+};
+#undef B
+#undef Y
+#undef W
+
+/* no designated initializers here: a row short is a zero row, and its take is address 0 */
+typedef char item_rows_ok[ sizeof(item_info) / sizeof(item_info[0]) == ENT_ITEM_KINDS ? 1 : -1 ];
+
+short item_selftest( void )
+{
+    short k;
+
+    for ( k = 0; k < ENT_ITEM_KINDS; k++ )
+        if ( item_info[k].kind != k || !item_info[k].take ) return 0;
+    return 1;
+}
+
+void item_box_colours( short kind, short *side, short *top )
+{
+    const ItemInfo far *inf = &item_info[ kind >= 0 && kind < ENT_ITEM_KINDS ? kind : ENT_ITEM_EXPLOBOX ];
+
+    *side = inf->side;
+    *top  = inf->top;
+}
+
 /* CheckPowerups: once, three seconds before a powerup runs out */
-static void pl_powerup_warn( Player *player, Renderer *rdr, float until, float *warned, short id )
+static void pl_powerup_warn( Player *player, Sound *snd, Renderer *rdr, float until, float *warned, short id )
 {
     if ( until <= rdr->anim_time || rdr->anim_time < until - 3.0f || *warned == until ) return;
     *warned = until;
-    snd_self( player, CHAN_AUTO, id );
+    snd_self( snd, player, CHAN_AUTO, id );
 }
 
 void pl_items_touch( World *world, Player *player, Fight *fight, Renderer *rdr )
 {
-    short i, bit, cap;
-    float dz, atype;
+    short i, snd;
+    float dz;
 
     /* item_megahealth_rot: over 100, a point a second after five */
     if ( fight->health > PL_HEALTH && rdr->anim_time >= fight->rot_at ) {
@@ -150,9 +226,10 @@ void pl_items_touch( World *world, Player *player, Fight *fight, Renderer *rdr )
         fight->rot_at = rdr->anim_time + 1.0f;
     }
 
-    pl_powerup_warn( player, rdr, fight->quad_until, &fight->quad_warn, SND_QUAD_END );
-    pl_powerup_warn( player, rdr, fight->suit_until, &fight->suit_warn, SND_SUIT_END );
-    pl_powerup_warn( player, rdr, fight->pent_until, &fight->pent_warn, SND_PENT_END );
+    pl_powerup_warn( player, &world->snd, rdr, fight->quad_until, &fight->quad_warn, SND_QUAD_END );
+    pl_powerup_warn( player, &world->snd, rdr, fight->suit_until, &fight->suit_warn, SND_SUIT_END );
+    pl_powerup_warn( player, &world->snd, rdr, fight->pent_until, &fight->pent_warn, SND_PENT_END );
+    pl_powerup_warn( player, &world->snd, rdr, fight->invis_until, &fight->invis_warn, SND_INV_END );
 
     for ( i = 0; i < world->item_count; i++ ) {
         ItemEnt far *it = &world->item[i];
@@ -164,126 +241,23 @@ void pl_items_touch( World *world, Player *player, Fight *fight, Renderer *rdr )
         if ( (float) fabs( player->pos.y - it->pos.y ) >= ENT_ITEM_REACH ) continue;
         if ( dz <= -ENT_ITEM_TOP - PL_FEET || dz >= ENT_ITEM_TOP + PL_FEET ) continue;
 
-        switch ( it->kind ) {
-        case ENT_ITEM_SHELLS:
-            /* ammo_touch: refused at the cap, capped after */
-            if ( fight->shells < PL_SHELLS_MAX ) {
-                fight->shells = (short) ( fight->shells + it->amount );
-                if ( fight->shells > PL_SHELLS_MAX ) fight->shells = PL_SHELLS_MAX;
-                it->gone = -1;
-            }
-            break;
+        if ( it->kind < 0 || it->kind >= ENT_ITEM_KINDS ) continue;
+        snd = item_info[it->kind].take( fight, rdr, it, &item_info[it->kind] );
+        if ( snd < 0 ) continue;
 
-        case ENT_ITEM_NAILS:
-            if ( fight->nails < PL_NAILS_CAP ) {
-                fight->nails = (short) ( fight->nails + it->amount );
-                if ( fight->nails > PL_NAILS_CAP ) fight->nails = PL_NAILS_CAP;
-                it->gone = -1;
-            }
-            break;
+        it->gone = -1;
+        fight->bonus_pct = PL_BONUS_SHIFT;
+        snd_self( &world->snd, player, CHAN_ITEM, snd );
+        /* SUB_UseTargets: every touch fires the item's target */
+        ent_use_targets( world, player, fight, rdr, it->target );
+    }
 
-        case ENT_ITEM_ROCKETS:
-            if ( fight->rockets < PL_ROCKETS_CAP ) {
-                fight->rockets = (short) ( fight->rockets + it->amount );
-                if ( fight->rockets > PL_ROCKETS_CAP ) fight->rockets = PL_ROCKETS_CAP;
-                it->gone = -1;
-            }
-            break;
-
-        /* weapon_touch: the weapon, its ammo, and it is the one in hand */
-        case ENT_ITEM_SSG:
-            fight->items |= PL_IT_SSG;
-            fight->weapon = PL_IT_SSG;
-            fight->shells = (short) ( fight->shells + it->amount );
-            if ( fight->shells > PL_SHELLS_MAX ) fight->shells = PL_SHELLS_MAX;
-            it->gone = -1;
-            break;
-
-        case ENT_ITEM_NAILGUN:
-        case ENT_ITEM_SNG:
-            fight->items |= ( it->kind == ENT_ITEM_SNG ? PL_IT_SNG : PL_IT_NAILGUN );
-            fight->weapon = (short) ( it->kind == ENT_ITEM_SNG ? PL_IT_SNG : PL_IT_NAILGUN );
-            fight->nails = (short) ( fight->nails + it->amount );
-            if ( fight->nails > PL_NAILS_CAP ) fight->nails = PL_NAILS_CAP;
-            it->gone = -1;
-            break;
-
-        case ENT_ITEM_GL:
-        case ENT_ITEM_RL:
-            fight->items |= ( it->kind == ENT_ITEM_RL ? PL_IT_RL : PL_IT_GL );
-            fight->weapon = (short) ( it->kind == ENT_ITEM_RL ? PL_IT_RL : PL_IT_GL );
-            fight->rockets = (short) ( fight->rockets + it->amount );
-            if ( fight->rockets > PL_ROCKETS_CAP ) fight->rockets = PL_ROCKETS_CAP;
-            it->gone = -1;
-            break;
-
-        /* powerup_touch: the item's own seconds from the pickup */
-        case ENT_ITEM_QUAD:
-            fight->quad_until = rdr->anim_time + it->amount;
-            it->gone = -1;
-            break;
-        case ENT_ITEM_SUIT:
-            fight->suit_until = rdr->anim_time + it->amount;
-            it->gone = -1;
-            break;
-        case ENT_ITEM_PENT:
-            fight->pent_until = rdr->anim_time + it->amount;
-            it->gone = -1;
-            break;
-
-        case ENT_ITEM_EXPLOBOX:
-            break;              /* shot, never taken */
-
-        case ENT_ITEM_SIGIL:
-            /* sigil_touch: no serverflags here; its target is the point */
-            ent_say( fight, rdr, (char far *) "You got the rune!" );
-            it->gone = -1;
-            break;
-
-        case ENT_ITEM_KEY1:
-        case ENT_ITEM_KEY2: {
-            /* key_touch: one of each; the name is the worldtype's */
-            char line[ENT_MSG_LEN + 1];
-
-            bit = (short) ( it->kind == ENT_ITEM_KEY2 ? PL_IT_KEY2 : PL_IT_KEY1 );
-            if ( fight->items & bit ) break;
-            fight->items |= bit;
-            memset( line, 0, sizeof(line) );
-            pl_key_name( line, fight->worldtype, it->kind );
-            ent_say( fight, rdr, (char far *) line );
-            it->gone = -1;
-            break;
-        }
-
-        case ENT_ITEM_ARMOR1:
-        case ENT_ITEM_ARMOR2:
-            /* armor_touch: only what beats the armor worn, type * value */
-            atype = ( it->kind == ENT_ITEM_ARMOR2 ) ? PL_ARMOR2_TYPE : PL_ARMOR1_TYPE;
-            if ( fight->armor_type * fight->armor < atype * it->amount ) {
-                fight->armor_type = atype;
-                fight->armor = it->amount;
-                it->gone = -1;
-            }
-            break;
-
-        default:
-            /* T_Heal: the mega one ignores the 100 cap and stops at 250 */
-            cap = ( it->amount == ENT_ITEM_MEGA ) ? PL_HEALTH_MEGA : PL_HEALTH;
-            if ( fight->health < cap ) {
-                fight->health = (short) ( fight->health + it->amount );
-                if ( fight->health > cap ) fight->health = cap;
-                if ( fight->health > PL_HEALTH ) fight->rot_at = rdr->anim_time + PL_ROT_DELAY;
-                it->gone = -1;
-            }
-            break;
-        }
-
-        if ( it->gone ) {
-            fight->bonus_pct = PL_BONUS_SHIFT;
-            snd_self( player, CHAN_ITEM, pl_item_sound( fight, it ) );
-            /* SUB_UseTargets: every touch fires the item's target */
-            ent_use_targets( world, player, fight, rdr, it->target );
-        }
+    /* CheckPowerups, after the touches as PlayerPostThink is: the ring
+       whispers from the tick it is taken, 1..4 seconds apart. id's is at
+       half volume, which the mixer has no argument for */
+    if ( rdr->anim_time < fight->invis_until && rdr->anim_time >= fight->invis_snd_at ) {
+        snd_start( &world->snd, player, SND_ENT_PLAYER, CHAN_AUTO, SND_INV_IDLE, &player->pos, ATTN_IDLE );
+        fight->invis_snd_at = rdr->anim_time + 1.0f + rng_float( &world->rng ) * 3.0f;
     }
 }
 

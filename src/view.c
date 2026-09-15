@@ -72,6 +72,7 @@ void v_update_camera( Camera *cam, Player *player, World *world, Input *input,
         player->vel.x = 0.0f;
         player->vel.y = 0.0f;
         player->vel.z = 0.0f;
+        player->fall_vz = 0.0f;
     } else {
         /* cam->look_at is still a direction here; it becomes an
            absolute point only at the bottom of this function. Only

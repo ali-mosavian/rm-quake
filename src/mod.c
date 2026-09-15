@@ -8,14 +8,14 @@
 
 #include "mod.h"
 #include "bsphdr.h"
-#include "assets.h"
+#include "pak.h"
 #include "qgl.h"
 #include "qglsurf.h"   /* qglNewView/qglSetView -- not used here, but
                             ugl.h alone (below) already brings QSurf/qglNew */
 #include "qgl.h"
 #include "r_bsp.h"       /* r_load_leaves/r_load_lfaces/r_load_portals/r_alloc_scratch */
 #include "pl_move.h"     /* pl_load_hulls */
-#include "ent.h"         /* ent_load_spawn/ent_load_teleports */
+#include "ent.h"         /* ent_load_spawn/ent_load_world */
 #include "sys.h"         /* sys_error */
 
 /* q_map.bi's own constants -- project-specific, not mgl's. */
@@ -32,7 +32,7 @@ void mod_open( char *qmp, World *world, MapCounts *counts )
     QmapCounts far *qc;
 
     (void) qmp;     /* main opened the container: the font wants it first */
-    qc = (QmapCounts far *) asset_load( "counts.bin",
+    qc = (QmapCounts far *) pak_load( &world->pak, "counts.bin",
                                          (long) sizeof(QmapCounts) );
 
     world->face_count  = (short) qc->faces;
@@ -65,7 +65,7 @@ void mod_open( char *qmp, World *world, MapCounts *counts )
  */
 static void mod_load_faces( World *world )
 {
-    world->faces = (Face far *) asset_load( "faces.pag",
+    world->faces = (Face far *) pak_load( &world->pak, "faces.pag",
                                              (long) world->face_count * sizeof(Face) );
 }
 
@@ -83,7 +83,7 @@ void mod_load_colormap( World *world )
     world->cmap_dc   = 0;
     world->cmap_size = 0;
 
-    fh = asset_seek( "colmap.bin", 0 );
+    fh = pak_seek( &world->pak, "colmap.bin", 0 );
 
     world->cmap_dc = qglSfNew( 16384, 1, QGL_SURF_EMS );
     if ( world->cmap_dc ) {
@@ -106,7 +106,7 @@ static void mod_load_lightmaps( World *world )
     world->light_atlas = 0;
     world->light_size  = 0;
 
-    world->light_atlas = qgl_surf_from_member( "lm.bin", LM_ATLAS_W,
+    world->light_atlas = qgl_surf_from_member( &world->pak, "lm.bin", LM_ATLAS_W,
                                              QGL_SURF_EMS, &world->light_size );
     world->light_loaded = world->light_atlas ? world->light_size : 0;
 }
@@ -130,7 +130,7 @@ static void mod_load_facevtx( World *world )
     unsigned char far *p;
     long n, want;
 
-    fh = asset_seek( "fgeom.bin", &n );
+    fh = pak_seek( &world->pak, "fgeom.bin", &n );
 
     world->geom_rows = (short) ( (n + GEOM_W - 1) / GEOM_W );
     world->geom_dc = qglSfNew( (short) GEOM_W, world->geom_rows, QGL_SURF_EMS );
@@ -149,19 +149,19 @@ static void mod_load_facevtx( World *world )
 
 static void mod_load_nodes( World *world, MapCounts *counts )
 {
-    world->nodes = (Node far *) asset_load( "nodes.pag",
+    world->nodes = (Node far *) pak_load( &world->pak, "nodes.pag",
                                              counts->nodes * (long) sizeof(Node) );
 }
 
 static void mod_load_planes( World *world, MapCounts *counts )
 {
-    world->planes = (Plane far *) asset_load( "planes.bld",
+    world->planes = (Plane far *) pak_load( &world->pak, "planes.bld",
                                                counts->planes * (long) sizeof(Plane) );
 }
 
 static void mod_load_submodels( World *world )
 {
-    world->models = (Submodel far *) asset_load( "models.bld",
+    world->models = (Submodel far *) pak_load( &world->pak, "models.bld",
                                                   (long) world->model_count * sizeof(Submodel) );
 }
 
@@ -170,7 +170,7 @@ static void mod_load_submodels( World *world )
 static void mod_load_visibility( World *world )
 {
     long n;
-    world->pvs_data = asset_load_whole( "pvs.bin", &n );
+    world->pvs_data = pak_load_whole( &world->pak, "pvs.bin", &n );
 }
 
 void mod_load_world( World *world, Renderer *rdr, Camera *cam, Fight *fight, char *map_name, MapCounts *counts )
@@ -195,7 +195,7 @@ void mod_load_world( World *world, Renderer *rdr, Camera *cam, Fight *fight, cha
     pl_load_hulls( world, (short) counts->clips );
 
     ent_load_spawn( world, cam, fight );
-    ent_load_teleports( world );
+    ent_load_world( world );
     fight->secret_total = ent_secret_total( world );
 }
 

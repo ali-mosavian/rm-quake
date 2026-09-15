@@ -1,6 +1,8 @@
 #ifndef __QGLSURF_H__
 #define __QGLSURF_H__
 
+
+#include "pak.h"
 #include "qgl.h"
 
 /* mkassets.py's own packing width, for both atlases. It owns the
@@ -24,7 +26,7 @@
  * and does not want one -- the atlas was never an image, only a
  * container for the run of cells the fillers walk.
  */
-QSurf qgl_surf_from_member( char *member, short wide, short whr,
+QSurf qgl_surf_from_member( Pak *pak, char *member, short wide, short whr,
                             long *out_bytes );
 
 #endif

@@ -29,7 +29,6 @@
 #define MDL_CLIPV    9          /* five planes add at most one corner each */
 #define MDL_UV_SCALE 32767.0f
 
-typedef struct { short a, b, c, u1, v1, u2, v2, u3, v3; } MdlTri;
 
 /* Near, in DGROUP, like d_faces.c's scratch: 3 KB. Far statics here
    made bcc emit es:okv[bx], which TASM 4.1 rejects. */
@@ -81,7 +80,7 @@ static short mdl_draw_tris(
     float     spitch,
     BspVec3  *scale,            /* vertex byte -> model unit */
     BspVec3  *origin,
-    short     vtx_hnd,
+    const MdlState *ms,         /* its vertex pages and triangles */
     QSurf     skin,
     float    *m,                /* Mat4, 16 floats */
     float     xresh,
@@ -100,15 +99,14 @@ static short mdl_draw_tris(
     float rx, ry, rz, wx, wy, wz, rw, f, area, px, pz;
     float det;
 
-    /* The frame's vertices: three bytes each, frames contiguous in the
-       one EMS page. qglGemMap's own record makes this free when nobody
-       else has taken the slot since the last model. */
-    vb = (unsigned char far *) ((unsigned long) qglGemMap( vtx_hnd, 0, PAGE_SLOT ) << 16);
-    vb += (long) frame * nvert * 3;
-    /* The triangles: page 1 of the same handle, through the colormap's
-       slot -- nothing maps that while a model draws, and the next
-       surface build re-maps it for itself. */
-    tri = (MdlTri far *) ((unsigned long) qglGemMap( vtx_hnd, 1, CM_SLOT ) << 16);
+    /* The frame's vertices, three bytes each, from the page that holds
+       the frame. qglGemMap's own record makes this free when nobody else
+       has taken the slot since the last model. */
+    vb = mdl_frame_verts( ms, frame, PAGE_SLOT );
+    /* The triangles, through the colormap's slot -- nothing maps that
+       while a model draws, and the next surface build re-maps it for
+       itself. */
+    tri = mdl_tris( ms, CM_SLOT );
 
     for ( v = 0; v < nvert; v++ ) {
         rx = (float) vb[v*3]     * scale->x + origin->x;
@@ -541,13 +539,7 @@ short d_draw_items( World *world, Renderer *rdr, Player *player,
             continue;
         }
 
-        switch ( it->kind ) {
-        case ENT_ITEM_QUAD:   side = ENT_COL_BLUE;  top = ENT_COL_WHITE;  break;
-        case ENT_ITEM_SUIT:   side = ENT_COL_GREEN; top = ENT_COL_WHITE;  break;
-        case ENT_ITEM_PENT:   side = ENT_COL_RED;   top = ENT_COL_YELLOW; break;
-        case ENT_ITEM_HEALTH: side = ENT_COL_RED;   top = ENT_COL_WHITE;  break;
-        default:              side = ENT_COL_BROWN; top = ENT_COL_YELLOW; break;
-        }
+        item_box_colours( it->kind, &side, &top );
         bob.z += 4.0f + 4.0f * (float) sin( rdr->anim_time * 3.0 );
         drawn = (short) ( drawn + mdl_draw_box( &bob, ENT_ITEM_HALF, ENT_ITEM_TOP,
                              cyaw, syaw, m, xresh, yresh, z_near, dst, side, top ) );
@@ -598,7 +590,7 @@ short d_draw_models( World *world, Renderer *rdr, DiskPlane far *frustum,
         drawn = (short) ( drawn + mdl_draw_tris(
             ms->ntri, ms->nvert, frame, &org,
             (float) cos( a ), (float) sin( a ), 1.0f, 0.0f,
-            &ms->scale, &ms->origin, ms->vtx_hnd, ms->skin,
+            &ms->scale, &ms->origin, ms, ms->skin,
             m, xresh, yresh, z_near, dst, QGL_Z_TEST ) );
     }
     return drawn;
@@ -625,6 +617,7 @@ short d_draw_view( World *world, Renderer *rdr, Camera *cam, Player *player,
 
     if ( rdr->no_mdl || rdr->no_view ) return 0;
     if ( fight->state == GS_EXIT ) return 0;     /* no gun in the intermission's view */
+    if ( rdr->anim_time < fight->invis_until ) return 0;   /* R_DrawViewModel: none while invisible */
     ms = &world->vmdl[ pl_view_of( fight->weapon ) ];
     if ( !ms->loaded ) return 0;
 
@@ -651,7 +644,7 @@ short d_draw_view( World *world, Renderer *rdr, Camera *cam, Player *player,
 
     return mdl_draw_tris( ms->ntri, ms->nvert, frame, &eye,
                           dx / len, dz / len, len, -dy,
-                          &ms->scale, &ms->origin, ms->vtx_hnd, ms->skin,
+                          &ms->scale, &ms->origin, ms, ms->skin,
                           (float *) mtx_fin, xresh, yresh, z_near, dst, QGL_Z_OFF );
 }
 

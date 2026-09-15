@@ -23,7 +23,7 @@
 #include "r_bsp.h"
 #include "r_walk.h"
 #include "r_portal.h"
-#include "assets.h"
+#include "pak.h"
 
 /* Takes a RENDERER point: Y-up there, Z-up in the BSP, so y pairs with
    norm.z. Single, not double: returning double moved two edge-on faces
@@ -424,7 +424,7 @@ void r_draw_world( World *world, Renderer *rdr, DiskPlane far *frustum,
  *       World's/Renderer's now, not passed around as loose arrays --
  *       BASIC couldn't hand an array back to a caller, which is the
  *       only reason the original needed this wrapper at all; kept
- *       anyway since h_frame.c already calls it as r_bsp.bas's own
+ *       anyway since host.c already calls it as r_bsp.bas's own
  *       entry point.
  */
 void r_portal_outline( World *world, Renderer *rdr, QSurf dc, Mat4 *mtx_fin,
@@ -436,13 +436,13 @@ void r_portal_outline( World *world, Renderer *rdr, QSurf dc, Mat4 *mtx_fin,
 
 void r_load_leaves( World *world )
 {
-    world->leaves = (Leaf far *) asset_load( "leaves.pag",
+    world->leaves = (Leaf far *) pak_load( &world->pak, "leaves.pag",
                                               (long) world->leaf_count * sizeof(Leaf) );
 }
 
 void r_load_lfaces( World *world, long lump_bytes )
 {
-    world->lfc = (short far *) asset_load( "lface.bld", lump_bytes );
+    world->lfc = (short far *) pak_load( &world->pak, "lface.bld", lump_bytes );
 }
 
 void r_load_portals( World *world, Renderer *rdr, long leaf_count )
@@ -465,7 +465,7 @@ void r_load_portals( World *world, Renderer *rdr, long leaf_count )
     if ( !rdr->portal ) return;
     if ( leaf_count <= 0 || leaf_count - 1 >= PT_MAX_LEAVES ) return;
 
-    world->pt_idx = (short far *) asset_load( "portalidx.bld",
+    world->pt_idx = (short far *) pak_load( &world->pak, "portalidx.bld",
                                                (leaf_count + 1) * (long) sizeof(short) );
 
     nrefs = world->pt_idx[leaf_count];
@@ -475,7 +475,7 @@ void r_load_portals( World *world, Renderer *rdr, long leaf_count )
         return;
     }
 
-    world->pt_ref = (short far *) asset_load( "portalref.bld",
+    world->pt_ref = (short far *) pak_load( &world->pak, "portalref.bld",
                                                nrefs * (long) PT_REF_SHORTS * sizeof(short) );
 }
 

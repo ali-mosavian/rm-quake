@@ -32,10 +32,15 @@ fi
 # map this run never asked for.
 rm -f "$OUT/cport.txt" "$OUT/cstep.txt" "$OUT/error.log" \
       "$OUT/BENCH.BMP" "$OUT/BENCH.TXT" \
-      "$OUT/NEXT.BAT" "$OUT/RUN1.BAT" "$OUT/CARRY.BIN" "$OUT/run.out"
+      "$OUT/NEXT.BAT" "$OUT/RUN1.BAT" "$OUT/CARRY.BIN" "$OUT/run.out" \
+      "$OUT/dosbox.log" "$OUT/dosbox.out"
 
+# The program's trace goes out port E9h (src/dbg.c); the emulator logs it
+# and it becomes cstep.txt below.
 { printf '[sdl]\nautolock=false\n[dosbox]\nmemsize=32\nstartbanner=false\nquit warning=false\n'
-  printf '[cpu]\ncore=dynamic\ncycles=%s\n[dos]\nxms=true\nems=true\n' "$CYCLES"
+  printf 'bochs debug port e9=true\n[log]\nlogfile=%s\n' "$OUT/dosbox.log"
+  # CORE=normal for timings: the dynamic core's recompile cost varies
+  printf '[cpu]\ncore=%s\ncycles=%s\n[dos]\nxms=true\nems=true\n' "${CORE:-dynamic}" "$CYCLES"
   # The card dsp.asm programs, pinned: the emulator's own defaults, but
   # a run is only comparable if both sides had the same machine.
   # nosound=true still advances the DMA, so the mixer is exercised.
@@ -59,7 +64,14 @@ rm -f "$OUT/cport.txt" "$OUT/cstep.txt" "$OUT/error.log" \
   echo "exit"
 } > "$OUT/run.conf"
 
-SDL_VIDEODRIVER=dummy timeout "${TIMEOUT:-60}" "$DOSBOX_BIN" -nolog -conf "$OUT/run.conf" >/dev/null 2>&1 || true
+SDL_VIDEODRIVER=dummy timeout "${TIMEOUT:-60}" "$DOSBOX_BIN" -conf "$OUT/run.conf" > "$OUT/dosbox.out" 2>&1 || true
+
+# Only when there are E9 lines: a QR_LOG=0 build must leave no cstep.txt.
+e9() { sed -n 's/.*Bochs port E9h: //p' "$1" 2>/dev/null | tr -d '\r'; }
+for src in "$OUT/dosbox.log" "$OUT/dosbox.out"; do
+    lines="$(e9 "$src")"
+    [[ -n "$lines" ]] && { printf '%s\n' "$lines" > "$OUT/cstep.txt"; break; }
+done
 
 echo "== cstep.txt =="
 cat "$OUT/cstep.txt" 2>/dev/null || echo "(none)"

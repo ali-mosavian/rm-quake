@@ -28,8 +28,11 @@
 #define PL_SHELLS_MAX   100
 #define PL_NAILS_CAP    200
 #define PL_ROCKETS_CAP  100
+#define PL_CELLS_CAP    100
+#define PL_CELLS_TAKE   200   /* ammo_touch refuses cells here, above the cap */
 #define PL_ARMOR1_TYPE  0.3f  /* armor_touch: green, and yellow */
 #define PL_ARMOR2_TYPE  0.6f
+#define PL_ARMOR3_TYPE  0.8f  /* item_armorInv, red */
 #define PL_BONUS_SHIFT  50.0f /* the pickup flash, fading 100/s */
 #define PL_PAIN_GAP     0.5f  /* PainSound's own spacing */
 #define PL_AIR          12.0f /* WaterMove: air_finished's twelve seconds */
@@ -110,6 +113,9 @@ typedef struct {
     short health, armor;
     float armor_type;
     short shells, nails, rockets, weapon;
+    short skill;              /* the next map loads ents<skill>.bin */
+    short serverflags;
+    short cells;              /* parm7, no minimum */
 } PlayerCarry;
 
 #define ENT_MSG_TIME 2.0f     /* scr_centertime */
@@ -119,6 +125,8 @@ typedef struct {
     long  items;              /* PL_IT_* bits: the weapons owned and the keys */
     short secrets;
     short worldtype;          /* worldspawn's: which key names and sounds */
+    short skill;              /* the map's, until trigger_setskill sets the next's */
+    short serverflags;        /* the runes held: sigil_touch's bits */
     float gravity;            /* world.qc's sv_gravity for this map */
     char  msg[ENT_MSG_LEN + 1];
     float msg_until;          /* anim_time the centerprint clears at */
@@ -127,7 +135,7 @@ typedef struct {
     short armor;
     float armor_type;         /* armortype: the share of a hit it takes, 0 none */
     short weapon;             /* the one in hand, a PL_IT_* bit */
-    short shells, nails, rockets;
+    short shells, nails, rockets, cells;
     float rot_at;             /* megahealth: the next point over 100 rots then */
     float quad_until;         /* super_damage_finished */
     float suit_until;         /* radsuit_finished */
@@ -142,6 +150,9 @@ typedef struct {
     float quad_warn, suit_warn, pent_warn;   /* the *_until each "wearing
                                  off" was said for */
     float quad_snd_at;        /* super_sound: damage3 a second apart */
+    float invis_until;        /* invisible_finished */
+    float invis_warn;
+    float invis_snd_at;       /* invisible_sound: the next whisper */
     short drown_dmg;          /* self.dmg, 0 before the first bite */
     short in_water;           /* FL_INWATER */
     float show_hostile;       /* W_Attack: time + 1, monsters notice a shot
@@ -157,7 +168,7 @@ typedef struct {
     short fire_prev;          /* fire last tick: a fresh press, not a hold */
     BspVec3 inter;            /* info_intermission, and where it looks */
     float inter_pitch, inter_yaw;
-    char  next_map[9];        /* worldspawn's, blank for none */
+    char  next_map[9];        /* the touched changelevel's, blank for none */
     char  next_flags[80];     /* the flags this run was started with, so the
                                  next map's process describes the same run */
     BspVec3 spawn;            /* where a respawn puts the player back */

@@ -1,9 +1,9 @@
 #include "qglsurf.h"
-#include "assets.h"
+#include "pak.h"
 
 /*
  * A surface straight out of a container member. The handle is the
- * shared one asset_seek positions; qglSfLoadFh fills the surface from
+ * shared one pak_seek positions; qglSfLoadFh fills the surface from
  * wherever it is, which is why nothing here opens or closes a file.
  *
  * THE HEIGHT COMES FROM THE MEMBER'S SIZE, not from the caller: the
@@ -11,7 +11,7 @@
  * same fact twice. A member whose length is not a whole number of rows
  * is refused rather than rounded.
  */
-QSurf qgl_surf_from_member( char *member, short wide, short whr,
+QSurf qgl_surf_from_member( Pak *pak, char *member, short wide, short whr,
                             long *out_bytes )
 {
     short fh;
@@ -20,7 +20,7 @@ QSurf qgl_surf_from_member( char *member, short wide, short whr,
 
     if ( out_bytes ) *out_bytes = 0;
 
-    fh = asset_seek( member, &n );
+    fh = pak_seek( pak, member, &n );
     if ( n <= 0 || ( n % (long) wide ) != 0 ) return 0;
     rows = n / (long) wide;
     if ( rows > 32767L ) return 0;

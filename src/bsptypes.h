@@ -269,6 +269,8 @@ typedef struct {
 #define ENT_TRIG_BOLT    10     /* event_lightning */
 #define ENT_BOSS_DYING   1.9f   /* shockc's ten frames, then death1..death10 */
 #define ENT_TRIG_FIREBALL 11
+#define ENT_TRIG_MJUMP    12    /* trigger_monsterjump: ofs_out is the throw */
+#define ENT_TRIG_SKILL    13    /* trigger_setskill: count is the skill */
 #define ENT_TRIG_READY 0
 #define ENT_TRIG_GOING 1        /* a button on its way in */
 #define ENT_TRIG_HELD  2        /* pressed, or waiting to re-arm */
