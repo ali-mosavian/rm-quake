@@ -1,0 +1,115 @@
+"""test_qchash.py -- qchash.py's round trip and its refusals, on a real progs.dat.
+
+    python3 tools/qcvm/test_qchash.py PROGS.DAT
+"""
+
+import struct
+import sys
+from pathlib import Path
+
+import qchash
+
+type Check = tuple[bool, str]
+
+
+def refused(data: bytes, why: str, hasher: qchash.Hasher = qchash.fnv1a) -> bool:
+    try:
+        qchash.rewrite(data, hasher)
+    except qchash.Refused as e:
+        return why in str(e)
+    return False
+
+
+def round_trip(data: bytes) -> list[Check]:
+    out = qchash.rewrite(data)
+    h = struct.unpack_from("<17i", out)
+    strs = out[h[10] : h[10] + h[11]]
+    texts = [qchash.text_at(strs, o) for o in qchash.string_starts(strs)]
+    index = [struct.unpack_from("<Ii", out, h[15] + k * 8) for k in range(h[16])]
+
+    ih = struct.unpack_from("<15i", data)
+    istr = data[ih[10] : ih[10] + ih[11]]
+    iglob = struct.unpack_from(f"<{ih[13]}i", data, ih[12])
+    oglob = struct.unpack_from(f"<{h[13]}I", out, h[12])
+    defs = [struct.unpack_from("<HHi", data, ih[4] + k * 8) for k in range(ih[5])]
+    consts = [(ofs, qchash.text_at(istr, iglob[ofs])) for t, ofs, _ in defs if t & 0x7FFF == 1 and iglob[ofs]]
+    empties = [ofs for ofs, text in consts if not text]
+    return [
+        (h[0] == qchash.VERSION_HASHED, "the rewritten image carries its own version"),
+        (refused(out, "not id's"), "a rewritten image is not rewritten twice"),
+        (len(texts) == len(set(texts)), "every text is stored once"),
+        (
+            all(qchash.text_at(strs, o) and qchash.fnv1a(qchash.text_at(strs, o)) == hv for hv, o in index),
+            "the index maps each hash to its own text",
+        ),
+        ([hv for hv, _ in index] == sorted(hv for hv, _ in index), "the index is sorted by hash"),
+        (
+            bool(consts) and all(oglob[ofs] == qchash.string_value(text) for ofs, text in consts),
+            f"all {len(consts)} string constants hold their text's value",
+        ),
+        (
+            all(oglob[ofs] == qchash.STR_EMPTY for ofs in empties),
+            f'{len(empties)} "" constants are STR_EMPTY, not null: IF on one branches in id',
+        ),
+        (any(qchash.text_at(strs, o) == b"player" for _, o in index), 'the constant "player" is in the index'),
+    ]
+
+
+def refusals(data: bytes) -> list[Check]:
+    ih = struct.unpack_from("<15i", data)
+    istr = data[ih[10] : ih[10] + ih[11]]
+    iglob = struct.unpack_from(f"<{ih[13]}i", data, ih[12])
+    defs = [struct.unpack_from("<HHi", data, ih[4] + k * 8) for k in range(ih[5])]
+    stmts = [struct.unpack_from("<HHHH", data, ih[2] + i * 8) for i in range(ih[3])]
+    compared = {b for op, _, b, _ in stmts if qchash.OPS[op] in ("EQ_S", "NE_S")}
+
+    # a string constant retyped as a float keeps its offset: the operand scan must see it
+    k = next(k for k, (t, ofs, _) in enumerate(defs) if t & 0x7FFF == 1 and iglob[ofs] and ofs in compared)
+    retyped = bytearray(data)
+    struct.pack_into("<H", retyped, ih[4] + k * 8, 2)
+
+    # a nonzero float global whose only def is moved away
+    covered = [ofs for _, ofs, _ in defs]
+    k = next(
+        k
+        for k, (t, ofs, _) in enumerate(defs)
+        if t & 0x7FFF == 2 and iglob[ofs] and covered.count(ofs) == 1 and ofs - 1 not in covered
+    )
+    uncovered = bytearray(data)
+    struct.pack_into("<H", uncovered, ih[4] + k * 8 + 2, 0)
+
+    # a string global one byte into its text would hash a suffix
+    ofs = next(
+        ofs for t, ofs, _ in defs if t & 0x7FFF == 1 and iglob[ofs] and len(qchash.text_at(istr, iglob[ofs])) > 1
+    )
+    suffix = bytearray(data)
+    struct.pack_into("<i", suffix, ih[12] + ofs * 4, iglob[ofs] + 1)
+
+    reserved = [
+        (
+            refused(data, f"hashes to {value:08x}", hasher=lambda t, v=value: v),
+            f"a text hashing to {value:08x} is refused",
+        )
+        for value in (0, qchash.STR_TEMP, qchash.STR_EMPTY, 0x80000000)
+    ]
+    return [
+        (refused(data, "share hash", hasher=lambda t: 7), "two texts with one hash are refused"),
+        *reserved,
+        (refused(bytes(retyped), "not string-typed"), "a string read through a non-string global is refused"),
+        (refused(bytes(uncovered), "no def covers it"), "a nonzero global with no def is refused"),
+        (refused(bytes(suffix), "not the start of a string"), "a string global pointing mid-string is refused"),
+    ]
+
+
+def main() -> None:
+    data = Path(sys.argv[1]).read_bytes()
+    checks = [*round_trip(data), *refusals(data)]
+    for passed, what in checks:
+        print(f"  {'ok  ' if passed else 'FAIL'} {what}")
+    failures = sum(not passed for passed, _ in checks)
+    print(f"test_qchash: {'FAILED' if failures else 'PASSED'} ({failures} failures)")
+    sys.exit(failures != 0)
+
+
+if __name__ == "__main__":
+    main()

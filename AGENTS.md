@@ -107,7 +107,7 @@ The rules below are for what gets written or touched from here:
 
 ### The gates
 
-    make test                    the qgl suite, native; needs `make assets`
+    make test                    the qgl and QuakeC VM suites, native; needs `make assets`
     tools/test-<name>.sh <build> one behaviour of QCPORT.EXE, headless
 
 `make test` needs no Borland C, which is what makes it worth running
@@ -306,6 +306,12 @@ Before believing any delta, check what actually changed in the hot path:
 
 Byte-identical segment sizes for the per-frame code mean no per-frame
 work was added, whatever the timings say.
+
+**The dynamic core charges a `rep` string op as one instruction.** At
+fixed cycles a `_fmemcpy` of 16 slots cost the same as one of 0 on
+dynamic and 29% more on normal; code without `rep` timed identically on
+both. Time anything that is mostly copies, and any rep-against-loop
+choice, with `CORE=normal`.
 
 ## Player physics
 
@@ -2830,3 +2836,11 @@ in the same session.
 
 Which lumps are conventional, which are EMS, the rule that decides, and
 the 54 K of surface cache that does not fit on e1m1 -- `docs/cport-memory.md`.
+
+## QuakeC in 16K pages
+
+Whether id's `progs.dat` can run in four EMS slots: the call graph, the
+packing, the function headers, string ids and what does not fit --
+`docs/quakec-vm.md`, measured with `tools/qcvm/`. The paged VM built from
+it is `qvm/`, its strings hashed by `tools/qcvm/qchash.py`; a change to
+either runs `make -C qvm/test mutate` as well as the suite.

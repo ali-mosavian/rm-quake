@@ -148,13 +148,14 @@ $(foreach m,$(MAPS),data/$(m).bsp): data/%.bsp: $(PAK) tools/pakget.py
 data/maps/%/assets.zip: data/%.bsp data/base.dat $(MKASSETS)
 	@python3 tools/mkassets.py data/$*.bsp data/base.dat data/maps/$* $(PAK)
 
-test:                           ## header deps, far-to-near pointers, then qgl's suite, native; needs `make assets`
+test:                           ## header deps, far-to-near pointers, then qgl's and the QuakeC VM's suites, native; needs `make assets`
 	@tools/depcheck.sh
 	@tools/test-assetdeps.sh
 	@python3 tools/farnear.py
 	@tools/test-x87cmp.sh
 	@tools/test-bufcheck.sh
 	@$(MAKE) --no-print-directory -C qgl/test
+	@$(MAKE) --no-print-directory -C qvm/test PAK=$(PAK)
 
 run: $(EXE)                     ## headless run; cport.txt/cstep.txt land in $(BUILD)
 	@tools/run.sh $(BUILD)
