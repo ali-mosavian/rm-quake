@@ -11,7 +11,7 @@ TOOLCHAINS ?= $(HOME)/work/other/d32x/toolchains
 DOSBOX_BIN ?=
 BUILD      ?= $(CURDIR)/build/cport
 JWASM      ?= $(TOOLCHAINS)/native/bin/jwasm
-QGL        := $(CURDIR)/qgl
+QGL        := $(CURDIR)/src/qgl
 TIMEOUT    ?= 600
 # Quake's shareware PAK: the maps, models, sounds and status bar come out
 # of it. Not in the repo and not redistributable.
@@ -23,7 +23,7 @@ MAPS       ?= e1m1 e1m2 e1m3 e1m4 e1m5 e1m6 e1m7 e1m8 start
 
 # file.asm FIRST: a VFS driver registers by placing a row in a segment
 # file.asm brackets, and TLINK lays the class out in the order it meets
-# the modules. Same order qgl/test/Makefile uses.
+# the modules. Same order src/qgl/test/Makefile uses.
 QGL_SRC := $(QGL)/file.asm $(QGL)/vga.asm \
            $(QGL)/sf.asm $(QGL)/mem.asm $(QGL)/gem.asm \
            $(QGL)/qglnew.asm $(QGL)/qglview.asm $(QGL)/qgldc.asm \
@@ -40,7 +40,7 @@ QGL_SRC := $(QGL)/file.asm $(QGL)/vga.asm \
 QGL_MODS := $(basename $(notdir $(QGL_SRC)))
 QGL_INC  := $(wildcard $(QGL)/*.inc)
 
-# -D list for every C compile -- see src/qrcfg.h. Nothing in make sees a
+# -D list for every C compile -- see src/host/qrcfg.h. Nothing in make sees a
 # changed define, so an arm built with a different CDEFS needs its own
 # BUILD directory:
 #
@@ -52,15 +52,23 @@ export TOOLCHAINS DOSBOX_BIN CDEFS TIMEOUT
 BCC  := $(CURDIR)/tools/bcc.sh
 LINK := $(CURDIR)/tools/link.sh
 
-C_SRC  := $(wildcard src/*.c)
-C_MODS := $(basename $(notdir $(C_SRC)))
+# The program's subsystems. src/qgl is qgl, built by the rules below, and
+# src/qvm is not linked yet.
+C_DIRS := $(addprefix src/,host render model game sound ui)
+C_SRC  := $(foreach d,$(C_DIRS),$(wildcard $(d)/*.c))
+C_MODS := $(sort $(basename $(notdir $(C_SRC))))
 
 # Standalone .asm modules (r_ptproj.asm: r_ptproj/r_rclip), assembled
 # natively with jwasm.
-ASM_SRC  := $(wildcard src/*.asm)
-ASM_MODS := $(basename $(notdir $(ASM_SRC)))
+ASM_SRC  := $(foreach d,$(C_DIRS),$(wildcard $(d)/*.asm))
+ASM_MODS := $(sort $(basename $(notdir $(ASM_SRC))))
 
 MODS := $(C_MODS) $(ASM_MODS) $(QGL_MODS)
+# Objects land flat in BUILD and bcc.sh compiles against every header in
+# one flat DOS directory, so a name may live in one subsystem only.
+# from the unsorted names: $(sort) above drops a repeat before this could see it
+DUPS := $(shell printf '%s\n' $(basename $(notdir $(C_SRC) $(ASM_SRC))) $(QGL_MODS) $(notdir $(wildcard src/*/*.h)) | tr A-Z a-z | sort | uniq -d)
+$(if $(DUPS),$(error one name in two subsystems: $(DUPS)))
 OBJS := $(addprefix $(BUILD)/,$(addsuffix .obj,$(MODS)))
 EXE  := $(BUILD)/QCPORT.EXE
 
@@ -92,12 +100,15 @@ $(BUILD):
 # struct changes what the objects mean while leaving the sources
 # untouched, LINK is happy, and the EXE runs old declarations against
 # new code.
-C_HDRS := $(wildcard src/*.h)
+C_HDRS := $(foreach d,$(C_DIRS) $(QGL),$(wildcard $(d)/*.h))
 
-$(BUILD)/%.obj: src/%.c $(C_HDRS) | $(BUILD)
+vpath %.c $(C_DIRS)
+vpath %.asm $(C_DIRS)
+
+$(BUILD)/%.obj: %.c $(C_HDRS) | $(BUILD)
 	$(BCC) $< $@
 
-$(BUILD)/%.obj: src/%.asm | $(BUILD)
+$(BUILD)/%.obj: %.asm | $(BUILD)
 	$(JWASM) -c -Cp -Zg -omf -Fo$@ $<
 
 # No __BASIC__ here, deliberately. On every .inc: qgl.inc carries the
@@ -116,8 +127,8 @@ $(BUILD)/%.obj: $(QGL)/dct/%.asm $(QGL_INC) | $(BUILD)
 # failing: C will not catch a drifted declaration.
 .PHONY: qglh
 qglh:
-	@python3 $(CURDIR)/tools/mkqglh.py $(QGL) src/qgl.h --check \
-	  || { python3 $(CURDIR)/tools/mkqglh.py $(QGL) src/qgl.h; \
+	@python3 $(CURDIR)/tools/mkqglh.py $(QGL) $(QGL)/qgl.h --check \
+	  || { python3 $(CURDIR)/tools/mkqglh.py $(QGL) $(QGL)/qgl.h; \
 	       echo "qgl.h was stale and has been regenerated -- rebuild" >&2; \
 	       exit 1; }
 
@@ -150,12 +161,13 @@ data/maps/%/assets.zip: data/%.bsp data/base.dat $(MKASSETS)
 
 test:                           ## header deps, far-to-near pointers, then qgl's and the QuakeC VM's suites, native; needs `make assets`
 	@tools/depcheck.sh
+	@tools/test-dups.sh
 	@tools/test-assetdeps.sh
 	@python3 tools/farnear.py
 	@tools/test-x87cmp.sh
 	@tools/test-bufcheck.sh
-	@$(MAKE) --no-print-directory -C qgl/test
-	@$(MAKE) --no-print-directory -C qvm/test PAK=$(PAK)
+	@$(MAKE) --no-print-directory -C src/qgl/test
+	@$(MAKE) --no-print-directory -C src/qvm/test PAK=$(PAK)
 
 run: $(EXE)                     ## headless run; cport.txt/cstep.txt land in $(BUILD)
 	@tools/run.sh $(BUILD)

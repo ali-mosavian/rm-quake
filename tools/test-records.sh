@@ -5,7 +5,7 @@
 #
 # What went wrong first: mkassets.py narrowed Leaf and Node from 22
 # bytes to 16 (PackedBounds), Plane from 18 to 16 and Submodel from 64
-# to 32, while src/bsptypes.h still declared the wide ones.
+# to 32, while src/model/bsptypes.h still declared the wide ones.
 # asset_load asked for 336 * 22 bytes of a 336 * 16 member and the run
 # died in r_load_leaves with "leaves.pag: short read" -- several load
 # marks after anything said which structure had drifted.
@@ -17,7 +17,7 @@
 #
 #   tools/test-records.sh build/cport-qgl [dm3ish]
 #
-# The record sizes come from src/bsptypes.h's own REC_* guards,
+# The record sizes come from src/model/bsptypes.h's own REC_* guards,
 # which the compiler checks against sizeof in the same commit, so this
 # side and the target side cannot disagree about what cport believes.
 set -uo pipefail
@@ -25,7 +25,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OUT="${1:?usage: test-records.sh <build-dir> [map]}"
 MAP="${2:-dm3ish}"
-HDR="${HDR:-$HERE/../src/bsptypes.h}"
+HDR="${HDR:-$HERE/../src/model/bsptypes.h}"
 BSP="${BSP:-$HERE/../data/$MAP.bsp}"
 
 python3 - "$OUT/$MAP.qmp" "$HDR" "$BSP" "$HERE/.." <<'PY'

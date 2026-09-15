@@ -12,9 +12,14 @@ in this repository's history up to `chore: drop the BASIC renderer`.
 
 | | |
 |---|---|
-| `src/` | the program: `qmain.c`, the BSP walk, surfaces, entities, AI, sound |
-| `qgl/` | the graphics, memory, file, timer and input layer, in asm |
-| `qgl/test/` | qgl's own suite, one test per file, run natively |
+| `src/host/` | `qmain.c`, the frame loop, command line, config, input, the PAK |
+| `src/render/` | the BSP walk, portals, faces, surfaces, sky, models drawn, lights, view |
+| `src/model/` | the map and model loaders and their on-disk records |
+| `src/game/` | the C game logic QuakeC replaces: entities, AI, weapons, doors, physics |
+| `src/sound/` | the mixer and the sound table |
+| `src/ui/` | the screen text and the status bar |
+| `src/qgl/` | the graphics, memory, file, timer and input layer, in asm; `test/` is its suite |
+| `src/qvm/` | the paged QuakeC VM and id's entity loader, not linked yet; `test/` is its suite |
 | `tools/` | the build scripts, the asset pipeline and the `test-*.sh` gates |
 | `data/` | `stuff.ini`, `base.dat` and the dm3ish test map |
 | `docs/` | memory layout, portal culling, open bugs |

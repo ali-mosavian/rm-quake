@@ -12,7 +12,7 @@
 #   tools/test-cdefs.sh <build-with> <build-without>
 #
 # Both dirs must already hold a QCPORT.EXE and the map, built with their
-# own CDEFS -- see src/qrcfg.h on why each arm needs its own
+# own CDEFS -- see src/host/qrcfg.h on why each arm needs its own
 # directory.
 set -uo pipefail
 

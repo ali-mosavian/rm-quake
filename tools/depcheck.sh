@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # depcheck.sh -- an edit to a header must rebuild what includes it.
 #
-# qgl.inc carries the surface kinds and the struct layouts; src/*.h carry
+# qgl.inc carries the surface kinds and the struct layouts; src/*/*.h carry
 # every struct the C modules share. Change one with the objects built and
 # a rule missing the header has nothing to notice: the sources are
 # untouched, the stale objects stay, the link is happy, and QCPORT.EXE
@@ -52,8 +52,8 @@ check () {   # header, pattern of its kind's compile, how many there are
     built
 }
 
-for h in qgl/*.inc; do check "$h" "jwasm .* -I$ROOT/qgl " "$nq"; done
-for h in src/world.h src/qgl.h; do check "$h" 'bcc\.sh' "$nc"; done
+for h in src/qgl/*.inc; do check "$h" "jwasm .* -I$ROOT/src/qgl " "$nq"; done
+for h in src/model/world.h src/qgl/qgl.h; do check "$h" 'bcc\.sh' "$nc"; done
 
 if (( fail )); then echo "RESULT FAIL ($fail)"; exit 1; fi
 echo "RESULT PASS"

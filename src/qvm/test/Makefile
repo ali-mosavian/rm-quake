@@ -7,7 +7,7 @@
 #
 # DOS: dosconf.sh stages the same test for Borland C++ 3.1 -mm and prints
 # a conf to launch.
-ROOT := $(abspath ../..)
+ROOT := $(abspath ../../..)
 PAK  ?= $(HOME)/dos/QUAKE_SW/ID1/PAK0.PAK
 B    ?= $(ROOT)/build/qvm-test
 CC   ?= clang

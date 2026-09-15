@@ -374,7 +374,7 @@ timer and dividing the counter by 1000 gave a dt seven times too small: the
 physics was frame-rate independent but ran in slow motion, every speed in the
 game being units per seven seconds. What mgl delivered was 145.6 Hz: its
 `tmrInit` programmed a PIT divisor of 8192 whatever was asked for. The PIT
-is qgl's now -- `qgl/tmr.asm` hooks INT 8 at a real 1000 Hz and chains
+is qgl's now -- `src/qgl/tmr.asm` hooks INT 8 at a real 1000 Hz and chains
 the BIOS handler each time the divisor accumulates to 65536, so DOS's clock
 keeps its 18.2 -- and `sys_time_init` still measures it against DOS's own
 TIMER, because the emulator is still underneath it.
@@ -1068,7 +1068,7 @@ a sampling change is the fix, not a regression, but say so each time.
 
 ## The file layer: one name space, drivers that register by linking
 
-`qgl/file.asm` is what mgl's `uar*` was: `qglFileOpen` /
+`src/qgl/file.asm` is what mgl's `uar*` was: `qglFileOpen` /
 `qglFileOpenBas` / `qglFileSize` / `qglFileRead` / `qglFileWrite` /
 `qglFileClose` on `"assets.zip::member"` and on plain names, and a
 handle indexes a table there rather than the caller declaring a `UAR`
@@ -1091,7 +1091,7 @@ suite cannot demonstrate it. Both Makefiles list `file` first,
 `qglFileDrivers` reports what the walk finds, and `t05file` asserts the
 count.
 
-`qgl/zip.asm` is the first driver, and the only one.
+`src/qgl/zip.asm` is the first driver, and the only one.
 
 **Stored only, and `tools/mkassets.py` now writes stored.** mgl's reader
 carries an inflate and a window table to drive it; deleting that is most
@@ -1291,7 +1291,7 @@ itself, being a differential against mgl by design. The music player
 rather than ported, and with it the last mgl call in production; the
 hang its init had is gone with it. `Env.sound` sat ahead of `vis`, so
 both C offsets moved by two. The camera's matrices are `qglM4Persp`/`qglM4LookAt`/
-`qglM4Conc` in `qgl/m4.asm`, mgl's `mdu3d.asm` FPU sequence kept
+`qglM4Conc` in `src/qgl/m4.asm`, mgl's `mdu3d.asm` FPU sequence kept
 instruction for instruction because `tools/ref/bench.bmp` is a
 byte-for-byte reference and a rounding that moves by an ulp moves it;
 `t32m4` checks them on values a real4 holds exactly, and the bench
@@ -1337,9 +1337,9 @@ measurement, not fifty-five.
 
 ## Retiring mgl: the keyboard and the mouse
 
-`qgl/kbd.asm` is mgl's INT 9 hook with the same table -- a word per
+`src/qgl/kbd.asm` is mgl's INT 9 hook with the same table -- a word per
 scancode, -1 down, word 0 the last code, `Keys` in `in.bi` keeping
-TKBD's names so `g.env.keyboard.w` reads as before. `qgl/mouse.asm`
+TKBD's names so `g.env.keyboard.w` reads as before. `src/qgl/mouse.asm`
 keeps its own cursor from the driver's mickeys, one pixel each, clipped
 to the mode, and `qglMousePos` places it -- which is how the spawn yaw
 and a teleport's facing are applied, so the clip range is part of the
@@ -1815,7 +1815,7 @@ on a far pointer truncates TOWARDS ZERO, so a window at E000h -- a
 negative long -- came out one paragraph high and every digit was read
 sixteen bytes off. `scr_seg_of` subtracts the low half first.
 
-**Sound is a Sound Blaster at 220h, polled.** `qgl/dsp.asm` is
+**Sound is a Sound Blaster at 220h, polled.** `src/qgl/dsp.asm` is
 Quake's snd_dos.c on the SB16 path: reset, version 4 or nothing, a
 4096-byte ring from `qglMemAlloc` aligned to 4096 so it never crosses a
 DMA page, filled with 128 (silence is not zero), DMA channel 1 in
@@ -1917,7 +1917,7 @@ pinned core -- that sequence answered `23760 >= 40843` true and
 The loader took the conventional-memory branch it could not afford and
 the trace showed 41K leaving the far heap with every guard "passing";
 three spellings of the compare all agreed, which is the second rule's
-tell. `qgl/cpi4.asm` replaces the routine: the low words get their
+tell. `src/qgl/cpi4.asm` replaces the routine: the low words get their
 sign bits flipped and a plain signed `cmp`, no flag surgery. The runtime
 keeps `B$CPI4` in one module with `B$CMI4`, `B$MUI4`, `B$DVI4` and
 `B$RMI4`, so all five live there or LINK pulls the module and reports
@@ -2173,7 +2173,7 @@ mark is `sc_init FAILED` and sc.c prints no reason. dm3ish is lit
 the unlit fill, and a lit one will be larger.
 
 **The profiler costs 0.6% of an e1m1 frame, and the logging costs
-nothing.** `src/qrcfg.h` gates both -- `QR_PROF` is PhaseTimes'
+nothing.** `src/host/qrcfg.h` gates both -- `QR_PROF` is PhaseTimes'
 brackets, d_faces' two rdtsc a face, its nine sc_find key sums that
 nothing ever read, and the walk's bench-only counters; `QR_LOG` is
 `mark()` and the cstep.txt trace. Both default ON. `make BUILD=<dir>
@@ -2209,7 +2209,7 @@ more frame over the same 200 ticks and draws more polygons, which is
 the change working. Mutation-checked by moving `lm_on = 1` inside a
 `#if QR_PROF`.
 
-**`mark()` writes to port E9h, not a file** (`src/dbg.c`). DOSBox-X
+**`mark()` writes to port E9h, not a file** (`src/host/dbg.c`). DOSBox-X
 logs it with `bochs debug port e9=true`, one line per `\n`, as
 `Bochs port E9h: ...`; `tools/run.sh` and `tools/viz.sh` set that and a
 `[log] logfile`, and run.sh turns the lines into cstep.txt -- only when
@@ -2235,7 +2235,7 @@ Doubling dt on records 100..110 of e1m1's went unseen -- the player
 stood against a wall there -- and on 20..30, walking, it failed.
 
 **The game state has one owner.** `main` is `host_init`, `host_frame`
-and `host_shutdown` on a `Host` on its stack (`src/host.c`); the
+and `host_shutdown` on a `Host` on its stack (`src/host/host.c`); the
 player's respawn and carry are `client.c`. `World` holds `Rng`
 (Borland's `rand()` exactly, so no reference moved), `Pak` and `Sound`,
 and a function without the World takes the one it needs as a pointer.
@@ -2592,7 +2592,7 @@ corridor.
 
 ### cport: id's lights, not the test light
 
-`src/dl.c` is WinQuake's: 32 slots allocated as `CL_AllocDlight`
+`src/render/dl.c` is WinQuake's: 32 slots allocated as `CL_AllocDlight`
 does, `CL_DecayLights`, and the emitters -- a muzzle flash for every
 player weapon and the soldier's volley, the quad's and pentagram's
 EF_DIMLIGHT, EF_ROCKET on rockets and lava balls, TE_EXPLOSION on every
@@ -2842,5 +2842,5 @@ the 54 K of surface cache that does not fit on e1m1 -- `docs/cport-memory.md`.
 Whether id's `progs.dat` can run in four EMS slots: the call graph, the
 packing, the function headers, string ids and what does not fit --
 `docs/quakec-vm.md`, measured with `tools/qcvm/`. The paged VM built from
-it is `qvm/`, its strings hashed by `tools/qcvm/qchash.py`; a change to
-either runs `make -C qvm/test mutate` as well as the suite.
+it is `src/qvm/`, its strings hashed by `tools/qcvm/qchash.py`; a change to
+either runs `make -C src/qvm/test mutate` as well as the suite.

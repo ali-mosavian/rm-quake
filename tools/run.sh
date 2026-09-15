@@ -35,7 +35,7 @@ rm -f "$OUT/cport.txt" "$OUT/cstep.txt" "$OUT/error.log" \
       "$OUT/NEXT.BAT" "$OUT/RUN1.BAT" "$OUT/CARRY.BIN" "$OUT/run.out" \
       "$OUT/dosbox.log" "$OUT/dosbox.out"
 
-# The program's trace goes out port E9h (src/dbg.c); the emulator logs it
+# The program's trace goes out port E9h (src/host/dbg.c); the emulator logs it
 # and it becomes cstep.txt below.
 { printf '[sdl]\nautolock=false\n[dosbox]\nmemsize=32\nstartbanner=false\nquit warning=false\n'
   printf 'bochs debug port e9=true\n[log]\nlogfile=%s\n' "$OUT/dosbox.log"

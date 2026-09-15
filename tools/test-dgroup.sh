@@ -25,9 +25,9 @@ MAP="$OUT/QCPORT.MAP"
 fail=0
 [[ -s "$MAP" ]] || { echo "FAIL: no $MAP" >&2; exit 1; }
 
-STKLEN=$(sed -n 's/^unsigned _stklen = \([0-9]*\)U*;.*/\1/p' "$HERE/../src/qmain.c")
+STKLEN=$(sed -n 's/^unsigned _stklen = \([0-9]*\)U*;.*/\1/p' "$HERE/../src/host/qmain.c")
 if [[ -z "$STKLEN" ]]; then
-    echo "FAIL: no _stklen in src/qmain.c -- the guard has nothing to check" >&2
+    echo "FAIL: no _stklen in src/host/qmain.c -- the guard has nothing to check" >&2
     fail=1
 elif ! "$CHECK" "$MAP" "$STKLEN" >/dev/null 2>&1; then
     echo "FAIL: this build has no near-heap room: $("$CHECK" "$MAP" "$STKLEN" 2>&1 | head -2)" >&2

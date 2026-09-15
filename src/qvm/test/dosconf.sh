@@ -1,7 +1,7 @@
 #!/bin/bash
 # Stage qvm_test for Borland C++ 3.1 -mm under DOSBox-X, and print the conf.
 #
-#   qvm/test/dosconf.sh [build dir]      then dosbox_launch the conf it prints
+#   src/qvm/test/dosconf.sh [build dir]      then dosbox_launch the conf it prints
 #
 # The run compiles with -w into cct.txt, and edict.c and ed.c into cce.txt,
 # neither of which may hold a Warning, then
@@ -11,7 +11,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-ROOT="$(cd "$HERE/../.." && pwd)"
+ROOT="$(cd "$HERE/../../.." && pwd)"
 B="${1:-$ROOT/build/qvm-test}"
 TOOLCHAINS="${TOOLCHAINS:-$HOME/work/other/d32x/toolchains}"
 D="$B/dos"
@@ -19,8 +19,8 @@ D="$B/dos"
 make --no-print-directory -C "$HERE" B="$B" "$B/PROGS.DAT" "$B/PROGSH.DAT" >&2
 rm -rf "$D"
 mkdir -p "$D"
-cp "$ROOT"/qvm/qvm.c "$ROOT"/qvm/qstr.c "$ROOT"/qvm/qvm.h "$ROOT"/qvm/qvmi.h "$ROOT"/qvm/qtypes.h "$D"/
-cp "$ROOT"/qvm/edict.c "$ROOT"/qvm/edict.h "$ROOT"/qvm/ed.c "$ROOT"/qvm/ed.h "$D"/
+cp "$ROOT"/src/qvm/qvm.c "$ROOT"/src/qvm/qstr.c "$ROOT"/src/qvm/qvm.h "$ROOT"/src/qvm/qvmi.h "$ROOT"/src/qvm/qtypes.h "$D"/
+cp "$ROOT"/src/qvm/edict.c "$ROOT"/src/qvm/edict.h "$ROOT"/src/qvm/ed.c "$ROOT"/src/qvm/ed.h "$D"/
 cp "$HERE"/qvm_test.c "$HERE"/qimg.c "$HERE"/qimg.h "$HERE"/ems.h "$HERE"/ems_dos.c "$D"/
 cp "$B/PROGS.DAT" "$B/PROGSH.DAT" "$D"/
 

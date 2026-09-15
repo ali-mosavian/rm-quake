@@ -1,6 +1,6 @@
 """bufcheck.py -- does every sprintf into a fixed char array fit its longest output?
 
-    python3 tools/bufcheck.py src/*.c
+    python3 tools/bufcheck.py src/*/*.c
 
 For each `char name[N]` in scope -- every array of a `char a[N], b[M];` declaration, shadowed by an
 inner pointer, macro-sized array or function parameter of the same name -- and each

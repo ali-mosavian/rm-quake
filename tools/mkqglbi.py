@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""mkqglbi.py -- generate qgl/qgl.bi from qgl/qgl.inc.
+"""mkqglbi.py -- generate qgl/qgl.bi from src/qgl/qgl.inc.
 
-    tools/mkqglbi.py qgl/qgl.inc qgl/qgl.bi
-    tools/mkqglbi.py qgl/qgl.inc qgl/qgl.bi --check
+    tools/mkqglbi.py src/qgl/qgl.inc qgl/qgl.bi
+    tools/mkqglbi.py src/qgl/qgl.inc qgl/qgl.bi --check
 
 qgl.bi used to be written by hand beside qgl.inc, with a comment telling
 whoever changed one to change the other. That is a fact kept in two

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""mkqglh.py -- generate src/qgl.h from qgl.inc plus the asm.
+"""mkqglh.py -- generate src/qgl/qgl.h from qgl.inc plus the asm.
 
-    tools/mkqglh.py qgl src/qgl.h
-    tools/mkqglh.py qgl src/qgl.h --check
+    tools/mkqglh.py src/qgl src/qgl/qgl.h
+    tools/mkqglh.py src/qgl src/qgl/qgl.h --check
 
 The asm is the authority for everything it states, because the assembler
 derives stack offsets from the `proc` directive and the body addresses

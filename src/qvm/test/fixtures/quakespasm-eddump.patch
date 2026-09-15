@@ -1,4 +1,4 @@
-QuakeSpasm's record of a map load, read by qvm/test/ed_load_test.c.
+QuakeSpasm's record of a map load, read by src/qvm/test/ed_load_test.c.
 
 On QuakeSpasm f5fe178: apply, build Quake/, and from Quake/ run
 

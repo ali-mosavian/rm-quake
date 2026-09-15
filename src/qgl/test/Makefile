@@ -9,7 +9,7 @@
 # here point at qgl rather than at the renderer around it.
 TC     ?= $(HOME)/work/other/d32x/toolchains/native/bin
 DOSBOX ?= $(HOME)/work/other/dosbox-x-debug/src/dosbox-x
-ROOT   := $(abspath ../..)
+ROOT   := $(abspath ../../..)
 QGL    := $(abspath ..)
 B      ?= $(ROOT)/build/qgl-test
 JWASM  := $(TC)/jwasm -c -Cp -Zg -omf -I$(QGL) -I.

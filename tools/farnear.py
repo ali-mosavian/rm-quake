@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """farnear.py -- find a far address handed to a near pointer.
 
-    tools/farnear.py [src/*.c]
+    tools/farnear.py [FILE.c ...]
 
 Medium model: a plain `T *` parameter is near, and passing it the address
 of something reached through a far pointer drops the segment without a
@@ -28,13 +28,20 @@ FUNC_DEF = re.compile(
 CALL = re.compile(r"\b(\w+)\s*\(")
 
 
+def sources(pattern: str) -> list[Path]:
+    found = sorted(p for p in (ROOT / "src").rglob(pattern) if "test" not in p.relative_to(ROOT).parts)
+    if not found:
+        sys.exit(f"farnear: no {pattern} under src/, so nothing was checked")
+    return found
+
+
 def far_fields() -> set[str]:
-    return {m.group(1) for h in (ROOT / "src").glob("*.h") for m in FIELD_DECL.finditer(h.read_text(errors="replace"))}
+    return {m.group(1) for h in sources("*.h") for m in FIELD_DECL.finditer(h.read_text(errors="replace"))}
 
 
 def param_kinds() -> dict[str, list[str]]:
     kinds: dict[str, list[str]] = {}
-    for f in list((ROOT / "src").glob("*.h")) + list((ROOT / "src").glob("*.c")):
+    for f in sources("*.h") + sources("*.c"):
         text = f.read_text(errors="replace")
         for m in FUNC_DEF.finditer(text):
             params = [p.strip() for p in m.group(2).split(",")]
@@ -96,7 +103,7 @@ def scan(path: Path, kinds: dict[str, list[str]], fields: set[str]) -> list[str]
 
 
 def main() -> int:
-    files = [Path(a) for a in sys.argv[1:]] or sorted((ROOT / "src").glob("*.c"))
+    files = [Path(a) for a in sys.argv[1:]] or sources("*.c")
     kinds, fields = param_kinds(), far_fields()
     found = [f for p in files for f in scan(p, kinds, fields)]
     print("\n".join(found) if found else "farnear: none")

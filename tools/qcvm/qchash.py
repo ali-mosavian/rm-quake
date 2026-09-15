@@ -1,4 +1,4 @@
-"""qchash.py -- id's progs.dat with its strings as hashes, for qvm/qvm.c.
+"""qchash.py -- id's progs.dat with its strings as hashes, for src/qvm/qvm.c.
 
     python3 tools/qcvm/qchash.py PROGS.DAT PROGSH.DAT
 

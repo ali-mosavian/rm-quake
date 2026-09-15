@@ -2,7 +2,7 @@
 
 Can qcport run id's `progs.dat` inside its existing EMS model, 16K pages
 mapped through four slots? This note covers what was measured, how, and
-which designs follow. The paged VM and its strings are built, in `qvm/`:
+which designs follow. The paged VM and its strings are built, in `src/qvm/`:
 see "The paged VM, built".
 
 The figures come from PAK0's `progs.dat` (v6). The tools are in
@@ -490,8 +490,8 @@ What is open:
 
 ## The paged VM, built
 
-`qvm/qvm.c` runs id's QuakeC with only the globals in conventional
-memory. `make -C qvm/test` is its suite.
+`src/qvm/qvm.c` runs id's QuakeC with only the globals in conventional
+memory. `make -C src/qvm/test` is its suite.
 
     window      holds                                  mapped again
     QVM_W_ST    the running function's statement page  CALL, RETURN, after a builtin
@@ -556,23 +556,23 @@ version, and `qvm_load` refuses id's and every earlier rewrite's.
 
 ### Tests
 
-`qvm/test/qvm_test.c` hand-assembles bytecode and loads it through the
+`src/qvm/test/qvm_test.c` hand-assembles bytecode and loads it through the
 real loader. Natively, the EMS stand-in copies each page in and out of its
 window, so a pointer kept across a remap reads the wrong bytes there too;
-in DOS it is INT 67h (`qvm/test/dosconf.sh`). It then refuses pak0's
+in DOS it is INT 67h (`src/qvm/test/dosconf.sh`). It then refuses pak0's
 progs.dat, loads its rewrite and checks every function's placement.
 A second run on pages already mapped must call `map` 0 times.
 
 `ed_test` walks every map's entity text through `ed.c` and id's own
 tokenizer side by side. `ed_load_test` loads e1m3, e1m4 and start through
 `edict.c` against QuakeSpasm's record of the same loads
-(`qvm/test/fixtures/`, made by the patch there): every edict after its
+(`src/qvm/test/fixtures/`, made by the patch there): every edict after its
 parse and its spawn, what each spawn function changed, and every builtin's
 parameters, return and writes, which the test's builtins put back. Cases
 no stock map reaches follow, each against id's answer or labelled as our
 refusal where id overruns a buffer.
 
-`make -C qvm/test mutate` builds 57 mutants of `qvm.c`, `qstr.c` and the
+`make -C src/qvm/test mutate` builds 57 mutants of `qvm.c`, `qstr.c` and the
 EMS stand-in, 17 of `qchash.py` and 20 of `edict.c`, and each must fail; a
 host mutant counts only if its own section fails.
 

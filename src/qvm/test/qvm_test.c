@@ -8,8 +8,8 @@
  * else may have taken it.
  *
  * The same file runs natively (ems_nat.c) and under bcc in DOS (ems_dos.c):
- *   make -C qvm/test            native
- *   qvm/test/dosconf.sh         DOS: prints a conf to launch
+ *   make -C src/qvm/test            native
+ *   src/qvm/test/dosconf.sh         DOS: prints a conf to launch
  *   qvm_test [ID.DAT [HASHED.DAT ...]]
  * ID.DAT is id's progs.dat, which must be refused; the rest are qchash.py's.
  */

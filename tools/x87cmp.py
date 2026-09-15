@@ -1,7 +1,7 @@
 """x87cmp.py -- does a module's float code survive a change of compiler flags?
 
-    LIST=1 COLD= tools/bcc.sh src/mdl_ai.c a.asm           # -Ox
-    LIST=1 COLD=mdl_ai tools/bcc.sh src/mdl_ai.c b.asm     # -Ox -Os
+    LIST=1 COLD= tools/bcc.sh src/game/mdl_ai.c a.asm           # -Ox
+    LIST=1 COLD=mdl_ai tools/bcc.sh src/game/mdl_ai.c b.asm     # -Ox -Os
     python3 tools/x87cmp.py a.asm b.asm [FUNC ...]          # every proc in a.asm without FUNC
 
 Walks both listings' control-flow graphs in lockstep from each function's entry. A segment runs

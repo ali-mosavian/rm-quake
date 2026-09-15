@@ -91,7 +91,7 @@ void r_portal_stats( long *pops, long *projs, long *pushes )
 }
 
 /*
- * A portal's box projected to a screen rectangle -- src/r_ptproj.asm.
+ * A portal's box projected to a screen rectangle -- src/render/r_ptproj.asm.
  * bcc -Ox never hoists a far pointer's segment out of a loop: the C
  * version reloaded ES thirteen times per corner for two parameters
  * that never move across the whole function. See r_ptproj.asm's own

@@ -1,6 +1,6 @@
 """mutate.py -- every mutant of the VM must fail qvm_test.
 
-    python3 qvm/test/mutate.py BUILD_DIR          (or: make -C qvm/test mutate)
+    python3 src/qvm/test/mutate.py BUILD_DIR          (or: make -C src/qvm/test mutate)
 
 Each mutant of qvm.c, qstr.c or qvmi.h, or of ems_nat.c for HOST_MUTANTS, puts back one bug the
 suite was written against, builds natively with $CC (clang) from a copy of the sources, and runs

@@ -2,7 +2,7 @@
 # Compile one standalone-cport C module with Borland C++ 3.1, medium
 # model, under DOSBox-X.
 #
-#   tools/bcc.sh src/vid.c build/cport/vid.obj
+#   tools/bcc.sh src/render/vid.c build/cport/vid.obj
 #
 # One DOSBox per file -- `make -jN` genuinely parallelises
 # only if each compile is its own DOSBox session, not one shared batch.
@@ -32,8 +32,8 @@ base=$(basename "$SRC" .c)
 up=$(echo "$base" | tr 'a-z' 'A-Z')
 
 W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
-cp "$ROOT/src/$base.c" "$W/"
-cp "$ROOT"/src/*.h "$W/" 2>/dev/null || true
+cp "$SRC" "$W/"
+cp "$ROOT"/src/*/*.h "$W/"
 
 { printf '[sdl]\nautolock=false\n[dosbox]\nmemsize=32\nstartbanner=false\nquit warning=false\n'
   printf '[cpu]\ncore=dynamic\ncycles=max\n[dos]\nxms=true\n[autoexec]\n'
@@ -52,7 +52,7 @@ cp "$ROOT"/src/*.h "$W/" 2>/dev/null || true
   # the EXE or the debugger can only say LMEM+0x943: bcc -v here and
   # link.sh's "debug codeview" both, or neither is any use. DEBUGINFO=0
   # for a lean build.
-  # CDEFS is the build's -D list (see src/qrcfg.h). It rides the
+  # CDEFS is the build's -D list (see src/host/qrcfg.h). It rides the
   # same 127-char DOS command line as everything else here, so keep it
   # to a handful of short defines.
   # COLD modules build for size with -Os, which leaves their x87 code as

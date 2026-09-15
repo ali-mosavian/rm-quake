@@ -32,7 +32,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ALLOW="${BUFCHECK_ALLOW:-$ROOT/tools/ref/bufcheck-unchecked.txt}"
 fail=0
 
-out=$(python3 "$ROOT/tools/bufcheck.py" "$ROOT"/src/*.c)
+# the program's modules as make builds them, so a new subsystem is checked too, and the VM's
+c_src=$(make -C "$ROOT" -p -n "$ROOT/build/bufcheck-none/QCPORT.EXE" 2>/dev/null | sed -n 's/^C_SRC := //p' | head -1)
+[[ -n "$c_src" ]] || { echo "FAIL: cannot read C_SRC from make" >&2; exit 1; }
+out=$(cd "$ROOT" && python3 tools/bufcheck.py $c_src src/qvm/*.c)
 if [[ $? -ne 0 ]]; then
     grep '^OVERRUN' <<< "$out" >&2
     echo "FAIL: a sprintf in src/ can overrun its array" >&2
@@ -59,7 +62,7 @@ fi
 rm -rf "$(dirname "$old")"
 
 fix="$(mktemp -d)/shadow.c"
-python3 - "$ROOT/src/ent.c" "$fix" <<'PY'
+python3 - "$ROOT/src/game/ent.c" "$fix" <<'PY'
 import re
 import sys
 
@@ -75,7 +78,7 @@ fi
 rm -rf "$(dirname "$fix")"
 
 fix="$(mktemp -d)/tailcmt.c"
-python3 - "$ROOT/src/d_alias.c" "$fix" <<'PY'
+python3 - "$ROOT/src/render/d_alias.c" "$fix" <<'PY'
 import re
 import sys
 

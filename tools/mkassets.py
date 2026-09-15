@@ -28,7 +28,7 @@ OUT: dict[str, bytes] = {}
 
 
 def write_zip(path: str) -> None:
-    # STORED, every member. The reader is qgl/zip.asm, which walks
+    # STORED, every member. The reader is src/qgl/zip.asm, which walks
     # local headers and refuses any method but 0 -- there is no inflate in
     # the renderer any more, and a member it could not read would surface
     # as a missing file rather than as wrong bytes. Costs ~330K on disk;
@@ -69,7 +69,7 @@ def write_zip(path: str) -> None:
 # there. One file cannot be half of another map.
 #
 # It is a flat directory, not a zip: the members are the same STORED
-# bytes, but the reader (qgl/qmap.asm) seeks once to a table
+# bytes, but the reader (src/qgl/file.asm) seeks once to a table
 # instead of walking seventeen local headers, and there is no method
 # field to get wrong. Everything is little-endian.
 #
@@ -189,7 +189,7 @@ QMAP_ALIGN = 16
 
 
 def write_qmap(path: str, name: str, bsp: bytes, members: dict[str, bytes]) -> None:
-    # src/pak.h's QMAP_MAX: the runtime reads the directory into
+    # src/host/pak.h's QMAP_MAX: the runtime reads the directory into
     # a fixed array and is fatal past it, which is a dead run rather
     # than a bad build unless this says so here.
     if len(members) > 80:

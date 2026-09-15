@@ -22,12 +22,13 @@ LEDGER="$ROOT/docs/ledger.tsv"
 MAP="$B/QCPORT.MAP"
 [[ -s "$MAP" ]] || { echo "ledger: no $MAP" >&2; exit 1; }
 
-commit="$(git -C "$ROOT" rev-parse --short HEAD)$(git -C "$ROOT" diff --quiet HEAD -- src qgl || echo +)"
+commit="$(git -C "$ROOT" rev-parse --short HEAD)$(git -C "$ROOT" diff --quiet HEAD -- src ':(exclude)src/qvm' ':(exclude)src/qgl/test' || echo +)"
 rows=()
 row() { rows+=("$LABEL	$commit	$1	$2	$3"); }
 
 # segments: name class ... size (hex, last column)
-c_mods=" $(cd "$ROOT/src" && ls *.c | sed 's/\.c$//' | tr 'a-z' 'A-Z' | tr '\n' ' ') "
+c_mods=" $(make -C "$ROOT" -p -n "$ROOT/build/ledger-none/QCPORT.EXE" 2>/dev/null | sed -n 's/^C_MODS := //p' | head -1 | tr 'a-z' 'A-Z') "
+[[ -n "${c_mods// }" ]] || { echo "ledger: cannot read the C modules from make" >&2; exit 1; }
 code_c=0; code_qgl=0; far_data=0
 while read -r name class size; do
     n=$((16#$size))
@@ -42,7 +43,7 @@ row build code_c "$code_c"
 row build code_qgl "$code_qgl"
 row build far_data "$far_data"
 row build dgroup "$((16#$(awk '$1=="DGROUP"{print $3; exit}' "$MAP")))"
-stk=$(sed -n 's/^unsigned _stklen = \([0-9]*\).*/\1/p' "$ROOT/src/qmain.c")
+stk=$(sed -n 's/^unsigned _stklen = \([0-9]*\).*/\1/p' "$ROOT/src/host/qmain.c")
 heap=$("$ROOT/tools/dgroup-check.sh" "$MAP" "$stk" 2>&1 | sed -n 's/.*stack [0-9]*, \([0-9]*\) bytes of near heap.*/\1/p')
 row build near_heap "${heap:-?}"
 
