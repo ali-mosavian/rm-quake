@@ -1,6 +1,6 @@
 #include <string.h>
 
-#include "qvm.h"
+#include "qvmi.h"
 
 #ifndef QVM_COUNT
 #define QVM_COUNT( op )
@@ -29,15 +29,7 @@ enum {
     OP_STATE, OP_GOTO, OP_AND, OP_OR, OP_BITAND, OP_BITOR
 };
 
-/* A window already on the page costs a compare against the host's record
-   and no call. A hit on a window this VM has not mapped since qvm_load
-   answers base 0 and traps as QVM_ERR_EMS, never another page; it takes a
-   host that kept a freed handle's key. Mapping every window at load to
-   rule it out aliases one page into four, which a copying host corrupts. */
-#define WKEY( h, pg ) ( (uint16) ( ( (uint16) (pg) << 8 ) | ( (uint16) (h) & 0xFF ) ) )
-#define MAP( m, w, h, pg ) ( (m)->host->key[w] == WKEY( h, pg ) ? (m)->wbase[w] : win_map( m, w, h, (uint16) (pg) ) )
-
-static uint8 QFAR *win_map( Qvm *m, sint16 w, sint16 h, uint16 pg )
+uint8 QFAR *qvm_win_map( Qvm *m, sint16 w, sint16 h, uint16 pg )
 {
     return m->wbase[w] = m->host->map( w, h, pg );
 }
@@ -53,29 +45,6 @@ static QFunc QFAR *func_rec( Qvm *m, sint32 k )
     sint32 page = k / QVM_FPP;
     uint8 QFAR *pg = MAP( m, QVM_W_AUX, m->h_aux, page );
     return pg ? (QFunc QFAR *) ( pg + (uint16) ( k % QVM_FPP ) * 36 ) : 0;
-}
-
-/* text by offset into the lump; past it reads as the end */
-static uint8 str_byte( Qvm *m, sint32 ofs )
-{
-    sint32 at;
-    uint8 QFAR *pg;
-
-    if ( ofs < 0 || ofs >= m->nstr ) return 0;
-    at = m->strbase + ofs;
-    pg = MAP( m, QVM_W_AUX, m->h_aux, at >> 14 );
-    return pg ? pg[(uint16) at & 0x3FFF] : 0;
-}
-
-static sint16 str_is( Qvm *m, sint32 ofs, const char *s )
-{
-    uint8 c;
-
-    do {
-        c = str_byte( m, ofs++ );
-        if ( c != (uint8) *s++ ) return 0;
-    } while ( c );
-    return 1;
 }
 
 /*
@@ -142,7 +111,7 @@ static sint16 read_aux( Qvm *m, sint32 at, sint32 ofs, sint32 n )
 
 sint16 qvm_load( Qvm *m, const QHost *host, QVal QFAR *glob, sint32 globcap )
 {
-    sint32 h[17], k, fpages;
+    sint32 h[21], k, fpages, auxend;
     sint32 pages;
     sint16 err = 0;
 
@@ -150,7 +119,7 @@ sint16 qvm_load( Qvm *m, const QHost *host, QVal QFAR *glob, sint32 globcap )
     m->host = host;
     if ( host->read( (void QFAR *) h, 0, sizeof h ) ) return QVM_ERR_READ;
     if ( h[0] != QVM_VERSION ) return QVM_ERR_VERSION;
-    if ( h[13] * 4 > globcap || h[13] * 4 > QVM_LUMP_MAX || h[16] < 0 ) return QVM_ERR_SIZE;
+    if ( h[13] * 4 > globcap || h[13] * 4 > QVM_LUMP_MAX || h[16] < 0 || h[18] < 0 || h[20] < 0 ) return QVM_ERR_SIZE;
 
     m->glob = glob;
     m->nglob = h[13];
@@ -162,21 +131,28 @@ sint16 qvm_load( Qvm *m, const QHost *host, QVal QFAR *glob, sint32 globcap )
     m->nfld = h[7];
     m->nstr = h[11];
     m->nidx = h[16];
+    m->nfldname = h[18];
+    m->nfnname = h[20];
     m->edsz = (sint16) ( h[14] * 4 );
 
-    /* function records QVM_FPP to a page, then the strings, then the index
-       QVM_IPP to a page, each from a page boundary */
+    /* function records QVM_FPP to a page, then the strings, then the string
+       index from a page boundary and the two name indexes straight after it */
     fpages = ( m->nfunc + QVM_FPP - 1 ) / QVM_FPP;
     m->strbase = fpages * QVM_PAGE;
     m->idxbase = ( m->strbase + m->nstr + QVM_PAGE - 1 ) / QVM_PAGE * QVM_PAGE;
-    if ( m->idxbase + m->nidx * 8 > QVM_MAXPAGES * QVM_PAGE ) return QVM_ERR_SIZE;
-    if ( !( m->h_aux = host->alloc( m->idxbase + m->nidx * 8 ) ) ) return QVM_ERR_EMS;
+    m->fldbase = m->idxbase + m->nidx * 8;
+    m->fnbase = m->fldbase + m->nfldname * 8;
+    auxend = m->fnbase + m->nfnname * 8;
+    if ( auxend > QVM_MAXPAGES * QVM_PAGE ) return QVM_ERR_SIZE;
+    if ( !( m->h_aux = host->alloc( auxend ) ) ) return QVM_ERR_EMS;
     if ( m->h_aux > QVM_MAXHND ) { qvm_free( m ); return QVM_ERR_EMS; }
     for ( k = 0; k < m->nfunc && !err; k += QVM_FPP )
         err = read_aux( m, k / QVM_FPP * QVM_PAGE, h[8] + k * 36,
                         ( m->nfunc - k < QVM_FPP ? m->nfunc - k : QVM_FPP ) * 36L );
     if ( !err ) err = read_aux( m, m->strbase, h[10], m->nstr );
     if ( !err ) err = read_aux( m, m->idxbase, h[15], m->nidx * 8 );
+    if ( !err ) err = read_aux( m, m->fldbase, h[17], m->nfldname * 8 );
+    if ( !err ) err = read_aux( m, m->fnbase, h[19], m->nfnname * 8 );
 
     if ( !err && ( pages = pack( m, h[2], 0, &err ) ) > QVM_MAXPAGES ) err = QVM_ERR_SIZE;
     if ( !err && pages > 0 ) {
@@ -198,7 +174,9 @@ void qvm_free( Qvm *m )
     if ( m->h_st )  m->host->release( m->h_st );
     if ( m->h_aux ) m->host->release( m->h_aux );
     if ( m->h_ed )  m->host->release( m->h_ed );
-    m->h_st = m->h_aux = m->h_ed = 0;
+    if ( m->h_mstr ) m->host->release( m->h_mstr );
+    m->h_st = m->h_aux = m->h_ed = m->h_mstr = 0;
+    m->nmstr = 0;
 }
 
 sint16 qvm_edicts( Qvm *m, sint16 nedict )
@@ -271,77 +249,53 @@ void qvm_ent_set( Qvm *m, sint32 ent, sint16 fld, QVal v )
     e[fld] = v;
 }
 
+sint16 qvm_ent_zero( Qvm *m, sint32 ent )
+{
+    if ( ( (uint16) ent & 0x3FFF ) + m->edsz > QVM_PAGE || ed_windows( m ) ) return -1;
+    _fmemset( ED( m, ent ), 0, (uint16) m->edsz );
+    return 0;
+}
+
+/* The name indexes hold only the program's own names, whose hashes qchash.py
+   refused to share; a name asked from outside can share one, so the text
+   decides. */
+sint16 qvm_field_def( Qvm *m, char *name, QDef *d )
+{
+    QStrIdx QFAR *e = qvm_idx_find( m, m->h_aux, m->fldbase, m->nfldname, qvm_hash( name ) );
+
+    if ( !e || e->ofs < 0 || e->ofs >= m->nfld ) return -1;
+    if ( m->host->read( (void QFAR *) d, m->ofs_fld + e->ofs * 8, 8 ) ) return -1;
+    return qvm_str_is( m, d->s_name, name ) ? 0 : -1;
+}
+
 sint16 qvm_field( Qvm *m, char *name )
 {
     QDef d;
-    sint32 i;
 
-    for ( i = 0; i < m->nfld; i++ ) {
-        if ( m->host->read( (void QFAR *) &d, m->ofs_fld + i * 8, 8 ) ) return -1;
-        if ( str_is( m, d.s_name, name ) ) return (sint16) d.ofs;
-    }
-    return -1;
+    return qvm_field_def( m, name, &d ) ? -1 : (sint16) d.ofs;
 }
 
 sint16 qvm_func( Qvm *m, char *name )
 {
-    sint32 i, s_name;
+    QStrIdx QFAR *e = qvm_idx_find( m, m->h_aux, m->fnbase, m->nfnname, qvm_hash( name ) );
+    sint32 k, s_name;
     QFunc QFAR *f;
 
-    for ( i = 1; i < m->nfunc; i++ ) {
-        if ( !( f = func_rec( m, i ) ) ) return 0;
-        s_name = f->s_name;                 /* the compare maps strings over the record */
-        if ( str_is( m, s_name, name ) ) return (sint16) i;
-    }
-    return 0;
+    if ( !e ) return 0;
+    k = e->ofs;                             /* the record maps over the index */
+    if ( k <= 0 || k >= m->nfunc || !( f = func_rec( m, k ) ) ) return 0;
+    s_name = f->s_name;                     /* the compare maps strings over the record */
+    return qvm_str_is( m, s_name, name ) ? (sint16) k : 0;
 }
 
-sint32 qvm_hash( const char QFAR *s )
+sint16 qvm_func_str( Qvm *m, sint32 str )
 {
-    uint32 h = 0x811C9DC5UL;
+    QStrIdx QFAR *e = qvm_idx_find( m, m->h_aux, m->fnbase, m->nfnname, str );
+    sint32 k;
 
-    if ( !*s ) return QVM_STR_EMPTY;
-    while ( *s ) h = ( h ^ (uint8) *s++ ) * 0x01000193UL;
-    return (sint32) h;
-}
-
-sint32 qvm_str_temp( Qvm *m, const char QFAR *text )
-{
-    uint16 i;
-
-    for ( i = 0; i + 1 < QVM_TEMP && text[i]; i++ ) m->temp[i] = text[i];
-    m->temp[i] = 0;
-    return QVM_STR_TEMP;
-}
-
-sint16 qvm_str_text( Qvm *m, sint32 str, char QFAR *buf, uint16 cap )
-{
-    sint32 lo = 0, hi = m->nidx - 1, mid, ofs;
-    QStrIdx QFAR *e = 0;
-    uint8 QFAR *pg;
-    uint16 n;
-    uint8 c;
-
-    if ( !cap ) return -1;
-    if ( str == 0 || str == QVM_STR_EMPTY ) { buf[0] = 0; return 0; }
-    if ( str == QVM_STR_TEMP ) {
-        for ( n = 0; n + 1 < cap && m->temp[n]; n++ ) buf[n] = m->temp[n];
-        buf[n] = 0;
-        return (sint16) n;
-    }
-    while ( lo <= hi ) {
-        mid = ( lo + hi ) / 2;
-        if ( !( pg = MAP( m, QVM_W_AUX, m->h_aux, ( m->idxbase >> 14 ) + mid / QVM_IPP ) ) ) return -1;
-        e = (QStrIdx QFAR *) ( pg + (uint16) ( mid % QVM_IPP ) * 8 );
-        if ( e->hash == str ) break;
-        if ( (uint32) e->hash < (uint32) str ) lo = mid + 1;
-        else hi = mid - 1;
-    }
-    if ( lo > hi ) return -1;
-    ofs = e->ofs;                           /* the text maps over the index */
-    for ( n = 0; n + 1 < cap && ( c = str_byte( m, ofs + n ) ) != 0; n++ ) buf[n] = c;
-    buf[n] = 0;
-    return (sint16) n;
+    if ( !e ) return 0;
+    k = e->ofs;
+    return k > 0 && k < m->nfunc ? (sint16) k : 0;
 }
 
 /* A function's locals are a window in the SAME globals array, so a call
@@ -555,6 +509,7 @@ void qvm_run( Qvm *m, sint16 fnum )
             idx = (uint16) ( s - sbase );
             if ( f.first < 0 ) {                   /* negative => builtin */
                 if ( -f.first >= m->nbi ) { m->trap = QVM_ERR_BUILTIN; goto unwind; }
+                m->bnum = (sint16) -f.first;
                 m->bi[(uint16) -f.first]( m );
                 if ( m->trap ) goto unwind;
                 /* the builtin may have taken any window */

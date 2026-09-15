@@ -1,0 +1,440 @@
+QuakeSpasm's record of a map load, read by qvm/test/ed_load_test.c.
+
+On QuakeSpasm f5fe178: apply, build Quake/, and from Quake/ run
+
+  QEDDUMP=e1m3.dump ./quakespasm -dedicated 1 -basedir DIR +skill 0 +map e1m3 +wait +quit
+
+DIR holds id1/pak0.pak. Run it as ./quakespasm: a long argv[0] fills
+CMDLINE_LENGTH and drops +map. PF_setmodel is WinQuake's here, alias
+models sized -16..16, and it stores the caller's model string, not
+the precache copy.
+
+diff --git a/Quake/pr_cmds.c b/Quake/pr_cmds.c
+index 03643db..c762dab 100644
+--- a/Quake/pr_cmds.c
++++ b/Quake/pr_cmds.c
+@@ -313,7 +313,7 @@ static void PF_setmodel (void)
+ 	{
+ 		PR_RunError ("no precache: %s", m);
+ 	}
+-	e->v.model = PR_SetEngineString(*check);
++	e->v.model = G_INT(OFS_PARM1);	/* qcport fixture: WinQuake stores the caller's string, not the precache copy */
+ 	e->v.modelindex = i; //SV_ModelIndex (m);
+ 
+ 	mod = sv.models[ (int)e->v.modelindex];  // Mod_ForName (m, true);
+@@ -323,6 +323,11 @@ static void PF_setmodel (void)
+ 	{
+ 		if (mod->type == mod_brush)
+ 			SetMinMaxSize (e, mod->clipmins, mod->clipmaxs, true);
++		else if (mod->type == mod_alias)	/* qcport fixture: WinQuake's model.c fixes alias bounds at 16 */
++		{
++			static vec3_t	amins = {-16, -16, -16}, amaxs = {16, 16, 16};
++			SetMinMaxSize (e, amins, amaxs, true);
++		}
+ 		else
+ 			SetMinMaxSize (e, mod->mins, mod->maxs, true);
+ 	}
+diff --git a/Quake/pr_edict.c b/Quake/pr_edict.c
+index 655fcbc..12f756f 100644
+--- a/Quake/pr_edict.c
++++ b/Quake/pr_edict.c
+@@ -991,6 +991,258 @@ Used for both fresh maps and savegame loads.  A fresh map would also need
+ to call ED_CallSpawnFunctions () to let the objects initialize themselves.
+ ================
+ */
++/* qcport fixture: QEDDUMP=<file> writes each edict's nonzero fields after its parse (P) and its
++   spawn function (S), and every builtin call during the load (B), for qcport's qvm/ed tests. */
++static FILE	*eddump_f;
++static qboolean	eddump_loading;
++
++/* a text quoted on one line: newline, quote and backslash escaped, other control bytes as \xNN */
++static void EdDump_Text (const char *s)
++{
++	fputc ('"', eddump_f);
++	for (; *s; s++)
++	{
++		if (*s == '\n')
++			fputs ("\\n", eddump_f);
++		else if (*s == '"' || *s == '\\')
++			fprintf (eddump_f, "\\%c", *s);
++		else if ((unsigned char) *s < 32)
++			fprintf (eddump_f, "\\x%02x", (unsigned char) *s);
++		else
++			fputc (*s, eddump_f);
++	}
++	fputc ('"', eddump_f);
++}
++
++/* a def's words as text: vectors and floats as bits, strings as text ("-" for null), entities
++   as edict numbers */
++static void EdDump_Value (int type, const char *name, int *v)
++{
++	switch (type & ~DEF_SAVEGLOBAL)
++	{
++	case ev_vector:
++		fprintf (eddump_f, " v %s %08x %08x %08x\n", name, v[0], v[1], v[2]);
++		break;
++	case ev_string:
++		if (v[0])
++		{
++			fprintf (eddump_f, " s %s ", name);
++			EdDump_Text (PR_GetString (v[0]));
++			fputc ('\n', eddump_f);
++		}
++		else
++			fprintf (eddump_f, " s %s -\n", name);
++		break;
++	case ev_entity:
++		fprintf (eddump_f, " e %s %d\n", name, NUM_FOR_EDICT (PROG_TO_EDICT (v[0])));
++		break;
++	default:
++		fprintf (eddump_f, " %d %s %08x\n", type & ~DEF_SAVEGLOBAL, name, v[0]);
++		break;
++	}
++}
++
++/* words a vector def covers: its _x _y _z float defs are not values of their own. By offset,
++   not name: hit_z is a float field and no vector's component. */
++static byte	*eddump_fcomp, *eddump_gcomp;
++
++static void EdDump_Components (void)
++{
++	int	i;
++
++	eddump_fcomp = (byte *) calloc (progs->entityfields + 3, 1);
++	eddump_gcomp = (byte *) calloc (progs->numglobals + 3, 1);
++	for (i = 0; i < progs->numfielddefs; i++)
++		if ((pr_fielddefs[i].type & ~DEF_SAVEGLOBAL) == ev_vector)
++			memset (eddump_fcomp + pr_fielddefs[i].ofs, 1, 3);
++	for (i = 0; i < progs->numglobaldefs; i++)
++		if ((pr_globaldefs[i].type & ~DEF_SAVEGLOBAL) == ev_vector)
++			memset (eddump_gcomp + pr_globaldefs[i].ofs, 1, 3);
++}
++
++static qboolean EdDump_Component (ddef_t *d)
++{
++	byte	*inside = d >= pr_fielddefs && d < pr_fielddefs + progs->numfielddefs ? eddump_fcomp : eddump_gcomp;
++	return (d->type & ~DEF_SAVEGLOBAL) != ev_vector && inside[d->ofs];
++}
++
++static int EdDump_Words (int type)
++{
++	return (type & ~DEF_SAVEGLOBAL) == ev_vector ? 3 : 1;
++}
++
++static void EdDump_Edict (char tag, edict_t *ed)
++{
++	int		i, *v;
++	ddef_t		*d;
++	const char	*name;
++
++	if (!eddump_f)
++		return;
++	fprintf (eddump_f, "%c %d %d\n", tag, NUM_FOR_EDICT(ed), ed->free);
++	for (i = 1; i < progs->numfielddefs; i++)
++	{
++		d = &pr_fielddefs[i];
++		name = PR_GetString (d->s_name);
++		if (EdDump_Component (d))
++			continue;
++		v = (int *)((char *)&ed->v + d->ofs*4);
++		if (v[0] || (EdDump_Words (d->type) == 3 && (v[1] || v[2])))
++			EdDump_Value (d->type, name, v);
++	}
++}
++
++/* what a call changed: every edict and every named global, before against after. Slot 0 is a
++   builtin's, slot 1 a spawn function's, which spans builtin calls. */
++typedef struct
++{
++	byte	*eds;
++	int	*gl;
++	int	num;
++} eddump_snap_t;
++
++static eddump_snap_t	eddump_snap[2];
++
++static void EdDump_Mark (int slot)
++{
++	eddump_snap_t	*s = &eddump_snap[slot];
++
++	if (!eddump_f)
++		return;
++	if (!s->eds)
++	{
++		s->eds = (byte *) malloc (sv.max_edicts * pr_edict_size);
++		s->gl = (int *) malloc (progs->numglobals * 4);
++	}
++	memcpy (s->eds, sv.edicts, sv.num_edicts * pr_edict_size);
++	memcpy (s->gl, pr_globals, progs->numglobals * 4);
++	s->num = sv.num_edicts;
++}
++
++static void EdDump_Diff (char tag, int slot)
++{
++	static int	zero[3];
++	eddump_snap_t	*s = &eddump_snap[slot];
++	int		n, i, *v, *was;
++	ddef_t		*d;
++	edict_t		*now, *old;
++	const char	*name;
++
++	for (n = 0; n < sv.num_edicts; n++)
++	{
++		now = EDICT_NUM(n);
++		old = n < s->num ? (edict_t *)(s->eds + n*pr_edict_size) : NULL;
++		if (!old || old->free != now->free)
++			fprintf (eddump_f, "%c %d free %d\n", tag, n, now->free);
++		for (i = 1; i < progs->numfielddefs; i++)
++		{
++			d = &pr_fielddefs[i];
++			name = PR_GetString (d->s_name);
++			if (EdDump_Component (d))
++				continue;
++			v = (int *)((char *)&now->v + d->ofs*4);
++			was = old ? (int *)((char *)&old->v + d->ofs*4) : zero;
++			if (!memcmp (v, was, EdDump_Words (d->type) * 4))
++				continue;
++			fprintf (eddump_f, "%c %d", tag, n);
++			EdDump_Value (d->type, name, v);
++		}
++	}
++	for (i = 0; i < progs->numglobaldefs; i++)
++	{
++		d = &pr_globaldefs[i];
++		name = PR_GetString (d->s_name);
++		if (d->ofs < RESERVED_OFS || EdDump_Component (d))
++			continue;
++		v = (int *)&pr_globals[d->ofs];
++		if (!memcmp (v, &s->gl[d->ofs], EdDump_Words (d->type) * 4))
++			continue;
++		fprintf (eddump_f, "%c G", tag);
++		EdDump_Value (d->type, name, v);
++	}
++}
++
++void EdDump_BuiltinBegin (void)
++{
++	if (eddump_f && eddump_loading)
++		EdDump_Mark (0);
++}
++
++/* a builtin's parameters from defs.qc: e entity, s string, v vector, f float, F field offset */
++static const char *EdDump_Sig (int num)
++{
++	switch (num)
++	{
++	case 1: case 9: case 12: case 13: case 27: case 41: case 51:	return "v";
++	case 2:		return "ev";
++	case 3:		return "es";
++	case 4:		return "evv";
++	case 8:		return "efsff";
++	case 10: case 11: case 19: case 20: case 23: case 25: case 45: case 46:
++	case 68: case 70: case 75: case 76: case 77:	return "s";
++	case 15: case 31: case 47: case 69: case 78:	return "e";
++	case 16:	return "vvfe";
++	case 18:	return "eFs";
++	case 21: case 24: case 73:	return "es";
++	case 22:	return "vf";
++	case 26: case 36: case 37: case 38: case 43: case 67:	return "f";
++	case 32:	return "ff";
++	case 35:	return "fs";
++	case 44:	return "ef";
++	case 48:	return "vvff";
++	case 52: case 53: case 54: case 55: case 56: case 57:	return "ff";
++	case 58:	return "fs";
++	case 59:	return "fe";
++	case 72:	return "ss";
++	case 74:	return "vsff";
++	default:	return "";
++	}
++}
++
++/* B num r0 r1 r2 [the return as its type: an edict number or a text] : argc and each
++   parameter as it was before the call -- e<edict>, s"text" or s-, v<bits>,<bits>,<bits>, f<bits> */
++void EdDump_Builtin (int num)
++{
++	int		*r = (int *)&pr_globals[OFS_RETURN];
++	int		*p;
++	const char	*sig;
++
++	if (!eddump_f || !eddump_loading)
++		return;
++	fprintf (eddump_f, "B %d %08x %08x %08x", num, r[0], r[1], r[2]);
++	switch (num)
++	{
++	case 14: case 17: case 18: case 22: case 47:	/* spawn checkclient find findradius nextent */
++		fprintf (eddump_f, " %d", NUM_FOR_EDICT (PROG_TO_EDICT (r[0])));
++		break;
++	case 19: case 20: case 26: case 27: case 68: case 75: case 76: case 77:	/* precache_* ftos vtos */
++		fputc (' ', eddump_f);
++		EdDump_Text (PR_GetString (r[0]));
++		break;
++	}
++	fprintf (eddump_f, " : %d", pr_argc);
++	for (sig = EdDump_Sig (num), p = eddump_snap[0].gl + OFS_PARM0; *sig; sig++, p += 3)
++	{
++		switch (*sig)
++		{
++		case 'e':	fprintf (eddump_f, " e%d", NUM_FOR_EDICT (PROG_TO_EDICT (p[0])));	break;
++		case 's':
++			if (p[0])
++			{
++				fputs (" s", eddump_f);
++				EdDump_Text (PR_GetString (p[0]));
++			}
++			else
++				fprintf (eddump_f, " s-");
++			break;
++		case 'v':	fprintf (eddump_f, " v%08x,%08x,%08x", p[0], p[1], p[2]);	break;
++		default:	fprintf (eddump_f, " f%08x", p[0]);	break;
++		}
++	}
++	fprintf (eddump_f, "\n");
++	EdDump_Diff ('W', 0);
++}
++
+ void ED_LoadFromFile (const char *data)
+ {
+ 	const char	*classname;
+@@ -999,6 +1251,18 @@ void ED_LoadFromFile (const char *data)
+ 	int		inhibit = 0;
+ 
+ 	pr_global_struct->time = sv.time;
++	if (getenv ("QEDDUMP") && (eddump_f = fopen (getenv ("QEDDUMP"), "w")))
++	{
++		int	i, nf = 0, ng = 0;
++
++		eddump_loading = true;
++		EdDump_Components ();
++		for (i = 1; i < progs->numfielddefs; i++)
++			nf += !EdDump_Component (&pr_fielddefs[i]);
++		for (i = 0; i < progs->numglobaldefs; i++)
++			ng += pr_globaldefs[i].ofs >= RESERVED_OFS && !EdDump_Component (&pr_globaldefs[i]);
++		fprintf (eddump_f, "F %d G %d\n", nf, ng);	/* the defs a dump can name */
++	}
+ 
+ 	// parse ents
+ 	while (1)
+@@ -1015,6 +1279,7 @@ void ED_LoadFromFile (const char *data)
+ 		else
+ 			ent = ED_Alloc ();
+ 		data = ED_ParseEdict (data, ent);
++		EdDump_Edict ('P', ent);
+ 
+ 		// remove things from different skill levels or deathmatch
+ 		if (deathmatch.value)
+@@ -1068,10 +1333,20 @@ void ED_LoadFromFile (const char *data)
+ 		SV_ReserveSignonSpace (512);
+ 
+ 		pr_global_struct->self = EDICT_TO_PROG(ent);
++		EdDump_Mark (1);
+ 		PR_ExecuteProgram (func - pr_functions);
++		EdDump_Edict ('S', ent);
++		if (eddump_f)
++			EdDump_Diff ('D', 1);
+ 	}
+ 
+ 	Con_DPrintf ("%i entities inhibited\n", inhibit);
++	if (eddump_f)
++	{
++		fclose (eddump_f);
++		eddump_f = NULL;
++	}
++	eddump_loading = false;
+ }
+ 
+ 
+@@ -1269,6 +1544,8 @@ void PR_LoadProgs (void)
+ 
+ 	PR_PatchRereleaseBuiltins ();
+ 	pr_effects_mask = PR_FindSupportedEffects ();
++
++	trace_progs_loaded ();
+ }
+ 
+ /*
+diff --git a/Quake/pr_exec.c b/Quake/pr_exec.c
+index 55efd7e..62e7bdb 100644
+--- a/Quake/pr_exec.c
++++ b/Quake/pr_exec.c
+@@ -135,6 +135,9 @@ const char *PR_GlobalStringNoContents (int ofs);
+ 
+ //=============================================================================
+ 
++void EdDump_BuiltinBegin (void);
++void EdDump_Builtin (int num);
++
+ /*
+ =================
+ PR_PrintStatement
+@@ -311,6 +314,7 @@ static int PR_EnterFunction (dfunction_t *f)
+ 	}
+ 
+ 	pr_xfunction = f;
++	if (trace_on) trace_enter (f - pr_functions);
+ 	return f->first_statement - 1;	// offset the s++
+ }
+ 
+@@ -370,6 +374,7 @@ void PR_ExecuteProgram (func_t fnum)
+ 	}
+ 
+ 	f = &pr_functions[fnum];
++	if (trace_on) trace_exec_begin (fnum);
+ 
+ 	pr_trace = false;
+ 
+@@ -382,6 +387,7 @@ void PR_ExecuteProgram (func_t fnum)
+     while (1)
+     {
+ 	st++;	/* next statement */
++	if (trace_on) trace_stmt (st->op, pr_xfunction - pr_functions);
+ 
+ 	if (++profile > 0x1000000) /* was 100000 */
+ 	{
+@@ -544,6 +550,7 @@ void PR_ExecuteProgram (func_t fnum)
+ 
+ 	case OP_ADDRESS:
+ 		ed = PROG_TO_EDICT(OPA->edict);
++		if (trace_on) trace_field (ed, OPB->_int, 1);
+ #ifdef PARANOID
+ 		NUM_FOR_EDICT(ed);	// Make sure it's in range
+ #endif
+@@ -561,6 +568,7 @@ void PR_ExecuteProgram (func_t fnum)
+ 	case OP_LOAD_S:
+ 	case OP_LOAD_FNC:
+ 		ed = PROG_TO_EDICT(OPA->edict);
++		if (trace_on) trace_field (ed, OPB->_int, 0);
+ #ifdef PARANOID
+ 		NUM_FOR_EDICT(ed);	// Make sure it's in range
+ #endif
+@@ -569,6 +577,7 @@ void PR_ExecuteProgram (func_t fnum)
+ 
+ 	case OP_LOAD_V:
+ 		ed = PROG_TO_EDICT(OPA->edict);
++		if (trace_on) trace_field (ed, OPB->_int, 0);
+ #ifdef PARANOID
+ 		NUM_FOR_EDICT(ed);	// Make sure it's in range
+ #endif
+@@ -613,7 +622,10 @@ void PR_ExecuteProgram (func_t fnum)
+ 			int i = -newf->first_statement;
+ 			if (i >= pr_numbuiltins)
+ 				PR_RunError("Bad builtin call number %d", i);
++			if (trace_on) trace_builtin (i);
++			EdDump_BuiltinBegin ();
+ 			pr_builtins[i]();
++			EdDump_Builtin (i);
+ 			break;
+ 		}
+ 		// Normal function
+@@ -631,8 +643,10 @@ void PR_ExecuteProgram (func_t fnum)
+ 		st = &pr_statements[PR_LeaveFunction()];
+ 		if (pr_depth == exitdepth)
+ 		{ // Done
++			if (trace_on) trace_exec_end (profile);
+ 			return;
+ 		}
++		if (trace_on) trace_return (pr_xfunction - pr_functions);
+ 		break;
+ 
+ 	case OP_STATE:

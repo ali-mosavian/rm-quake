@@ -57,6 +57,14 @@ enum { OP_DONE, OP_MUL_F, OP_MUL_V, OP_MUL_FV, OP_MUL_VF, OP_DIV_F,
 #define HASH_KNIGHT   ( (sint32) 0xDFBBF53CUL )   /* past 0x7FFFFFFF: the index is sorted unsigned */
 #define HASH_HIGHBYTE ( (sint32) 0x17BEC89BUL )   /* "\x8d" "ab": a char past 0x7F is negative to bcc */
 
+/* constructed by inverting FNV-1a: texts hashing to the reserved values, and to another text's hash */
+#define TEXT_HASH_0      "qbq\xca" "\xe5" "L"
+#define TEXT_HASH_TEMP   "qa\xf8" "\xce" "\xb6" "f"
+#define TEXT_HASH_EMPTY  "qb\x04" "\x10" "\xec" "@"
+#define TEXT_HASH_NEG0   "qa\xf5" "\xf7" "\x99" "\xbe"
+#define TEXT_AS_OGRE     "qa\xea" "\xb3" "\xeb" "\x8b"
+#define TEXT_AS_PLAYER   "qb\xcf" "\xef" "a\x93"
+
 static int fails = 0;
 
 static void say( const char *fmt, ... )
@@ -128,6 +136,27 @@ static uint8 QFAR *image;
 static sint32 nst, nstr, nidx;
 static sint16 loaded;
 
+/* load's image with one name index entry, def patch_def's in the index at header word
+   patch_lump, given patch_hash and sorted again: a name no def has, sharing a def's hash */
+static sint16 patch_lump, patch_def = -1;
+static sint32 patch_hash;
+
+static void patch_names( uint8 QFAR *img )
+{
+    sint32 h[21];
+    sint16 i, j;
+    QStrIdx QFAR *e, t;
+
+    _fmemcpy( h, img, sizeof h );
+    e = (QStrIdx QFAR *) ( img + (uint16) h[patch_lump] );
+    for ( i = 0; i < h[patch_lump + 1]; i++ )
+        if ( e[i].ofs == patch_def ) e[i].hash = patch_hash;
+    for ( i = 1; i < h[patch_lump + 1]; i++ )
+        for ( j = i; j > 0 && (uint32) e[j - 1].hash > (uint32) e[j].hash; j-- ) {
+            t = e[j]; e[j] = e[j - 1]; e[j - 1] = t;
+        }
+}
+
 static sint16 bi_called, bi_argc, nested_fn;
 static void bi_double( Qvm *v )      /* returns parm0 * 2 */
 {
@@ -176,6 +205,7 @@ static void reset( void )
     nstr = 64;
     nidx = 0;
     memset( idx, 0, sizeof idx );
+    patch_def = -1;
     bi[1] = bi_double;
     bi[2] = bi_clobber;
     bi[3] = bi_nested;
@@ -199,6 +229,7 @@ static sint16 load( void )
     src.edwords = EDW;
     src.version = 0;
     len = qimg_build( &src, image, 65520L );
+    if ( len && patch_def >= 0 ) patch_names( image );
     qimg_use( image, len );
     err = len ? qvm_load( &m, &host, gl, sizeof gl ) : QVM_ERR_SIZE;
     if ( !err ) err = qvm_edicts( &m, 64 );
@@ -266,6 +297,8 @@ static void check_image( const char *path, sint16 want_frame )
     fnum = qvm_func( &r, "ai_run" );
     okf( "  finds ai_run",    (float) ( fnum != 0 ), 1.0f );
     okf( "  no such function", (float) qvm_func( &r, "nope_not_here" ), 0.0f );
+    okf( "  finds the light_lev field", (float) ( qvm_field( &r, "light_lev" ) > 0 ), 1.0f );
+    okf( "  no such field", (float) qvm_field( &r, "nope_not_here" ), -1.0f );
     {
         char buf[16];
         okf( "  \"player\" prints through the index",
@@ -618,23 +651,120 @@ int main( int argc, char **argv )
         okf( "the temp does not EQ_S the constant \"5\"", gl[83].f, 0.0f );
     }
 
+    section( "a name sharing a def's hash, not its text, finds nothing" );
+    reset();
+    _fmemcpy( strs + 1, "main", 5 );
+    fn[1].s_name = 1;
+    load();
+    okf( "  function main by name", (float) qvm_func( &m, "main" ), 1.0f );
+    okf( "  field think by name", (float) qvm_field( &m, "think" ), 5.0f );
+    {
+        QDef d;
+        okf( "  think's def: a float at word 5",
+             (float) ( !qvm_field_def( &m, "think", &d ) && d.type == 2 && d.ofs == 5 ), 1.0f );
+    }
+    reset();
+    patch_lump = 17; patch_def = 2; patch_hash = qvm_hash( "thinq" );
+    load();
+    okf( "  a field thinq with think's hash", (float) qvm_field( &m, "thinq" ), -1.0f );
+    reset();
+    _fmemcpy( strs + 1, "main", 5 );
+    fn[1].s_name = 1;
+    patch_lump = 19; patch_def = 1; patch_hash = qvm_hash( "maim" );
+    load();
+    okf( "  a function maim with main's hash", (float) qvm_func( &m, "maim" ), 0.0f );
+
+    section( "map strings: a page of their own, sorted unsigned, one text a hash" );
+    reset();
+    _fmemcpy( strs + 10, "player", 7 );
+    idx[0].hash = HASH_PLAYER; idx[0].ofs = 10;
+    nidx = 1;
+    load();
+    {
+        char buf[24];
+        okf( "  \"\" is STR_EMPTY and adds nothing",
+             (float) ( qvm_str_add( &m, "" ) == QVM_STR_EMPTY && m.nmstr == 0 ), 1.0f );
+        okf( "  a program's text answers its hash and adds nothing",
+             (float) ( qvm_str_add( &m, "player" ) == HASH_PLAYER && m.nmstr == 0 ), 1.0f );
+        okf( "  knight, past 0x7FFFFFFF, is added", (float) ( qvm_str_add( &m, "knight" ) == HASH_KNIGHT ), 1.0f );
+        okf( "  5 is added before it", (float) ( qvm_str_add( &m, "5" ) == HASH_5 ), 1.0f );
+        okf( "  ogre is added between", (float) ( qvm_str_add( &m, "ogre" ) == qvm_hash( "ogre" ) ), 1.0f );
+        okf( "  knight again adds nothing",
+             (float) ( qvm_str_add( &m, "knight" ) == HASH_KNIGHT && m.nmstr == 3 ), 1.0f );
+        okf( "  knight prints",
+             (float) ( qvm_str_text( &m, HASH_KNIGHT, buf, sizeof buf ) == 6 && !strcmp( buf, "knight" ) ), 1.0f );
+        okf( "  5 prints", (float) ( qvm_str_text( &m, HASH_5, buf, sizeof buf ) == 1 && !strcmp( buf, "5" ) ), 1.0f );
+        okf( "  ogre prints",
+             (float) ( qvm_str_text( &m, qvm_hash( "ogre" ), buf, sizeof buf ) == 4 && !strcmp( buf, "ogre" ) ), 1.0f );
+        okf( "  player still prints from the program",
+             (float) ( qvm_str_text( &m, HASH_PLAYER, buf, sizeof buf ) == 6 && !strcmp( buf, "player" ) ), 1.0f );
+        okf( "  a text with the program's player's hash", (float) qvm_str_add( &m, TEXT_AS_PLAYER ), 0.0f );
+        okf( "  a text with the added ogre's hash", (float) qvm_str_add( &m, TEXT_AS_OGRE ), 0.0f );
+        okf( "  a text hashing to null", (float) qvm_str_add( &m, TEXT_HASH_0 ), 0.0f );
+        okf( "  a text hashing to STR_TEMP", (float) qvm_str_add( &m, TEXT_HASH_TEMP ), 0.0f );
+        okf( "  a text hashing to STR_EMPTY", (float) qvm_str_add( &m, TEXT_HASH_EMPTY ), 0.0f );
+        okf( "  a text hashing to -0.0", (float) qvm_str_add( &m, TEXT_HASH_NEG0 ), 0.0f );
+        okf( "  the refusals added nothing", (float) m.nmstr, 3.0f );
+    }
+
+    section( "map strings: a full page refuses, and every text it holds still prints" );
+    reset();
+    load();
+    {
+        #define FILL_TEXT "fill %03d xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        char text[112], buf[112];
+        sint16 k, added, room, printed = 0;
+
+        /* an add takes its entry and its text, so k of them fit while k * ( 8 + len ) <= a page;
+           one add past that must refuse, and a missing check shows inside the page, not past it */
+        sprintf( text, FILL_TEXT, 0 );
+        room = (sint16) ( QVM_PAGE / ( 8 + (sint32) strlen( text ) + 1 ) );
+        for ( added = 0; added <= room; added++ ) {
+            sprintf( text, FILL_TEXT, added );
+            if ( !qvm_str_add( &m, text ) ) break;
+        }
+        okf( "  the page takes exactly its room, then refuses", (float) added, (float) room );
+        for ( k = 0; k < added; k++ ) {
+            sprintf( text, FILL_TEXT, k );
+            if ( qvm_str_text( &m, qvm_hash( text ), buf, sizeof buf ) > 0 && !strcmp( buf, text ) ) printed++;
+        }
+        okf( "  every text added prints", (float) printed, (float) added );
+    }
+
+    section( "C zeroes one edict, on any page" );
+    reset();
+    load();
+    {
+        QVal v;
+        v.f = 7.0f;
+        qvm_ent_set( &m, ENT( 25 ), 0, v );
+        qvm_ent_set( &m, ENT( 25 ), EDW - 1, v );
+        qvm_ent_set( &m, ENT( 26 ), 0, v );
+        qvm_ent_zero( &m, ENT( 25 ) );
+        okf( "  its first word", ed_f( ENT( 25 ), 0 ), 0.0f );
+        okf( "  its last word", ed_f( ENT( 25 ), EDW - 1 ), 0.0f );
+        okf( "  the next edict's first word", ed_f( ENT( 26 ), 0 ), 7.0f );
+    }
+
     section( "an image not in this qchash.py's format is refused" );
     /* ---- an image not in this qchash.py's format is refused ----
-       0x51480006 held "" as 0: loaded, if ("") would be false. */
+       0x51480006 held "" as 0: loaded, if ("") would be false. 0x51480007 has
+       no name indexes: its header ends where their offsets would be read. */
     reset();
     {
-        static const sint32 old[2] = { 6L, 0x51480006L };
+        static const sint32 old[3] = { 6L, 0x51480006L, 0x51480007L };
+        static const char *what[3] = { "id's version 6 is refused", "the \"\" == null rewrite's version is refused",
+                                       "the nameless rewrite's version is refused" };
         QImgSrc src;
         sint32 len;
         memset( &src, 0, sizeof src );
         src.st = st; src.nst = nst; src.fn = fn; src.nfn = 8; src.gl = gl; src.ngl = 256;
         src.str = strs; src.nstr = nstr; src.edwords = EDW;
-        for ( i = 0; i < 2; i++ ) {
+        for ( i = 0; i < 3; i++ ) {
             src.version = old[i];
             len = qimg_build( &src, image, 65520L );
             qimg_use( image, len );
-            okf( i ? "the \"\" == null rewrite's version is refused" : "id's version 6 is refused",
-                 (float) qvm_load( &m, &host, gl, sizeof gl ), (float) QVM_ERR_VERSION );
+            okf( what[i], (float) qvm_load( &m, &host, gl, sizeof gl ), (float) QVM_ERR_VERSION );
         }
     }
 

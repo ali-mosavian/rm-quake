@@ -15,7 +15,7 @@ HERE = Path(__file__).resolve().parent
 
 MUTANTS = [
     ("no_operand_scan", "    check_operands(img, glob_in, string_globals)\n", ""),
-    ("no_complete", "    check_complete(glob_in, defs, set(starts))\n", ""),
+    ("no_complete", "    check_complete(glob_in, defs, start_set)\n", ""),
     ("no_def_cover", "        if v and g not in covered:", "        if False:"),
     ("no_start", "        if t == EV_STRING and glob[g] and glob[g] not in starts:", "        if False:"),
     ("vector_covers_one", "for k in (1, 2)}", "for k in (1,)}"),
@@ -31,6 +31,10 @@ MUTANTS = [
     ("no_dedupe", "        if t not in new_ofs:", "        if True:"),
     ("unsorted_index", "    index = sorted(", "    index = list("),
     ("id_version", "    header = [VERSION_HASHED,", "    header = [VERSION_ID,"),
+    ("names_mid_string", "        if o not in start_set:", "        if False:"),
+    ("names_keep_last", "        if name and hasher(name) not in first:", "        if name:"),
+    ("names_unsorted", "    return sorted(first.items())", "    return list(first.items())"),
+    ("names_no_funcs", "        pack_index(func_index),\n", "        b'',\n"),
 ]
 
 

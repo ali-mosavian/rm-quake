@@ -5,12 +5,15 @@
 A string value becomes the FNV-1a 32 hash of its text, so EQ_S is an integer compare and needs
 no text. Null stays 0 and "" becomes STR_EMPTY: equal to EQ_S, but only null is false to IF, as
 id's offsets are. The text stays, deduplicated, for printing, with a hash-sorted index after the
-globals. The header grows two ints -- the index's offset and count -- and a version of its own,
-so qvm_load refuses an image that was never rewritten, or rewritten to an older meaning.
+globals. The field and function names get hash-sorted indexes of their own after it, {hash, def
+number}, the first def of a name kept as ED_FindField and ED_FindFunction find it. The header grows
+six ints -- each index's offset and count -- and a version of its own, so qvm_load refuses an image
+that was never rewritten, or rewritten to an older meaning.
 
 Refused, by name:
   - two distinct texts with one hash, or a text hashing to a reserved value: 0, STR_TEMP,
-    STR_EMPTY, or 0x80000000, which is -0.0 and false to AND/OR
+    STR_EMPTY, or 0x80000000, which is -0.0 and false to AND/OR. Names are texts, so this
+    gate is also theirs.
   - a nonzero global no def covers, or a string global not at the start of a string: the
     rewrite would miss it or hash a text no gate saw
   - a global read as a string with a nonzero initial value that is not string-typed
@@ -23,7 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 VERSION_ID = 6
-VERSION_HASHED = 0x51480007  # 6 held "" as 0; bump on any change in meaning
+VERSION_HASHED = 0x51480008  # 6 held "" as 0, 7 had no name indexes; bump on any change in meaning
 STR_TEMP = 1
 STR_EMPTY = 2
 EV_STRING = 1
@@ -113,6 +116,18 @@ def check_operands(img: Image, glob: tuple[int, ...], string_globals: set[int]) 
                 raise Refused(f"statement {i} {name} reads global {g} as a string, which is not string-typed")
 
 
+def name_index(names: list[bytes], hasher: Hasher) -> list[tuple[int, int]]:
+    first: dict[int, int] = {}
+    for k, name in enumerate(names):
+        if name and hasher(name) not in first:
+            first[hasher(name)] = k
+    return sorted(first.items())
+
+
+def pack_index(index: list[tuple[int, int]]) -> bytes:
+    return b"".join(struct.pack("<Ii", hv, o) for hv, o in index)
+
+
 def rewrite(data: bytes, hasher: Hasher = fnv1a) -> bytes:
     img = Image(struct.unpack_from("<15i", data), data)
     h = img.header
@@ -131,7 +146,11 @@ def rewrite(data: bytes, hasher: Hasher = fnv1a) -> bytes:
             new_ofs[t] = len(out_strs)
             out_strs += t + b"\0"
 
-    def moved(o: int) -> int:
+    start_set = set(starts)
+
+    def moved(o: int, what: str) -> int:
+        if o not in start_set:
+            raise Refused(f"{what} names offset {o}, not the start of a string")
         return new_ofs[text_at(strs, o)]
 
     glob_in = struct.unpack_from(f"<{h[13]}i", data, h[12])
@@ -139,21 +158,25 @@ def rewrite(data: bytes, hasher: Hasher = fnv1a) -> bytes:
     defs: list[tuple[int, int]] = []
     for k in range(h[5]):
         t, ofs, name = struct.unpack_from("<HHi", globaldefs, k * 8)
-        struct.pack_into("<HHi", globaldefs, k * 8, t, ofs, moved(name))
+        struct.pack_into("<HHi", globaldefs, k * 8, t, ofs, moved(name, f"globaldef {k}"))
         defs.append((t & 0x7FFF, ofs))
     string_globals = {ofs for t, ofs in defs if t == EV_STRING}
-    check_complete(glob_in, defs, set(starts))
+    check_complete(glob_in, defs, start_set)
     check_operands(img, glob_in, string_globals)
 
     fielddefs = bytearray(img.lump(6, 7, 8))
+    field_names: list[bytes] = []
     for k in range(h[7]):
         t, ofs, name = struct.unpack_from("<HHi", fielddefs, k * 8)
-        struct.pack_into("<HHi", fielddefs, k * 8, t, ofs, moved(name))
+        struct.pack_into("<HHi", fielddefs, k * 8, t, ofs, moved(name, f"fielddef {k}"))
+        field_names.append(text_at(strs, name))
 
     functions = bytearray(img.lump(8, 9, 36))
+    func_names: list[bytes] = []
     for k in range(h[9]):
         rec = list(struct.unpack_from("<6i", functions, k * 36))
-        rec[4], rec[5] = moved(rec[4]), moved(rec[5])
+        func_names.append(text_at(strs, rec[4]))
+        rec[4], rec[5] = moved(rec[4], f"function {k}"), moved(rec[5], f"function {k}'s file")
         struct.pack_into("<6i", functions, k * 36, *rec)
 
     glob = bytearray(img.lump(12, 13, 4))
@@ -162,6 +185,8 @@ def rewrite(data: bytes, hasher: Hasher = fnv1a) -> bytes:
             struct.pack_into("<I", glob, g * 4, string_value(text_at(strs, glob_in[g]), hasher))
 
     index = sorted((hasher(t), o) for t, o in new_ofs.items() if t)
+    field_index = name_index(field_names, hasher)
+    func_index = name_index(func_names, hasher)
     lumps = [
         img.lump(2, 3, 8),
         bytes(globaldefs),
@@ -169,16 +194,18 @@ def rewrite(data: bytes, hasher: Hasher = fnv1a) -> bytes:
         bytes(functions),
         bytes(out_strs),
         bytes(glob),
-        b"".join(struct.pack("<Ii", hv, o) for hv, o in index),
+        pack_index(index),
+        pack_index(field_index),
+        pack_index(func_index),
     ]
-    at = 68
+    at = 84
     ofs = []
     for lump in lumps:
         ofs.append(at)
         at += len(lump)
     header = [VERSION_HASHED, h[1], ofs[0], h[3], ofs[1], h[5], ofs[2], h[7], ofs[3], h[9], ofs[4], len(out_strs),
-              ofs[5], h[13], h[14], ofs[6], len(index)]
-    return struct.pack("<17i", *header) + b"".join(lumps)
+              ofs[5], h[13], h[14], ofs[6], len(index), ofs[7], len(field_index), ofs[8], len(func_index)]
+    return struct.pack("<21i", *header) + b"".join(lumps)
 
 
 def main() -> None:
@@ -188,8 +215,9 @@ def main() -> None:
     except Refused as e:
         sys.exit(f"{src}: refused: {e}")
     dst.write_bytes(out)
-    h = struct.unpack_from("<17i", out)
-    print(f"{src} -> {dst}: {h[11]} bytes of text, {h[16]} hashed strings, {len(out)} bytes")
+    h = struct.unpack_from("<21i", out)
+    print(f"{src} -> {dst}: {h[11]} bytes of text, {h[16]} hashed strings, {h[18]} field and {h[20]} function "
+          f"names, {len(out)} bytes")
 
 
 if __name__ == "__main__":

@@ -44,14 +44,13 @@
 #define QFAR
 #endif
 
-#define QVM_VERSION   0x51480007L  /* qchash.py's; id's 6 and the "" == null 0x51480006 are refused */
+#define QVM_VERSION   0x51480008L  /* qchash.py's; id's 6, the "" == null 0x51480006 and the nameless 0x51480007 are refused */
 #define QVM_MAXPARMS  8
 #define QVM_DEPTH     32     /* call nesting; Quake ships 32 */
 #define QVM_LOCALS    1024   /* saved-locals stack, in slots */
 #define QVM_LUMP_MAX  65520L /* the globals are indexed through one far pointer */
 #define QVM_PAGE      16384L
 #define QVM_FPP       455    /* function records a page: 16384 / 36 */
-#define QVM_IPP       2048   /* string index entries a page: 16384 / 8 */
 #define QVM_TEMP      128    /* id's pr_string_temp */
 #define QVM_STR_TEMP  1L     /* no text hashes to either; qchash.py refuses one that does */
 #define QVM_STR_EMPTY 2L
@@ -124,9 +123,12 @@ typedef struct Qvm {
     sint32 nstat, nfunc, nglob;
     sint32 strbase, nstr;          /* strings start at this byte of the aux pages */
     sint32 idxbase, nidx;          /* and their index at this one, a page boundary */
+    sint32 fldbase, nfldname;      /* the field and function names' indexes follow it, {hash, def number}: */
+    sint32 fnbase, nfnname;        /* 8-byte records from an 8-byte boundary, so none straddles a page */
+    uint16 nmstr, mstr_low;        /* texts from outside: one page, index up from 0, text down from its end */
     sint32 ofs_fld, nfld;          /* fielddefs, read from the image when asked */
 
-    sint16 h_st, h_aux, h_ed;
+    sint16 h_st, h_aux, h_ed, h_mstr;
     uint16 st_pages;
 
     sint16 edsz;                   /* bytes per edict */
@@ -142,6 +144,7 @@ typedef struct Qvm {
     sint16 f_frame, f_nextthink, f_think;   /* found at load, for OP_STATE */
 
     sint16 argc;                   /* arg count of the call in progress */
+    sint16 bnum;                   /* and the builtin's number, so one C function can serve several */
     sint16 trap;                   /* nonzero = run error, see QVM_ERR_* */
     sint16 depth, lused;
     sint32 x_pstart;               /* the running function's locals window */
@@ -201,6 +204,9 @@ sint16 qvm_edicts( Qvm *m, sint16 nedict );
 QVal qvm_ent_get( Qvm *m, sint32 ent, sint16 fld );
 void qvm_ent_set( Qvm *m, sint32 ent, sint16 fld, QVal v );
 
+/* name: qvm_ent_zero  desc: every slot of an edict 0. Answers 0, or -1 for a map that failed. */
+sint16 qvm_ent_zero( Qvm *m, sint32 ent );
+
 /*
  * name: qvm_field
  * desc: Field offset by name, in 32-bit words, or -1. The offsets are read
@@ -209,11 +215,21 @@ void qvm_ent_set( Qvm *m, sint32 ent, sint16 fld, QVal v );
  */
 sint16 qvm_field( Qvm *m, char *name );
 
+/* name: qvm_field_def  desc: the fielddef of a field by name into d; 0, or -1 for none. */
+sint16 qvm_field_def( Qvm *m, char *name, QDef *d );
+
 /*
  * name: qvm_func
  * desc: Function number by name, or 0 (which is never callable).
  */
 sint16 qvm_func( Qvm *m, char *name );
+
+/*
+ * name: qvm_func_str
+ * desc: Function number named by a string value from the program or qvm_str_add, or 0. No
+ *       text compare: progs texts have distinct hashes and an add sharing one is refused.
+ */
+sint16 qvm_func_str( Qvm *m, sint32 str );
 
 /* name: qvm_hash  desc: a string's value: FNV-1a 32 of its text, "" QVM_STR_EMPTY. */
 sint32 qvm_hash( const char QFAR *s );
@@ -227,6 +243,16 @@ sint16 qvm_str_text( Qvm *m, sint32 str, char QFAR *buf, uint16 cap );
 
 /* name: qvm_str_temp  desc: text into the temp buffer; answers QVM_STR_TEMP. */
 sint32 qvm_str_temp( Qvm *m, const char QFAR *text );
+
+/*
+ * name: qvm_str_add
+ * desc: A text from outside the program -- the map's, the engine's -- as a
+ *       string value, kept on a page of its own. A text the program or an
+ *       earlier add has answers its value and adds nothing. Answers 0 for a
+ *       text sharing a hash with another, hashing to a reserved value, or
+ *       past the page's room. text must not lie in a VM window: the add maps AUX.
+ */
+sint32 qvm_str_add( Qvm *m, const char QFAR *text );
 
 /*
  * name: qvm_run

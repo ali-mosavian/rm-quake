@@ -9,8 +9,9 @@
  * The image puts id's dummy statement 0 before st[0] and shifts every
  * fn[k].first >= 0 (k >= 1) past it. It adds the fielddefs "frame",
  * "nextthink" and "think" at words 3, 4 and 5, named after str[]. It is
- * qchash.py's format -- the string index after the globals -- stamped with
- * version, or QVM_VERSION when it is 0.
+ * qchash.py's format -- the string index after the globals, then the field
+ * and function name indexes, a function named by a nonzero s_name inside
+ * str[] -- stamped with version, or QVM_VERSION when it is 0.
  */
 
 #include "qvm.h"

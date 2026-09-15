@@ -562,9 +562,86 @@ window, so a pointer kept across a remap reads the wrong bytes there too;
 in DOS it is INT 67h (`qvm/test/dosconf.sh`). It then refuses pak0's
 progs.dat, loads its rewrite and checks every function's placement.
 A second run on pages already mapped must call `map` 0 times.
-`make -C qvm/test mutate` builds 40 mutants of `qvm.c`, two of the EMS
-stand-in and 13 of `qchash.py`, and each must fail; a host mutant counts
-only if its own section fails.
+
+`ed_test` walks every map's entity text through `ed.c` and id's own
+tokenizer side by side. `ed_load_test` loads e1m3, e1m4 and start through
+`edict.c` against QuakeSpasm's record of the same loads
+(`qvm/test/fixtures/`, made by the patch there): every edict after its
+parse and its spawn, what each spawn function changed, and every builtin's
+parameters, return and writes, which the test's builtins put back. Cases
+no stock map reaches follow, each against id's answer or labelled as our
+refusal where id overruns a buffer.
+
+`make -C qvm/test mutate` builds 57 mutants of `qvm.c`, `qstr.c` and the
+EMS stand-in, 17 of `qchash.py` and 20 of `edict.c`, and each must fail; a
+host mutant counts only if its own section fails.
+
+## QuakeC in the engine: the plan
+
+Decided with the user on 2026-09-15:
+
+- id's QuakeC **replaces** the C game logic outright: `mdl_ai.c`,
+  `weapons.c`, items, doors, triggers, plats and `combat.c`, with their
+  deliberate deviations. Every gate and reference that moves is
+  regenerated and says so.
+- **Stock pak0 `progs.dat`, exact.** Only `qchash.py` rewrites it; id's
+  quirks stay, temporaries clobbered on recursion among them.
+- **Every frame of every model a map uses ships.** Sprites not shipped
+  draw as boxes.
+- **Out of scope:** sound, particles, coop, deathmatch, skills other
+  than easy. Savegames come later. EMS becomes mandatory.
+
+### Architecture
+
+    host_tick
+      StartFrame, player pre/post think          QC
+      SV_Physics per edict: NONE PUSH STEP TOSS  C, id's sv_phys/sv_move
+        SV_RunThink, touch, blocked              QC
+        traces hull 0/1/2, entity clipping       C, id's world.c
+      snapshot of what render reads              C, after the ticks
+
+- **Edicts live in EMS**, 780 B each, behind the VM's windows. The
+  engine keeps a conventional mirror of the fields physics reads,
+  sized by id's max edicts, not the load count. `STOREP_*` and
+  `OP_STATE` mark an edict dirty and the engine refreshes a dirty entry
+  before reading it; engine and builtins write the edict, then the
+  mirror. Nothing is copied back after a run: a run writes other
+  entities (T_RadiusDamage's velocity), and copying 311 after each is the
+  cost. Links, leafs and free time are engine-only and conventional.
+- **No `edict_t *` survives a run or another entity's access.** id's
+  C holds them across `PR_ExecuteProgram` and `SV_Impact`; paged, each
+  is the stale window pointer this repo has hit before.
+- **The renderer reads a snapshot** taken after the ticks: model,
+  frame, skin, origin, angles, effects.
+- **Globals stay one flat conventional array** while the ledger allows:
+  45,884 B against e1m1's 98,528 B largest block. e1m4's 52,528 B forces
+  the compaction: all 6,906 compiler temporaries are private to one
+  function, so they fold into a shared region, saved across a CALL only
+  where one is read after it; a local read before its write keeps a
+  slot of its own; vectors move as three words. Shared globals are then
+  the 93-word engine block and 30 named, 492 B, plus 15.4K of constants.
+
+### Milestones
+
+1. **e1m3 and e1m4 spawn and stand.** e1m3 has the most edicts, e1m4
+   the least memory. `ED_LoadFromFile` on entity text shipped per map,
+   every spawn function, StartFrame, SV_RunThink, physics NONE, PUSH and
+   an idle STEP, the player standing, the C game logic compiled out,
+   entities drawn from the snapshot. µs a tick and far heap measured.
+2. Player movement: hull 1 exists.
+3. Doors, plats, trains: SV_PushMove.
+4. Monsters, then weapons and missiles: TOSS, FLY, BOUNCE, hull 2.
+5. The rest of the maps; the C game logic deleted; gates regenerated.
+
+Spawning e1m3 or e1m4 can reach 55 of the 65 builtins, a closure over
+every function constant, so the first milestone owes nearly all of
+them. Sound, `ambientsound`, `precache_sound*`, `particle`, `stuffcmd`
+and `localcmd` are no-ops; the `Write*` messages carry the HUD's
+kill and secret counts and the intermission, and wait for milestone 5.
+
+Owed before milestone 4: a model and frame table for every frame
+QuakeC sets (mkmdl ships subsets today), and `headnode[2]` a model:
+`clip.pag` already holds the clipnodes hulls 1 and 2 share.
 
 ## How the numbers were made
 
