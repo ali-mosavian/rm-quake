@@ -68,13 +68,18 @@ fi
 # measured step by step (s26 88,288 -> s34 86,880, the same on two runs):
 # FAR_DATA +772, code +626. Under a K of margin on purpose, so each K
 # the next steps spend is looked at.
+#
+# Moved to 84,800: Chthon's paged models, s34 86,880 -> s38 85,568, all
+# of it code. C1's page store -560 (the ledger's far delta, s34 -> s35,
+# inside the old floor); C2's set table, refusals and boss load -560 for
+# code +557 (s37 85,760); the per-set -mdlsum report -192 (s38).
 largest=$(tr -d '\r' < "$OUT/CSTEP.TXT" 2>/dev/null |
           sed -n 's/.*sc_init ok largest=\([0-9]*\).*/\1/p' | tail -1)
 if [[ -z "$largest" ]]; then
     echo "FAIL: no 'sc_init ok largest=' in cstep.txt -- the cache died, or the mark did" >&2
     fail=1
-elif (( largest < 86000 )); then
-    echo "FAIL: $largest bytes free after sc_init, was 86.9 K -- something took the cuts back" >&2
+elif (( largest < 84800 )); then
+    echo "FAIL: $largest bytes free after sc_init, was 85.5 K -- something took the cuts back" >&2
     fail=1
 else
     echo "ok: $largest bytes still free after the cache is built"

@@ -106,6 +106,10 @@ MDL_SETS = {
 # launcher.
 VIEW_MDLS = ('v_shot', 'v_shot2', 'v_nail', 'v_rock', 'v_nail2', 'v_rock2')
 
+# Chthon's model, every set in mdltypes.h's MDL_BOSS_* order, for a map
+# with a monster_boss.
+BOSS_MDL = ('boss', 'rise,walk,death,attack,shocka,shockb,shockc')
+
 
 def build_sbar(pak: str, tmp: str) -> dict[str, bytes]:
     """sbar.raw and sbnum.raw out of gfx.wad, as container members."""
@@ -140,18 +144,15 @@ def build_sounds(pak: str, tmp: str) -> dict[str, bytes]:
     return {n: open(os.path.join(tmp, n), "rb").read() for n in ("snd.bsc", "snddec.raw", "sndtab.raw")}
 
 
-def build_models(pak: str, kinds: set[int], tmp: str) -> dict[str, bytes]:
-    """<name>.geo/.vtx/.skn for each kind, as container members."""
+def build_models(pak: str, kinds: set[int], boss: bool, tmp: str) -> dict[str, bytes]:
+    """<name>.geo/.vtx/.skn for each kind, and Chthon's for a map with him, as container members."""
     import subprocess
 
     out: dict[str, bytes] = {}
     if not pak or not os.path.exists(pak):
         return out
     os.makedirs(tmp, exist_ok=True)
-    for k in sorted(kinds):
-        if k not in MDL_SETS:
-            continue
-        name, sets = MDL_SETS[k]
+    for name, sets in [MDL_SETS[k] for k in sorted(kinds) if k in MDL_SETS] + ([BOSS_MDL] if boss else []):
         r = subprocess.run([sys.executable, os.path.join(os.path.dirname(__file__), 'mkmdl.py'),
                             pak, name, tmp, sets], capture_output=True, text=True)
         if r.returncode != 0:
@@ -1096,8 +1097,8 @@ def sp_relay(e: Ents, kv: dict[str, str]) -> bool:
 
 
 def sp_boss(e: Ents, kv: dict[str, str]) -> bool:
-    # Chthon, unseen (boss.mdl is past MDL_MAXV): the rune wakes him, his
-    # health boss_awake's 1 on easy else 3, a bolt a point, dead his target fires
+    # Chthon: the rune wakes him, his health boss_awake's 1 on easy else 3,
+    # a bolt a point, dead his target fires; his model ships as BOSS_MDL
     e.uses.append((0, TRIG_BOSS, ent_name_id(e, kv.get('target', '')), ent_name_id(e, kv.get('targetname', '')),
                    0, 1 if e.skill == 0 else 3, 0.0, 0.0, (0.0, 0.0, 0.0), 0, b''.ljust(40),
                    ent_vec(kv.get('origin', '0 0 0'))))
@@ -1805,7 +1806,9 @@ def main():
     kinds = {struct.unpack_from('<h', ents, struct.calcsize(ENTS_HEAD) + i * struct.calcsize(ENTS_MON))[0]
              for ents in (OUT[f'ents{skill}.bin'] for skill in range(SKILLS))
              for i in range(struct.unpack_from('<13h', ents, head)[7])}
-    models = build_models(pak, kinds, os.path.join(outdir, '.mdl'))
+    # Chthon at any skill, as the kinds are: e1m7's monster_boss has no spawnflags
+    boss = b'"monster_boss"' in d[lumps[0][0]:lumps[0][0] + lumps[0][1]]
+    models = build_models(pak, kinds, boss, os.path.join(outdir, '.mdl'))
     sbar = build_sbar(pak, os.path.join(outdir, '.gfx'))
     sounds = build_sounds(pak, os.path.join(outdir, '.snd'))
     write_qmap(os.path.join(outdir, stem + '.qmp'), stem, d,

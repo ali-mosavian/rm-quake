@@ -8,9 +8,29 @@
  * without including mdl.h, which includes world.h. Everything else
  * about a model is mdl.h's.
  */
-#define MDL_MAXV      236        /* the dog's, the largest that fits */
+#define MDL_MAXV      324        /* boss.mdl's 325 vertices, 0..324 */
 #define MDL_TRI_BYTES 18
 #define MDL_KINDS     8
+
+/* A model's frame sets, contiguous in its vertex pages in this order:
+   a monster's as mkassets.py's MDL_SETS writes them, Chthon's as
+   BOSS_MDL does, and a view model's one. */
+#define MDL_NSETS       8
+#define MDL_SET_STAND   0
+#define MDL_SET_RUN     1
+#define MDL_SET_DEATH   2
+#define MDL_SET_PAIN    3
+#define MDL_SET_ATK     4
+#define MDL_MON_NEED    2       /* stand and run: the AI cycles modulo both */
+#define MDL_BOSS_RISE   0
+#define MDL_BOSS_WALK   1
+#define MDL_BOSS_DEATH  2
+#define MDL_BOSS_ATTACK 3
+#define MDL_BOSS_SHOCKA 4
+#define MDL_BOSS_SHOCKB 5
+#define MDL_BOSS_SHOCKC 6
+#define MDL_BOSS_SETS   7
+#define MDL_VIEW_SETS   1
 
 /* the view weapons, in the order host_view_load and d_draw_view index
    them -- v_shot, v_shot2, v_nail, v_rock, v_nail2, v_rock2 */
@@ -34,14 +54,15 @@
 
 /* mkmdl.py's .geo header, 52 bytes. Read whole and picked apart, so
    the field order here is the file's. */
-#define MDL_MAGIC   0x32444D51L     /* "QMD2"; "QMDL" was the 48-byte header with no pages */
+#define MDL_MAGIC   0x33444D51L     /* "QMD3"; "QMD2" had five named set counts, "QMDL" no pages */
 typedef struct {
     long  magic;
     short ntri, nvert, nframe;
     short skin_w, skin_h;
     BspVec3 scale;              /* vertex byte -> model unit */
     BspVec3 origin;
-    short nstand, nrun, ndeath, npain, natk;
+    short nsets;
+    unsigned char set_n[MDL_NSETS];     /* frames a set, 0 past nsets */
     short vpages, page_frames;  /* vertex pages 0..vpages-1, whole frames a page */
 } MdlHead;
 
@@ -60,7 +81,7 @@ typedef struct {
     short   vtx_hnd;            /* qglGemAlloc: vertex pages, then one of triangles */
     BspVec3 scale, origin;
     float   radius, zlo, zhi;   /* the box any frame at any yaw fits in */
-    short   nstand, nrun, ndeath, npain, natk;
+    unsigned char set_n[MDL_NSETS];
     short   vpages, page_frames;
 } MdlState;
 

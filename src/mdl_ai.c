@@ -652,13 +652,13 @@ static void near ai_pain( Think *t )
 
     /* a dropped zombie lies on its last pain frame until it may rise,
        and hits the floor as it gets there (zombie_paine11) */
-    if ( lies && ent->anim_frame >= t->m->npain - 1 &&
+    if ( lies && ent->anim_frame >= t->m->set_n[MDL_SET_PAIN] - 1 &&
          rdr->anim_time < ent->pain_finished ) return;
-    if ( lies && ent->anim_frame == t->m->npain - 2 &&
+    if ( lies && ent->anim_frame == t->m->set_n[MDL_SET_PAIN] - 2 &&
          ent->pain_finished - rdr->anim_time > ZOMBIE_FLINCH )
         mdl_voice( t->player, &t->world->snd, ent, CHAN_BODY, SND_Z_FALL, ATTN_NORM );
     ent->anim_frame++;
-    if ( ent->anim_frame >= t->m->npain ) {
+    if ( ent->anim_frame >= t->m->set_n[MDL_SET_PAIN] ) {
         ent->state = MDL_ST_RUN;
         ent->anim_frame = 0;
     }
@@ -741,7 +741,7 @@ static void near ai_attack( Think *t )
 
     ent->anim_frame++;
     /* knight_atk10 is the last frame id uses; attackb11 is in the file */
-    if ( ent->anim_frame >= t->m->natk || ent->anim_frame >= inf->atk_end ) {
+    if ( ent->anim_frame >= t->m->set_n[MDL_SET_ATK] || ent->anim_frame >= inf->atk_end ) {
         ent->state = MDL_ST_RUN;
         ent->anim_frame = 0;
     }
@@ -795,7 +795,7 @@ static void near ai_leap( Think *t )
         }
         ent->vel.x = ent->vel.y = 0.0f;
     }
-    ent->anim_frame = (short) ( ( ent->anim_frame + 1 ) % t->m->nrun );
+    ent->anim_frame = (short) ( ( ent->anim_frame + 1 ) % t->m->set_n[MDL_SET_RUN] );
 }
 
 static void near ai_stand( Think *t )
@@ -823,7 +823,7 @@ static void near ai_stand( Think *t )
         ent->anim_frame = 0;
         ent->wander_ticks = 0;
     } else {
-        ent->anim_frame = (short) ( ( ent->anim_frame + 1 ) % t->m->nstand );
+        ent->anim_frame = (short) ( ( ent->anim_frame + 1 ) % t->m->set_n[MDL_SET_STAND] );
     }
 }
 
@@ -1170,7 +1170,7 @@ static void near ai_run( Think *t )
     }
 
     mdl_move_to_goal( t->world, t->player, ent, &goal, dist );
-    ent->anim_frame = (short) ( ( ent->anim_frame + 1 ) % t->m->nrun );
+    ent->anim_frame = (short) ( ( ent->anim_frame + 1 ) % t->m->set_n[MDL_SET_RUN] );
 
     if ( !ent->hunting && ent->corner >= 0 ) {
         ai_patrol_arrive( t );
@@ -1190,7 +1190,7 @@ void mdl_think( World *world, Player *player, Fight *fight, Renderer *rdr,
 
     /* Dead: the death frames once, then a corpse. */
     if ( ent->state == MDL_ST_DEAD ) {
-        if ( ent->anim_frame < m->ndeath - 1 ) ent->anim_frame++;
+        if ( ent->anim_frame < m->set_n[MDL_SET_DEATH] - 1 ) ent->anim_frame++;
         return;
     }
 

@@ -1656,9 +1656,10 @@ read 0 on any map under z 0 -- nothing set it -- so `pl_init` starts
 it at the spawn, and the gate wants e1m8's -104. Not ported:
 `func_wall` draws as any solid brush model.
 
-**Chthon is a trigger, unseen.** boss.mdl has 325 vertices and 106
-frames -- seven pages of vertices against `MDL_MAXV`'s 236 and the one
-page a model gets -- so `monster_boss` is `ENT_TRIG_BOSS`: the
+**Chthon is a trigger.** boss.mdl -- 325 vertices, 106 frames in seven
+sets over seven vertex pages -- ships in the container of a map with a
+`monster_boss` and loads with the map (`mdl_load_boss`); nothing draws
+it yet. `monster_boss` is `ENT_TRIG_BOSS`: the
 rune (`item_sigil`, "You got the rune!", its target fired as any
 pickup's) wakes him to ARMED with boss_awake's health, 1 on easy and 3
 above; `event_lightning` is `ENT_TRIG_BOLT`, lightning_use with both

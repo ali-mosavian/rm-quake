@@ -734,6 +734,7 @@ void ent_load_world( World *world )
     ent_load_items( world, buf, &ofs, h.nitem );
     ent_load_doors( world, buf, &ofs, h.ndoor );
     ent_load_trigs( world, buf, &ofs, h.ntrig );
+    mdl_load_boss( world );
     ent_load_ambs( world, buf, &ofs, h.namb );
     ent_load_trains( world, buf, &ofs, h.ntrain );
     ent_load_corners( world, buf, &ofs, h.ncorner );

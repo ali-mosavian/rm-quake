@@ -128,6 +128,9 @@ typedef struct {
        once is six EMS handles and six skins for one that is drawn. */
     MdlState    vmdl[PL_VIEW_N];
 
+    /* Chthon's, loaded with a map that has monster_boss */
+    MdlState    boss;
+
     /* The message table, last in ents.bin: ENT_MSG_LEN bytes each, not
        NUL-terminated. A door's or a trigger's msg is a 1-based id into
        this, 0 for none. */

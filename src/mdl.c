@@ -38,9 +38,25 @@ static void near mdl_refuse( const char *why )
     mark( why );
 }
 
-void mdl_load( Pak *pak, MdlState *m, char *name )
+/* The sets a caller indexes hold frames, no count sits past nsets, and
+   the counts add up to the frames: an empty set is a divide by zero in
+   the AI's cycles, and a count past the frames a read off the pages. */
+static short near mdl_sets_ok( const MdlHead *h, short need )
 {
-    char  path[24], msg[64];
+    short s, sum = 0;
+
+    if ( h->nsets < need || h->nsets > MDL_NSETS ) return 0;
+    for ( s = 0; s < MDL_NSETS; s++ ) {
+        if ( s < need && !h->set_n[s] ) return 0;
+        if ( s >= h->nsets && h->set_n[s] ) return 0;
+        sum += h->set_n[s];
+    }
+    return sum == h->nframe;
+}
+
+void mdl_load( Pak *pak, MdlState *m, char *name, short need )
+{
+    char  path[24], msg[96];    /* path and the longest refusal's numbers */
     MdlHead h;
     short fh, page, p, left;
     long  n, bytes;
@@ -57,13 +73,17 @@ void mdl_load( Pak *pak, MdlState *m, char *name )
         return;
     }
     if ( h.magic != MDL_MAGIC ) {
-        sprintf( msg, "%s: not a paged .geo -- rebuild the map's container", path ); mdl_refuse( msg );
+        sprintf( msg, "%s: not a QMD3 .geo -- rebuild the map's container", path ); mdl_refuse( msg );
+        return;
+    }
+    if ( !mdl_sets_ok( &h, need ) ) {
+        sprintf( msg, "%s: %d sets, %d needed, or not its %d frames", path, h.nsets, need, h.nframe );
+        mdl_refuse( msg );
         return;
     }
     m->ntri = h.ntri; m->nvert = h.nvert; m->nframe = h.nframe;
     m->scale = h.scale; m->origin = h.origin;
-    m->nstand = h.nstand; m->nrun = h.nrun;
-    m->ndeath = h.ndeath; m->npain = h.npain; m->natk = h.natk;
+    memcpy( m->set_n, h.set_n, MDL_NSETS );
     m->vpages = h.vpages; m->page_frames = h.page_frames;
 
     /* Vertex bytes span 0..255, so this is the box every frame fits in;
@@ -161,7 +181,7 @@ void host_view_load( World *world, short weapon )
        mdl_load says so once; asking again every frame would say it
        every frame, so a failed load is remembered as a try. */
     if ( world->vmdl[i].loaded || world->vmdl[i].ntri ) return;
-    mdl_load( &world->pak, &world->vmdl[i], vmdl_name[i] );
+    mdl_load( &world->pak, &world->vmdl[i], vmdl_name[i], MDL_VIEW_SETS );
     if ( !world->vmdl[i].loaded ) world->vmdl[i].ntri = -1;
 }
 
@@ -178,26 +198,43 @@ MdlTri far *mdl_tris( const MdlState *m, short slot )
     return (MdlTri far *) ((unsigned long) qglGemMap( m->vtx_hnd, m->vpages, slot ) << 16);
 }
 
-static unsigned long near mdl_sum( const MdlState *m )
+short mdl_set_frame( const MdlState *m, short set, short anim )
 {
-    unsigned long sum = 0, i = 0;
-    short f, b, nb = (short) ( m->nvert * 3 );
+    short s;
 
-    for ( f = 0; f < m->nframe; f++ ) {
-        unsigned char far *vb = mdl_frame_verts( m, f, PAGE_SLOT );
-        for ( b = 0; b < nb; b++, i++ )
-            sum += (unsigned long) vb[b] * ( i % 251 + 1 );
-    }
+    for ( s = 0; s < set; s++ ) anim += m->set_n[s];
+    return anim;
+}
+
+/* One frame into sum, i the byte's place in the stream so far. */
+static unsigned long near mdl_sum_frame( const MdlState *m, short frame, unsigned long sum, unsigned long *i )
+{
+    unsigned char far *vb = mdl_frame_verts( m, frame, PAGE_SLOT );
+    short b, nb = (short) ( m->nvert * 3 );
+
+    for ( b = 0; b < nb; b++, (*i)++ )
+        sum += (unsigned long) vb[b] * ( *i % 251 + 1 );
     return sum;
 }
 
 static void near mdl_report_one( const MdlState *m, const char *name )
 {
     char buf[48];
+    unsigned long sum = 0, i = 0;
+    short f, s;
 
     if ( !m->loaded ) return;
-    sprintf( buf, "mdl_sum %s %d %d %08lX", name, (int) m->nframe, (int) m->vpages, mdl_sum( m ) );
+    for ( f = 0; f < m->nframe; f++ ) sum = mdl_sum_frame( m, f, sum, &i );
+    sprintf( buf, "mdl_sum %s %d %d %08lX", name, (int) m->nframe, (int) m->vpages, sum );
     mark( buf );
+    /* each set as the draw picks its frames, through mdl_set_frame */
+    for ( s = 0; s < MDL_NSETS; s++ ) {
+        if ( !m->set_n[s] ) continue;
+        for ( sum = 0, i = 0, f = 0; f < m->set_n[s]; f++ )
+            sum = mdl_sum_frame( m, mdl_set_frame( m, s, f ), sum, &i );
+        sprintf( buf, "mdl_set %.8s %d %d %08lX", name, (int) s, (int) m->set_n[s], sum );
+        mark( buf );
+    }
 }
 
 void mdl_report_sums( World *world )
@@ -206,6 +243,19 @@ void mdl_report_sums( World *world )
 
     for ( i = 0; i < MDL_KINDS; i++ ) mdl_report_one( &world->mdl[i], mdl_name[i] );
     for ( i = 0; i < PL_VIEW_N; i++ ) mdl_report_one( &world->vmdl[i], vmdl_name[i] );
+    mdl_report_one( &world->boss, "boss" );
+}
+
+void mdl_load_boss( World *world )
+{
+    short k;
+
+    world->boss.loaded = 0;
+    for ( k = 0; k < world->trig_count; k++ )
+        if ( world->trig[k].kind == ENT_TRIG_BOSS ) {
+            mdl_load( &world->pak, &world->boss, "boss", MDL_BOSS_SETS );
+            return;
+        }
 }
 
 MdlState *mdl_of( World *world, short kind )
@@ -243,5 +293,5 @@ void mdl_load_monsters( World *world, unsigned char far *buf, long *ofs, short c
        EMS pages and a skin for nothing, and mkassets ships only these
        in the container anyway. */
     for ( i = 0; i < MDL_KINDS; i++ )
-        if ( kinds[i] ) mdl_load( &world->pak, &world->mdl[i], mdl_name[i] );
+        if ( kinds[i] ) mdl_load( &world->pak, &world->mdl[i], mdl_name[i], MDL_MON_NEED );
 }

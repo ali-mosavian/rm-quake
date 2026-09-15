@@ -11,8 +11,8 @@ against real geometry.
 Emits (DOS 8.3 names, since the loader opens them by name):
 
     <name>.geo   header (incl. a per-model vertex scale/origin, fitted to
-                 the frames, and the frameset's counts by position:
-                 stand, run, death, pain, attack -- d_mdl.bas's layout),
+                 the frames, and up to eight frame sets' counts in the
+                 order given, which is the order the runtime indexes),
                  the frames actually kept), triangles with per-corner UV
                  as fixed-point Integers, then one vertex array per
                  animation frame as raw BYTES -- the same trivertx_t
@@ -133,12 +133,16 @@ def main() -> int:
     # exactly this size and the source image's own dimensions would be a
     # fact it has no use for. They were written here before anything read
     # them, which is how they stayed wrong for free.
-    # "QMD2": the 48-byte "QMDL" had no page fields, and mdl.c refuses it by name.
-    out = bytearray(struct.pack("<4sHHHHH", b"QMD2", len(m.tris), len(m.st),
+    counts = [len(kept(m, s, n)) for s, n in sets]
+    if len(counts) > 8 or max(counts) > 255 or sum(counts) != len(frames):
+        raise SystemExit(f"{name}: sets {counts} for {len(frames)} frames: the header holds eight"
+                         " counts of up to 255 that add up to the frames")
+
+    # "QMD3": "QMD2" had five named set counts and "QMDL" no pages; mdl.c refuses both by name.
+    out = bytearray(struct.pack("<4sHHHHH", b"QMD3", len(m.tris), len(m.st),
                                 len(frames), sw, sh))
     out += struct.pack("<6f", *vscale.tolist(), *vmin.tolist())
-    counts = [len(kept(m, name, n)) for name, n in sets]
-    out += struct.pack("<5H", *(counts + [0] * 5)[:5])
+    out += struct.pack("<H8B", len(counts), *(counts + [0] * 8)[:8])
     # Frames one 16K EMS page holds, and the pages they take: the loader
     # maps page frame // page_frames, so no frame straddles two.
     page_frames = 16384 // (len(m.st) * 3)

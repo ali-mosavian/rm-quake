@@ -19,11 +19,15 @@
  */
 /*
  * name: mdl_load
- * desc: <name>.geo/.vtx/.skn out of the map container. Leaves
- *       m->loaded 0 and says why on stderr if the model will not fit
- *       or is not there.
+ * desc: <name>.geo/.vtx/.skn out of the map container, its first need
+ *       frame sets holding frames. Leaves m->loaded 0 and says why on
+ *       stderr and E9 if the model will not fit, lacks those sets, or is
+ *       not there.
  */
-void mdl_load( Pak *pak, MdlState *m, char *name );
+void mdl_load( Pak *pak, MdlState *m, char *name, short need );
+
+/* Chthon's model, when the map's triggers hold ENT_TRIG_BOSS. */
+void mdl_load_boss( World *world );
 
 /* A frame's nvert*3 vertex bytes, mapped through slot. The one place
    that knows the layout: the draw and -mdlsum both fetch through it. */
@@ -32,9 +36,15 @@ unsigned char far *mdl_frame_verts( const MdlState *m, short frame, short slot )
 /* The triangles, on the page after the last vertex page. */
 MdlTri far *mdl_tris( const MdlState *m, short slot );
 
+/* A set's anim'th frame: the sets are contiguous in the vertex pages, in
+   the header's order. */
+short mdl_set_frame( const MdlState *m, short set, short anim );
+
 /* -mdlsum: "mdl_sum <name> <frames> <pages> <sum>" on E9 for every
    loaded model, each frame through mdl_frame_verts, every byte weighted
-   by (its index in the frame-major stream % 251) + 1. */
+   by (its index in the frame-major stream % 251) + 1; then
+   "mdl_set <name> <set> <frames> <sum>" for each set holding frames,
+   through mdl_set_frame, the index restarting at the set. */
 void mdl_report_sums( World *world );
 
 /*

@@ -572,17 +572,15 @@ short d_draw_models( World *world, Renderer *rdr, DiskPlane far *frustum,
                               ms->radius, ms->zlo, ms->zhi,
                               lc_slot( rdr, &rdr->mdl_lc, world->mon_count, i ) ) ) continue;
 
-        /* The sets are contiguous in the vertex page, in the header's
-           order: stand, run, death, pain, attack. A leaper has no leap
-           frames on the page and flies through the run cycle. */
+        /* A leaper has no leap frames on the page and flies through the
+           run cycle. */
         switch ( e->state ) {
-        case MDL_ST_STAND: frame = e->anim_frame; break;
+        case MDL_ST_STAND: frame = mdl_set_frame( ms, MDL_SET_STAND, e->anim_frame ); break;
         case MDL_ST_RUN:
-        case MDL_ST_LEAP:  frame = (short) ( ms->nstand + e->anim_frame ); break;
-        case MDL_ST_DEAD:  frame = (short) ( ms->nstand + ms->nrun + e->anim_frame ); break;
-        case MDL_ST_PAIN:  frame = (short) ( ms->nstand + ms->nrun + ms->ndeath + e->anim_frame ); break;
-        default:           frame = (short) ( ms->nstand + ms->nrun + ms->ndeath +
-                                              ms->npain + e->anim_frame ); break;
+        case MDL_ST_LEAP:  frame = mdl_set_frame( ms, MDL_SET_RUN, e->anim_frame ); break;
+        case MDL_ST_DEAD:  frame = mdl_set_frame( ms, MDL_SET_DEATH, e->anim_frame ); break;
+        case MDL_ST_PAIN:  frame = mdl_set_frame( ms, MDL_SET_PAIN, e->anim_frame ); break;
+        default:           frame = mdl_set_frame( ms, MDL_SET_ATK, e->anim_frame ); break;
         }
         if ( frame >= ms->nframe ) frame = (short) ( ms->nframe - 1 );
 
