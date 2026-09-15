@@ -2,7 +2,7 @@
 
     python3 qvm/test/mutate.py BUILD_DIR          (or: make -C qvm/test mutate)
 
-Each mutant puts back one bug the suite was written against, builds natively with $CC (clang)
+Each mutant of qvm.c, or of ems_nat.c for HOST_MUTANTS, puts back one bug the suite was written against, builds natively with $CC (clang)
 and runs qvm_test on BUILD_DIR's PROGS.DAT and PROGSH.DAT. One that passes names a bug the suite
 no longer sees.
 """
@@ -96,37 +96,66 @@ MUTANTS = [
     ("no_guard", "        if ( !--runaway ) { m->trap = QVM_ERR_RUNAWAY; goto unwind; }\n", ""),
     ("no_unwind", "    while ( m->depth > exitdepth )\n        qvm_leave( m );\n", "    ;\n"),
     ("no_clear", "    m->trap = 0;\n", ""),
+    ("key_page_only", "(m)->host->key[w] == WKEY( h, pg )", "( (m)->host->key[w] >> 8 ) == (uint16) (pg)"),
+    ("key_never_hits", "(m)->host->key[w] == WKEY( h, pg ) ?", "0 ?"),
+    ("key_no_page", "( (uint16) (pg) << 8 ) | ", ""),
+    ("edpages_unbounded", "    if ( edpages > QVM_MAXPAGES ) return QVM_ERR_SIZE;\n", ""),
+    ("keeps_big_handle", "{ m->host->release( m->h_ed ); m->h_ed = 0; return QVM_ERR_EMS; }", "return QVM_ERR_EMS;"),
 ]
 
+# the host the VM trusts: its record of each window, as gem.asm keeps qgl$gem_key
+HOST_MUTANTS = [
+    ("free_keeps_key", "{ key_hnd[i] = 0; ems_key[i] = 0xFFFF; }", "key_hnd[i] = 0;", "edicts made again read zero"),
+    (
+        "free_keeps_ed0_key",
+        "{ key_hnd[i] = 0; ems_key[i] = 0xFFFF; }",
+        "{ key_hnd[i] = 0; if ( i != 2 ) ems_key[i] = 0xFFFF; }",
+        "edicts made again read zero",
+    ),
+]
 
-def caught(exe: Path, build: Path) -> tuple[bool, str]:
+# a mutant naming a section counts as caught only when something in that section fails
+
+
+def caught(exe: Path, build: Path, expect: str | None) -> tuple[bool, str]:
     images = [str(build / "PROGS.DAT"), str(build / "PROGSH.DAT")]
     try:
         r = subprocess.run([str(exe), *images], capture_output=True, text=True, timeout=20, stdin=subprocess.DEVNULL)
     except subprocess.TimeoutExpired:
         return True, "timeout"
     fails = [ln.strip() for ln in r.stdout.splitlines() if ln.lstrip().startswith("FAIL")]
+    if expect is not None:
+        section, named = "", []
+        for ln in r.stdout.splitlines():
+            if ln.startswith("-- "):
+                section = ln[3:]
+            elif ln.lstrip().startswith("FAIL") and section == expect:
+                named.append(ln.strip())
+        return bool(named), (named or [f"nothing in {expect!r}: {(fails or ['no FAIL'])[0]}"])[0]
     return r.returncode != 0, (fails or [f"exit {r.returncode}"])[0]
 
 
 def main() -> None:
     build = Path(sys.argv[1]).resolve()
-    src = (QVM / "qvm.c").read_text()
     cc = os.environ.get("CC", "clang")
-    tests = [str(HERE / f) for f in ("qvm_test.c", "qimg.c", "ems_nat.c")]
+    sources = {"qvm.c": QVM / "qvm.c", "ems_nat.c": HERE / "ems_nat.c"}
+    fixed = [str(HERE / f) for f in ("qvm_test.c", "qimg.c")]
+    runs = [("qvm.c", *m, None) for m in MUTANTS] + [("ems_nat.c", *m) for m in HOST_MUTANTS]
     survived = 0
     with tempfile.TemporaryDirectory() as tmp:
-        for name, old, new in MUTANTS:
+        for target, name, old, new, expect in runs:
+            src = sources[target].read_text()
             if src.count(old) != 1:
-                sys.exit(f"mutant {name}: its pattern matches {src.count(old)} times, not once")
+                sys.exit(f"mutant {name}: its pattern matches {src.count(old)} times in {target}, not once")
             mutant, exe = Path(tmp) / f"{name}.c", Path(tmp) / name
             mutant.write_text(src.replace(old, new))
-            cmd = [cc, "-std=c89", "-w", f"-I{QVM}", f"-I{HERE}", "-o", str(exe), *tests, str(mutant)]
+            others = [str(v) for k, v in sources.items() if k != target]
+            cmd = [cc, "-std=c89", "-w", f"-I{QVM}", f"-I{HERE}", "-o", str(exe), *fixed, *others, str(mutant)]
             subprocess.run(cmd, check=True, stdin=subprocess.DEVNULL)
-            ok, why = caught(exe, build)
+            ok, why = caught(exe, build, expect)
             survived += not ok
             print(f"  {'caught  ' if ok else 'SURVIVED'} {name}: {why}")
-    print(f"mutate: {len(MUTANTS) - survived} of {len(MUTANTS)} caught")
+    print(f"mutate: {len(runs) - survived} of {len(runs)} caught")
     sys.exit(survived != 0)
 
 

@@ -25,5 +25,8 @@ sint16 ems_alloc( long nbytes );                      /* handle, 0 on failure */
 void   ems_free( sint16 hnd );
 uint8 EFAR *ems_map( sint16 hnd, uint16 page, sint16 slot );   /* 0 on failure */
 long   ems_maps( void );                              /* maps that did the work */
+/* per slot, gem's qgl$gem_key: page << 8 | the handle's low byte, 0xFFFF
+   when nothing is known to be there. A free forgets its handle's slots. */
+extern uint16 ems_key[EMS_SLOTS];
 
 #endif

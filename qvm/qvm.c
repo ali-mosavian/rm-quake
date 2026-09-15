@@ -29,7 +29,18 @@ enum {
     OP_STATE, OP_GOTO, OP_AND, OP_OR, OP_BITAND, OP_BITOR
 };
 
-#define MAP( m, w, h, pg ) ( (m)->host->map( (w), (h), (uint16) (pg) ) )
+/* A window already on the page costs a compare against the host's record
+   and no call. A hit on a window this VM has not mapped since qvm_load
+   answers base 0 and traps as QVM_ERR_EMS, never another page; it takes a
+   host that kept a freed handle's key. Mapping every window at load to
+   rule it out aliases one page into four, which a copying host corrupts. */
+#define WKEY( h, pg ) ( (uint16) ( ( (uint16) (pg) << 8 ) | ( (uint16) (h) & 0xFF ) ) )
+#define MAP( m, w, h, pg ) ( (m)->host->key[w] == WKEY( h, pg ) ? (m)->wbase[w] : win_map( m, w, h, (uint16) (pg) ) )
+
+static uint8 QFAR *win_map( Qvm *m, sint16 w, sint16 h, uint16 pg )
+{
+    return m->wbase[w] = m->host->map( w, h, pg );
+}
 
 /* null or "": the same text, different bits */
 #define STR_BLANK( v ) ( (v) == 0 || (v) == QVM_STR_EMPTY )
@@ -39,7 +50,8 @@ static sint16 ed_windows( Qvm *m );
 /* a record is 36 bytes, QVM_FPP to a page, so none straddles one */
 static QFunc QFAR *func_rec( Qvm *m, sint32 k )
 {
-    uint8 QFAR *pg = MAP( m, QVM_W_AUX, m->h_aux, k / QVM_FPP );
+    sint32 page = k / QVM_FPP;
+    uint8 QFAR *pg = MAP( m, QVM_W_AUX, m->h_aux, page );
     return pg ? (QFunc QFAR *) ( pg + (uint16) ( k % QVM_FPP ) * 36 ) : 0;
 }
 
@@ -157,16 +169,20 @@ sint16 qvm_load( Qvm *m, const QHost *host, QVal QFAR *glob, sint32 globcap )
     fpages = ( m->nfunc + QVM_FPP - 1 ) / QVM_FPP;
     m->strbase = fpages * QVM_PAGE;
     m->idxbase = ( m->strbase + m->nstr + QVM_PAGE - 1 ) / QVM_PAGE * QVM_PAGE;
+    if ( m->idxbase + m->nidx * 8 > QVM_MAXPAGES * QVM_PAGE ) return QVM_ERR_SIZE;
     if ( !( m->h_aux = host->alloc( m->idxbase + m->nidx * 8 ) ) ) return QVM_ERR_EMS;
+    if ( m->h_aux > QVM_MAXHND ) { qvm_free( m ); return QVM_ERR_EMS; }
     for ( k = 0; k < m->nfunc && !err; k += QVM_FPP )
         err = read_aux( m, k / QVM_FPP * QVM_PAGE, h[8] + k * 36,
                         ( m->nfunc - k < QVM_FPP ? m->nfunc - k : QVM_FPP ) * 36L );
     if ( !err ) err = read_aux( m, m->strbase, h[10], m->nstr );
     if ( !err ) err = read_aux( m, m->idxbase, h[15], m->nidx * 8 );
 
-    if ( !err && ( pages = pack( m, h[2], 0, &err ) ) > 0 ) {
+    if ( !err && ( pages = pack( m, h[2], 0, &err ) ) > QVM_MAXPAGES ) err = QVM_ERR_SIZE;
+    if ( !err && pages > 0 ) {
         m->st_pages = (uint16) pages;
         if ( !( m->h_st = host->alloc( pages * QVM_PAGE ) ) ) err = QVM_ERR_EMS;
+        else if ( m->h_st > QVM_MAXHND ) err = QVM_ERR_EMS;
         else pack( m, h[2], 1, &err );
     }
     if ( err ) { qvm_free( m ); return err; }
@@ -188,13 +204,19 @@ void qvm_free( Qvm *m )
 sint16 qvm_edicts( Qvm *m, sint16 nedict )
 {
     uint16 i;
+    sint16 edpp;
+    sint32 edpages;
     uint8 QFAR *pg;
 
     if ( m->edsz < 4 || m->edsz > QVM_PAGE || nedict < 1 ) return QVM_ERR_SIZE;
-    m->edpp = (sint16) ( QVM_PAGE / m->edsz );
-    m->edpages = (uint16) ( ( nedict + m->edpp - 1 ) / m->edpp );
+    edpp = (sint16) ( QVM_PAGE / m->edsz );
+    edpages = ( nedict + edpp - 1 ) / edpp;
+    if ( edpages > QVM_MAXPAGES ) return QVM_ERR_SIZE;
+    m->edpp = edpp;
+    m->edpages = (uint16) edpages;
     if ( m->h_ed ) m->host->release( m->h_ed );
     if ( !( m->h_ed = m->host->alloc( m->edpages * QVM_PAGE ) ) ) return QVM_ERR_EMS;
+    if ( m->h_ed > QVM_MAXHND ) { m->host->release( m->h_ed ); m->h_ed = 0; return QVM_ERR_EMS; }
     for ( i = 0; i < m->edpages; i++ ) {
         if ( !( pg = MAP( m, QVM_W_EDX, m->h_ed, i ) ) ) return QVM_ERR_EMS;
         _fmemset( pg, 0, (uint16) QVM_PAGE );
@@ -203,10 +225,10 @@ sint16 qvm_edicts( Qvm *m, sint16 nedict )
     return ed_windows( m );
 }
 
-/* The ED windows mapped again, as nothing can be trusted to have left them. */
+/* ED0 mapped again, as nothing can be trusted to have left it. EDX is asked
+   at every far access. */
 static sint16 ed_windows( Qvm *m )
 {
-    m->edx_page = 0xFFFF;
     if ( !( m->ed0 = MAP( m, QVM_W_ED0, m->h_ed, 0 ) ) ) return m->trap = QVM_ERR_EMS;
     return 0;
 }
@@ -224,11 +246,7 @@ static QVal QFAR *ed_far( Qvm *m, sint32 v )
 
     if ( pg >= m->edpages )
         return (QVal QFAR *) ( m->ed0 + ED_OFS( m, v ) );
-    if ( pg != m->edx_page ) {
-        m->edx = MAP( m, QVM_W_EDX, m->h_ed, pg );
-        m->edx_page = pg;
-    }
-    return (QVal QFAR *) ( m->edx + ED_OFS( m, v ) );
+    return (QVal QFAR *) ( MAP( m, QVM_W_EDX, m->h_ed, pg ) + ED_OFS( m, v ) );
 }
 
 #define ED( m, v ) ( (uint16) ( (v) >> 16 ) ? ed_far( m, v ) : (QVal QFAR *) ( (m)->ed0 + ED_OFS( m, v ) ) )

@@ -98,14 +98,24 @@ typedef char qvm_func_is_36[ sizeof( QFunc ) == 36 ? 1 : -1 ];
 struct Qvm;
 typedef void ( *QBuiltin )( struct Qvm *m );
 
+/* a window's key packs its page and handle in a byte each, as gem's qgl$gem_key does */
+#define QVM_MAXPAGES  255L
+#define QVM_MAXHND    254
+
 /* What the VM needs from the program running it. map answers the window's
-   base, 0 on failure; the same page again must be cheap. read reads the
-   progs.dat image, 0 on success. */
+   base, 0 on failure, and a window's base never changes: a host whose base
+   depends on the page, as a conventional cache's would, cannot publish a
+   key. key is the host's
+   own record per window, window w being the host's slot w: page << 8 | the
+   handle's low byte, 0xFFFF when nothing is known, forgotten on a release.
+   The VM compares it inline and calls map only when it differs. read reads
+   the progs.dat image, 0 on success. */
 typedef struct {
     uint8 QFAR *( *map )( sint16 win, sint16 hnd, uint16 page );
     sint16 ( *alloc )( sint32 bytes );
     void ( *release )( sint16 hnd );
     sint16 ( *read )( void QFAR *dst, sint32 ofs, uint16 n );
+    const uint16 QFAR *key;
 } QHost;
 
 typedef struct Qvm {
@@ -123,9 +133,8 @@ typedef struct Qvm {
     sint16 edpp;                   /* edicts per page */
     sint16 nedict;
     uint16 edpages;
-    uint8  QFAR *ed0;              /* the ED windows as last mapped */
-    uint8  QFAR *edx;
-    uint16 edx_page;
+    uint8  QFAR *ed0;              /* ED0's base, taken again at run start and after a builtin */
+    uint8  QFAR *wbase[4];         /* each window's base, from the VM's first map of it */
 
     QBuiltin QFAR *bi;             /* index 0 unused, like Quake */
     sint16 nbi;

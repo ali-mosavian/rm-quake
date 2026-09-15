@@ -510,9 +510,18 @@ memory. `make -C qvm/test` is its suite.
   adds field offsets, and all three still hold. An offset past the last
   place a vector fits addresses page 0, never another window.
 - **Nothing keeps a window.** A builtin, or C between runs, may map any
-  slot. The VM maps its own again at each run and after every builtin,
+  slot. The VM asks for its own again at each run and after every builtin,
   and a return address is a placement, not a pointer. C reaches entities
   through `qvm_ent_get` and `qvm_ent_set`.
+- **Asking costs a compare.** The host publishes its record of each
+  window, gem's `qgl$gem_key`: page << 8 | the handle's low byte. The VM
+  compares it inline and calls `map` only when it differs; through the
+  host, those were 129 far calls a round of real QuakeC, 6 of which
+  changed a page. On ARMD's monster rounds (core=normal, cycles 75000,
+  every entity on page 0) that took 1.3683 µs a statement to 1.2238,
+  against 0.8586 unpaged, with the same 294 statements a round. A key holds a page and a handle in a byte each, so
+  anything past 255 pages is refused. `qglGemFree` forgets a freed
+  handle's keys, or a handle number EMM hands straight back would match.
 - **id's runaway guard**, 100,000 statements a run, and every trap unwinds
   to the depth the run started at.
 
@@ -552,8 +561,10 @@ real loader. Natively, the EMS stand-in copies each page in and out of its
 window, so a pointer kept across a remap reads the wrong bytes there too;
 in DOS it is INT 67h (`qvm/test/dosconf.sh`). It then refuses pak0's
 progs.dat, loads its rewrite and checks every function's placement.
-`make -C qvm/test mutate` builds 35 mutants of `qvm.c` and 13 of
-`qchash.py`, and each must fail.
+A second run on pages already mapped must call `map` 0 times.
+`make -C qvm/test mutate` builds 40 mutants of `qvm.c`, two of the EMS
+stand-in and 13 of `qchash.py`, and each must fail; a host mutant counts
+only if its own section fails.
 
 ## How the numbers were made
 

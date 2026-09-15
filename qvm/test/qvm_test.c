@@ -96,10 +96,18 @@ static void on_alarm( int sig )
 #endif
 
 /* ---- the host: the test EMS, window number as slot ---- */
-static uint8 QFAR *h_map( sint16 win, sint16 hnd, uint16 page ) { return ems_map( hnd, page, win ); }
-static sint16 h_alloc( sint32 bytes ) { return ems_alloc( bytes ); }
-static void h_release( sint16 hnd ) { ems_free( hnd ); }
-static const QHost host = { h_map, h_alloc, h_release, qimg_read };
+static long h_calls;               /* the VM's map calls: a window already on its page makes none */
+static uint8 QFAR *h_map( sint16 win, sint16 hnd, uint16 page ) { h_calls++; return ems_map( hnd, page, win ); }
+static sint16 alloc_as;             /* nonzero: the next allocation answers this handle */
+static sint16 h_alloc( sint32 bytes )
+{
+    sint16 h = ems_alloc( bytes );
+
+    if ( alloc_as && h ) { ems_free( h ); h = alloc_as; alloc_as = 0; }
+    return h;
+}
+static void h_release( sint16 hnd ) { if ( hnd != 255 ) ems_free( hnd ); }
+static const QHost host = { h_map, h_alloc, h_release, qimg_read, ems_key };
 
 /* ---- a tiny machine: 256 globals, 64 edicts of 191 words ---- */
 #define NST    2200
@@ -237,7 +245,7 @@ static sint16 file_open( const char *path ) { return ( img_fp = fopen( path, "rb
 static void file_close( void ) { fclose( img_fp ); }
 #endif
 
-static const QHost file_host = { h_map, h_alloc, h_release, file_read };
+static const QHost file_host = { h_map, h_alloc, h_release, file_read, ems_key };
 
 static void check_image( const char *path, sint16 want_frame )
 {
@@ -758,7 +766,66 @@ int main( int argc, char **argv )
         ems_map( m.h_ed, 2, QVM_W_EDX );    /* C takes the window for page 2 */
         okf( "accessors: page 1's again after C took the window", qvm_ent_get( &m, ENT( 21 ), 7 ).f, 1.0f );
         okf( "accessors: page 2's edict", qvm_ent_get( &m, ENT( 42 ), 7 ).f, 2.0f );
+        v.f = 3.0f; qvm_ent_set( &m, ENT( 1 ), 7, v );
+        ems_map( m.h_ed, 2, QVM_W_ED0 );    /* and ED0's, which page 0 is read through */
+        okf( "accessors: page 0's after C took ED0", qvm_ent_get( &m, ENT( 1 ), 7 ).f, 3.0f );
         okf( "accessors: a field past the edict writes nothing", qvm_ent_get( &m, ENT( 22 ), 0 ).f, 0.0f );
+    }
+
+    section( "edicts made again read zero" );
+    /* ---- edicts made again read zero ----
+       The EMM hands a freed handle's number straight back. A window record
+       that survived the release answered the new handle's page 0 with the
+       old one, and its edicts read what the old ones held. */
+    reset();
+    load();
+    {
+        QVal v;
+        v.f = 5.0f; qvm_ent_set( &m, ENT( 1 ), 7, v );
+        v.f = 6.0f; qvm_ent_set( &m, ENT( 21 ), 7, v );
+        okf( "edicts made again", (float) qvm_edicts( &m, 64 ), 0.0f );
+        okf( "... page 0's edict reads zero", qvm_ent_get( &m, ENT( 1 ), 7 ).f, 0.0f );
+        okf( "... page 1's edict reads zero", qvm_ent_get( &m, ENT( 21 ), 7 ).f, 0.0f );
+        /* a window's key holds a page in a byte */
+        okf( "edicts past 255 pages are refused", (float) qvm_edicts( &m, (sint16) ( EDPP * 255 + 1 ) ),
+             (float) QVM_ERR_SIZE );
+        okf( "... and the edicts there still read", qvm_ent_get( &m, ENT( 21 ), 7 ).f, 0.0f );
+    }
+
+    section( "a handle past a key's byte is refused, and not kept" );
+    /* ---- a handle past a key's byte is refused, and not kept ----
+       A kept handle 255 went on to ed_windows, where its low byte matched
+       another handle's key. */
+    reset();
+    load();
+    alloc_as = 255;
+    okf( "edicts on handle 255 are refused", (float) qvm_edicts( &m, 64 ), (float) QVM_ERR_EMS );
+    okf( "... and the VM keeps no edict handle", (float) m.h_ed, 0.0f );
+
+    section( "a run on pages already mapped calls map 0 times" );
+    /* ---- a run on pages already mapped calls map 0 times ----
+       Every CALL, RETURN and builtin asks for its windows. Asked through the
+       host, that was a far call each: 129 a round of real QuakeC, 0.62 us
+       each, where the page had changed 6 times. */
+    reset();
+    gl[60].i = ENT( 1 );
+    gl[61].i = ENT( 21 );
+    gl[62].i = 7;
+    gl[65].i = 2;                     /* function 2: builtin 1 */
+    gl[QOFS_PARM0].f = 4.0f;
+    S(0, OP_LOAD_F, 60,62,63);
+    S(1, OP_LOAD_F, 61,62,64);
+    S(2, OP_CALL1,  65,0,0);
+    S(3, OP_STORE_F, QOFS_RETURN,66,0);  /* DONE copies global 0 over RETURN */
+    S(4, OP_LOAD_F, 61,62,64);
+    S(5, OP_DONE,   0,0,0);
+    if ( !load() ) {
+        qvm_run( &m, 1 );
+        h_calls = 0;
+        qvm_run( &m, 1 );
+        okf( "second run: no trap", (float) m.trap, 0.0f );
+        okf( "second run: the builtin ran", gl[66].f, 8.0f );
+        okf( "second run: map calls", (float) h_calls, 0.0f );
     }
 
     section( "qvm_run on a builtin's number" );

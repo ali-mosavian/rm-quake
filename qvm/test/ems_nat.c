@@ -11,6 +11,7 @@ static uint8  win[EMS_SLOTS][EMS_PAGE];
 static sint16 key_hnd[EMS_SLOTS];
 static uint16 key_pg[EMS_SLOTS];
 static long   nmaps;
+uint16 ems_key[EMS_SLOTS] = { 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF };
 
 sint16 ems_init( void ) { return 1; }
 
@@ -39,7 +40,7 @@ void ems_free( sint16 hnd )
     sint16 i;
 
     for ( i = 0; i < EMS_SLOTS; i++ )
-        if ( key_hnd[i] == hnd ) key_hnd[i] = 0;
+        if ( key_hnd[i] == hnd ) { key_hnd[i] = 0; ems_key[i] = 0xFFFF; }
     free( store[hnd] );
     store[hnd] = 0;
 }
@@ -52,6 +53,7 @@ uint8 *ems_map( sint16 hnd, uint16 page, sint16 slot )
         memcpy( win[slot], store[hnd] + page * EMS_PAGE, EMS_PAGE );
         key_hnd[slot] = hnd;
         key_pg[slot] = page;
+        ems_key[slot] = (uint16) ( ( page << 8 ) | ( hnd & 0xFF ) );
         nmaps++;
     }
     return win[slot];
