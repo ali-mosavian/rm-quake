@@ -23,6 +23,10 @@ void sys_error( char *msg )
     FILE *errf = fopen( "error.log", "w" );
     if ( errf ) { fprintf( errf, "%s\n", msg ); fclose( errf ); }
 
+    qglDspShutdown();
+    qglTmrShutdown();
+    qglKbdShutdown();
+    qglMouseShutdown();
     qglVgaShutdown();
     qglMemShutdown();
 

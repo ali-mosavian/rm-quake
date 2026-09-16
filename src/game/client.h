@@ -25,8 +25,8 @@ void pl_game_reset( World *world, Player *player, Camera *cam, Fight *fight,
                      Renderer *rdr, short scr_x_res );
 
 /* SetChangeParms and DecodeLevelParms: the kit that travels to the next
-   map, through CARRY.BIN. Keys and powerups stay behind. */
-void  pl_carry_save( Fight *fight );
+   map. CARRY.BIN remains the command-line compatibility path. */
+void  pl_carry_capture( PlayerCarry *c, const Fight *fight );
 /* read before the map loads, since the skill picks its ents; 0 when
    there is none or it is short */
 short pl_carry_read( PlayerCarry *c );

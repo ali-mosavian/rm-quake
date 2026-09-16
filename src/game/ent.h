@@ -70,6 +70,7 @@ typedef struct {
    of the teleporters, so its size is what the reader has to skip. */
 typedef struct {
     short   kind;
+    short   order;
     BspVec3 org;
     float   angle;
     short   first;
@@ -94,7 +95,7 @@ typedef struct {
    monsters, teleporters, plats, hides, gates, items, doors, triggers,
    ambients, trains, corners, crates, lights, messages. */
 typedef struct {
-    short   kind, amount, target, crate;
+    short   kind, amount, target, crate, order;
     BspVec3 org;
 } EntsItem;
 
@@ -103,7 +104,7 @@ typedef struct {
     BspVec3 travel;
     BspVec3 mid;
     float   speed, hold;
-    short   start_open, nolink, targeted, secret, shoot, snd, key, msg;
+    short   start_open, nolink, targeted, secret, shoot, snd, key, msg, order;
 } EntsDoor;
 
 typedef struct {
@@ -113,6 +114,7 @@ typedef struct {
     BspVec3 org;
     short   snd, msg;
     float   delay;
+    short   order;
 } EntsTrig;
 
 typedef struct {
@@ -142,13 +144,13 @@ typedef struct {
 /* ents.bin's own records, checked the same way bsptypes.h checks the
    map's -- see the note there. */
 #define REC_ENTSHEAD 88
-#define REC_ENTSMON  22
+#define REC_ENTSMON  24
 #define REC_ENTSTELE 22
 #define REC_ENTSPLAT 12
-#define REC_ENTSITEM 20
+#define REC_ENTSITEM 22
 #define REC_CRATE    92
-#define REC_ENTSDOOR 50
-#define REC_ENTSTRIG 52
+#define REC_ENTSDOOR 52
+#define REC_ENTSTRIG 54
 #define REC_ENTSAMB  16
 #define REC_ENTSTRAIN 12
 #define REC_PATHCORNER 18

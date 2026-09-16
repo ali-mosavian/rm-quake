@@ -85,7 +85,7 @@ typedef struct {
     short   alive;
     float   die_at;
     short   hostile;      /* bites the player, not the monsters */
-    short   dmg;
+    float   dmg;
     short   grenade;      /* gravity, a bounce, a fuse and a blast */
     short   gib;          /* a zombie's: bites where it lands, no blast */
     short   rocket;       /* straight, the blast where it stops */
@@ -93,6 +93,8 @@ typedef struct {
     short   wiz;          /* a wizard's: wizard/hit on a wall, not a tink */
     short   water;        /* SV_CheckWaterTransition's: 1 in a liquid, -1
                              out, 0 before its first look */
+    short   owner;        /* source edict order, or COMBAT_BY_PLAYER */
+    short   ignore;       /* direct-hit target excluded from splash */
 } Spike;
 
 /* Fight.state: what the tick and the overlay do. */
@@ -101,6 +103,8 @@ typedef struct {
 #define GS_WON   3            /* every monster down; fire starts them again */
 #define GS_EXIT  4            /* the slipgate: the tally, and fire goes on */
 #define GS_NEXT  5            /* leaving for the next map: the host loop ends */
+#define GS_FINALE 6           /* e1m7's episode text */
+#define GS_SELL   7           /* shareware sell screen after the finale */
 #define PL_DEATH_PAUSE 1.5f   /* seconds YOU DIED stays before the respawn */
 #define PL_INTER_HOLD  2.0f   /* intermission_exittime: the tally stays this long */
 #define PL_CARRY_MIN   50     /* SetChangeParms: health goes on at 50 at least */
@@ -169,8 +173,6 @@ typedef struct {
     BspVec3 inter;            /* info_intermission, and where it looks */
     float inter_pitch, inter_yaw;
     char  next_map[9];        /* the touched changelevel's, blank for none */
-    char  next_flags[80];     /* the flags this run was started with, so the
-                                 next map's process describes the same run */
     BspVec3 spawn;            /* where a respawn puts the player back */
     float next_fire;          /* attack_finished */
     float fire_at;            /* when the last shot left, for the view model */

@@ -11,6 +11,7 @@
 #include "qgl.h"
 #include "pak.h"
 #include "pl_move.h"    /* PL_ARMOR2_TYPE lives with the player's kit */
+#include "sys.h"
 
 static QSurf sbar_work, sbar_view;
 /* what the composed band already shows: a repaint is a per-pixel loop
@@ -23,12 +24,11 @@ void scr_sbar_load( Pak *pak )
     long  bytes;
 
     sbar_work = qglSfNew( SBARC_EMS_W, SBARC_EMS_H, QGL_SURF_EMS );
-    if ( !sbar_work ) { fprintf( stderr, "0x3003, no memory for the status bar\n" ); exit( 1 ); }
+    if ( !sbar_work ) sys_error( "0x3003, no memory for the status bar" );
     sbar_view = qglSfViewNew( sbar_work, SBARC_W, SBARC_H, SBARC_EMS_W );
-    if ( !sbar_view ) { fprintf( stderr, "0x3007, no view for the status bar\n" ); exit( 1 ); }
+    if ( !sbar_view ) sys_error( "0x3007, no view for the status bar" );
     if ( !qglSfViewAim( sbar_view, (long) SBARC_WORK_Y * SBARC_EMS_W ) ) {
-        fprintf( stderr, "0x3008, the status bar view would not aim\n" );
-        exit( 1 );
+        sys_error( "0x3008, the status bar view would not aim" );
     }
 
     /* Read straight into the rows: qglSfWrRow hands out a mapped EMS
@@ -37,23 +37,28 @@ void scr_sbar_load( Pak *pak )
        which is why each member is read through before the next. */
     h = pak_seek( pak, "sbar.raw", &bytes );
     if ( bytes < (long) SBARC_W * SBARC_H ) {
-        fprintf( stderr, "0x3004, sbar.raw is %ld bytes, wanted %ld\n",
-                 bytes, (long) SBARC_W * SBARC_H );
-        exit( 1 );
+        sys_error( "0x3004, sbar.raw is too short" );
     }
     for ( y = 0; y < SBARC_H; y++ )
         qglFileRead( h, qglSfWrRow( sbar_work, y ), (long) SBARC_W );
 
     h = pak_seek( pak, "sbnum.raw", &bytes );
     if ( bytes < (long) SBARC_CELLS * SBARC_CELL * SBARC_CELL ) {
-        fprintf( stderr, "0x3006, sbnum.raw is %ld bytes, wanted %ld\n",
-                 bytes, (long) SBARC_CELLS * SBARC_CELL * SBARC_CELL );
-        exit( 1 );
+        sys_error( "0x3006, sbnum.raw is too short" );
     }
     for ( i = 0; i < SBARC_CELLS; i++ )
         for ( y = 0; y < SBARC_CELL; y++ )
             qglFileRead( h, qglSfWrRow( sbar_work, (short) ( SBARC_CELL_Y + y ) ) + i * SBARC_CELL,
                           (long) SBARC_CELL );
+}
+
+void scr_sbar_shutdown( void )
+{
+    if ( sbar_view ) qglDelView( sbar_view );
+    if ( sbar_work ) qglSfFree( sbar_work );
+    sbar_view = sbar_work = 0;
+    sbar_health = -1;
+    sbar_shells = sbar_face = sbar_armor = sbar_weapon = 0;
 }
 
 /* A cell's opaque pixels over the working bar at column x. The read row

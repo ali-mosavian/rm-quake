@@ -11,8 +11,10 @@
 #include <stdio.h>
 #include "qgl.h"
 #include <stdlib.h>
+#include <string.h>
 
 #include "input.h"
+#include "sys.h"
 
 /* screen.bas, not yet ported. */
 #include "screen.h"
@@ -28,12 +30,17 @@ void in_init( Input *input, QSurf h_video_dc )
     if ( !qglMouseInit( &input->mouse,
                         (short) ( qglSfSize( h_video_dc, 0 ) - 1 ),
                         (short) ( qglSfSize( h_video_dc, 1 ) - 1 ) ) ) {
-        fprintf( stderr, "0x0006, Could not init mouse...\n" );
-        exit( 1 );
+        sys_error( "0x0006, Could not init mouse" );
     }
 
     qglKbdInit( &input->keyboard );
     qglTmrInit( 1000 );   /* 1 ms; sys_time_init measures what arrives */
+}
+
+void in_reset( Input *input )
+{
+    memset( &input->keyboard, 0, sizeof(input->keyboard) );
+    input->mouse.left = input->mouse.right = 0;
 }
 
 /*

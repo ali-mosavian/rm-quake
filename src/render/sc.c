@@ -423,7 +423,7 @@ void sc_shutdown( SurfCache far *sc )
     /* views first: they borrow the store's pixels, so the store
        outlives them */
     for ( i = 0; i < SC_NCLS; i++ ) {
-        if ( sc->desc[i] != 0 ) qglSfFree( sc->desc[i] );
+        if ( sc->desc[i] != 0 ) qglDelView( sc->desc[i] );
         sc->desc[i] = 0;
     }
     if ( sc->hnd != 0 ) qglSfFree( sc->hnd );

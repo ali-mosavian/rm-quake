@@ -40,6 +40,7 @@
  *       the middle one, both straight out of the map container.
  */
 void scr_sbar_load( Pak *pak );
+void scr_sbar_shutdown( void );
 
 /*
  * name: scr_sbar_draw

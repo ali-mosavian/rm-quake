@@ -178,6 +178,8 @@ typedef struct {
     short water_level;    /* 0 dry, 1 feet, 2 waist, 3 eyes under */
     short water_type;     /* CONTENTS_WATER, _SLIME or _LAVA */
     float fall_vz;        /* jump_flag: vel.z before this airborne tick's gravity */
+    BspVec3 water_dir;     /* FL_WATERJUMP's forced horizontal velocity */
+    float water_until;     /* teleport_time safety timeout, 0 when inactive */
 } Player;
 
 /* PhaseTimes -- where a frame's time goes. The phases are disjoint and

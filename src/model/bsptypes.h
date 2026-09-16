@@ -196,6 +196,7 @@ typedef struct {
     short   amount;      /* healamount, or the ammo, or a powerup's seconds */
     short   target;      /* fired when taken */
     short   crate;       /* CrateModel index, or -1: a flat box */
+    short   order;       /* source edict order, for findradius */
     BspVec3 pos;         /* BSP space, on the floor */
     short   gone;
 } ItemEnt;
@@ -252,6 +253,7 @@ typedef struct {
                             is said two seconds apart, not every tick */
     BspVec3 mins, maxs;  /* the touch field */
     short   msg;
+    short   order;       /* source edict order, for findradius */
 } DoorEnt;
 
 /* q_ent.bi's TrigEnt -- triggers.qc and buttons.qc. All four kinds do
@@ -271,6 +273,7 @@ typedef struct {
 #define ENT_TRIG_FIREBALL 11
 #define ENT_TRIG_MJUMP    12    /* trigger_monsterjump: ofs_out is the throw */
 #define ENT_TRIG_SKILL    13    /* trigger_setskill: count is the skill */
+#define ENT_TRIG_SHOOT_BUTTON 14 /* func_button with health: shot, not touched */
 #define ENT_TRIG_READY 0
 #define ENT_TRIG_GOING 1        /* a button on its way in */
 #define ENT_TRIG_HELD  2        /* pressed, or waiting to re-arm */
@@ -286,6 +289,7 @@ typedef struct {
     BspVec3 mins, maxs;  /* the volume, or the button's brush */
     short   msg;
     float   delay, delay_left;
+    short   order;       /* source edict order, for findradius */
 } TrigEnt;
 
 #endif

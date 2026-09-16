@@ -120,30 +120,14 @@ short pl_nail_free( Fight *fight )
             fight->nail[n].toss    = 0;
             fight->nail[n].wiz     = 0;
             fight->nail[n].water   = 0;
+            fight->nail[n].owner   = COMBAT_BY_PLAYER;
+            fight->nail[n].ignore  = COMBAT_NO_IGNORE;
             return n;
         }
     return -1;
 }
 
 /* barrel_explode: T_RadiusDamage's 160 from the box's centre */
-static void pl_box_hit( World *world, Player *player, Fight *fight,
-                         Renderer *rdr, short i, short dmg )
-{
-    ItemEnt far *it = &world->item[i];
-    BspVec3 c;
-
-    it->amount = (short) ( it->amount - dmg );
-    if ( it->amount > 0 ) return;
-    it->gone = -1;
-    fight->booms++;
-
-    c = it->pos;
-    c.z += ENT_BOX_TOP * 0.5f;
-    snd_play( &world->snd, player, SND_BOOM, &c );
-    dl_explosion( rdr, &c );
-    combat_radius( world, player, fight, rdr, c, ENT_BOX_DMG, COMBAT_BY_WORLD );
-}
-
 /* GrenadeExplode: T_RadiusDamage from where it lies */
 static void pl_grenade_explode( World *world, Player *player, Fight *fight,
                                  Renderer *rdr, Spike *s )
@@ -152,7 +136,7 @@ static void pl_grenade_explode( World *world, Player *player, Fight *fight,
     snd_play( &world->snd, player, SND_BOOM, &s->pos );
     dl_explosion( rdr, &s->pos );
     combat_radius( world, player, fight, rdr, s->pos, (float) s->dmg,
-                   s->hostile ? COMBAT_BY_MONSTER : COMBAT_BY_PLAYER );
+                   s->owner, s->ignore );
 }
 
 /* Whatever a shot can set off short of where the pellet stopped: an
@@ -168,18 +152,20 @@ static void pl_shot_touch( World *world, Player *player, Fight *fight,
     for ( i = 0; i < world->item_count; i++ )
         if ( world->item[i].kind == ENT_ITEM_EXPLOBOX && !world->item[i].gone &&
              pl_box_ray( &world->item[i].pos, org, dir, bt + PL_HALF ) >= 0.0f ) {
-            pl_box_hit( world, player, fight, rdr, i, dmg );
+            combat_damage_box( world, player, fight, rdr, i, (float) dmg );
             if ( stopped ) *stopped = -1;
         }
 
     /* copies: pl_ray_box takes near pointers, and a far array element's
        address cast to one reads DGROUP */
     for ( i = 0; i < world->trig_count; i++ ) {
-        if ( world->trig[i].kind != ENT_TRIG_SHOOT || world->trig[i].state != ENT_TRIG_READY ) continue;
+        if ( ( world->trig[i].kind != ENT_TRIG_SHOOT &&
+               world->trig[i].kind != ENT_TRIG_SHOOT_BUTTON ) ||
+             world->trig[i].state != ENT_TRIG_READY ) continue;
         mins = world->trig[i].mins;
         maxs = world->trig[i].maxs;
         if ( pl_ray_box( &mins, &maxs, org, dir, bt + PL_HALF ) < 0.0f ) continue;
-        ent_trig_fire( world, player, fight, rdr, i );
+        ent_trig_shot( world, player, fight, rdr, i );
         if ( stopped ) *stopped = -1;
     }
 
@@ -263,7 +249,7 @@ static void pl_fire_nail( Player *player, Sound *snd, Camera *cam, Fight *fight,
     fight->nail[i].vel.y = aim.y * PL_NG_SPEED;
     fight->nail[i].vel.z = aim.z * PL_NG_SPEED;
     fight->nail[i].die_at = rdr->anim_time + PL_NG_LIFE;
-    fight->nail[i].dmg = (short) ( super ? PL_SNG_DMG : PL_NG_DMG );
+    fight->nail[i].dmg = (float) ( super ? PL_SNG_DMG : PL_NG_DMG );
     fight->nail[i].alive = -1;
 }
 
@@ -288,8 +274,7 @@ static void pl_fire_grenade( Player *player, Sound *snd, Camera *cam, Fight *fig
     fight->nail[i].vel.z = ( cam->look_at.y - cam->pos.y ) * PL_GL_SPEED + PL_GL_UP;
     fight->nail[i].die_at = rdr->anim_time + PL_GL_FUSE;
     fight->nail[i].grenade = -1;
-    fight->nail[i].dmg = (short) ( rdr->anim_time < fight->quad_until
-                                    ? PL_GL_DMG * PL_QUAD_MUL : PL_GL_DMG );
+    fight->nail[i].dmg = PL_GL_DMG;
     fight->nail[i].alive = -1;
 }
 
@@ -323,7 +308,7 @@ static void pl_fire_rocket( Player *player, Rng *rng, Sound *snd, Camera *cam, F
     fight->nail[i].vel.z = aim.z * PL_RL_SPEED;
     fight->nail[i].die_at = rdr->anim_time + PL_RL_LIFE;
     fight->nail[i].rocket = -1;
-    fight->nail[i].dmg = (short) ( PL_RL_HIT + (short) ( rng_float( rng ) * PL_RL_HIT_RND ) );
+    fight->nail[i].dmg = PL_RL_HIT + rng_float( rng ) * PL_RL_HIT_RND;
     fight->nail[i].alive = -1;
 }
 
@@ -485,7 +470,8 @@ void pl_spikes_tick( World *world, Player *player, Fight *fight,
     BspVec3 fin, dir;
     TraceResult tr;
     float t, bt, reach, spd;
-    short n, i, best, ndmg, stopped;
+    short n, i, best, stopped;
+    float ndmg;
 
     for ( n = 0; n < PL_NAILS_MAX; n++ ) {
         Spike *s = &fight->nail[n];
@@ -544,15 +530,17 @@ void pl_spikes_tick( World *world, Player *player, Fight *fight,
             t = mdl_ray_box( &world->mon[i].pos, &s->pos, &dir, bt );
             if ( t >= 0.0f && t < bt ) { bt = t; best = i; }
         }
-        ndmg = (short) ( rdr->anim_time < fight->quad_until
+        ndmg = (float) ( rdr->anim_time < fight->quad_until
                           ? s->dmg * PL_QUAD_MUL : s->dmg );
         if ( best >= 0 ) {
+            if ( s->rocket ) s->ignore = world->mon[best].order;
+            if ( s->rocket && world->mon[best].kind == MDL_KIND_SHAMBLER ) ndmg *= 0.5f;
             combat_damage_monster( world, player, fight, rdr, &world->mon[best], ndmg );
             s->alive = 0;
         }
 
         stopped = 0;
-        pl_shot_touch( world, player, fight, rdr, &s->pos, &dir, bt, ndmg, &stopped );
+        pl_shot_touch( world, player, fight, rdr, &s->pos, &dir, bt, (short) ndmg, &stopped );
         if ( stopped ) s->alive = 0;
         if ( tr.frac < 1.0f ) {
             if ( s->alive && !s->rocket ) pl_spike_hit( player, &world->rng, &world->snd, &tr.end_pos );
@@ -566,8 +554,7 @@ void pl_spikes_tick( World *world, Player *player, Fight *fight,
             s->pos.x += dir.x * bt;
             s->pos.y += dir.y * bt;
             s->pos.z += dir.z * bt;
-            s->dmg = (short) ( rdr->anim_time < fight->quad_until
-                                ? PL_RL_DMG * PL_QUAD_MUL : PL_RL_DMG );
+            s->dmg = PL_RL_DMG;
             pl_grenade_explode( world, player, fight, rdr, s );
             continue;
         }
@@ -640,6 +627,7 @@ void mdl_spike( World *world, Player *player, Fight *fight, Renderer *rdr,
     fight->nail[n].vel.z = d.z / l * WIZARD_SPIKE_SPEED;
     fight->nail[n].die_at = rdr->anim_time + PL_NG_LIFE;
     fight->nail[n].hostile = -1;
+    fight->nail[n].owner = ent->order;
     fight->nail[n].wiz = -1;
     fight->nail[n].dmg = WIZARD_SPIKE_DMG;
     fight->nail[n].alive = -1;
@@ -667,7 +655,8 @@ void mdl_grenade( Player *player, Sound *snd, Fight *fight, Renderer *rdr, MdlEn
     fight->nail[n].die_at = rdr->anim_time + OGRE_GREN_FUSE;
     fight->nail[n].hostile = -1;
     fight->nail[n].grenade = -1;
-    fight->nail[n].dmg = (short) OGRE_GREN_DMG;
+    fight->nail[n].owner = ent->order;
+    fight->nail[n].dmg = OGRE_GREN_DMG;
     fight->nail[n].alive = -1;
     mdl_voice( player, snd, ent, CHAN_WEAPON, SND_GRENADE, ATTN_NORM );
 }
@@ -696,6 +685,7 @@ void mdl_gib( Player *player, Sound *snd, Fight *fight, Renderer *rdr, MdlEnt fa
     fight->nail[n].die_at = rdr->anim_time + ZOMBIE_GIB_LIFE;
     fight->nail[n].hostile = -1;
     fight->nail[n].grenade = -1;
+    fight->nail[n].owner = ent->order;
     fight->nail[n].gib = -1;
     fight->nail[n].dmg = ZOMBIE_GIB_DMG;
     fight->nail[n].alive = -1;

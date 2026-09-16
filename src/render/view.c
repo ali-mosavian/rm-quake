@@ -54,7 +54,7 @@ void v_update_camera( Camera *cam, Player *player, World *world, Input *input,
     if ( player->no_clip ) {
         /* the intermission holds still: the tally's camera is the
            map's, not one the player can fly out of */
-        if ( fight->state == GS_EXIT ) fwd = 0.0f;
+        if ( fight->state >= GS_EXIT ) fwd = 0.0f;
 
         /* Per second, not per frame -- this used to advance a flat 3
            units every frame, flying at whatever speed the framerate

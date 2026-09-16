@@ -1,6 +1,6 @@
 ;; ems.asm -- expanded memory: the four physical pages, and nothing else.
 ;;
-;; name: qglGemInit / qglGemFrame / qglGemAlloc / qglGemFree / qglGemMap
+;; name: qglGemInit / qglGemFrame / qglGemAvail / qglGemAlloc / qglGemFree / qglGemMap
 ;; desc: raw EMS 3.2. Who owns which physical page is the caller's
 ;;       business and never this module's -- the same contract mgl's own
 ;;       emsMapEx offers, and for the same stated reason: its plain
@@ -116,6 +116,23 @@ qglGemFrame   proc    public
                 mov     ax, [qgl$pgframe]
                 ret
 qglGemFrame   endp
+
+
+;;::::::::::::::
+;; qglGemAvail () -> ax = free EMS pages, -1 if EMS is unavailable
+;;::::::::::::::
+qglGemAvail   proc    public uses bx dx
+                cmp     [qgl$emsok], 0
+                je      @@fail
+                mov     ah, 42h                 ;; free and total pages
+                int     EMS_INT
+                test    ah, ah
+                jnz     @@fail
+                mov     ax, bx
+                ret
+@@fail:         mov     ax, -1
+                ret
+qglGemAvail   endp
 
 
 ;;::::::::::::::

@@ -28,6 +28,7 @@
 #include "entitems.h"
 #include "mdl_ai.h"
 #include "mdl.h"   /* mdl_load_monsters/mdl_spawn */
+#include "sys.h"
 
 /* Neither toolchain here defines F_FTOL@, the runtime helper bcc emits
    for a float/double-to-integer cast (checked bcpp31's and tc201's
@@ -286,8 +287,7 @@ void ent_load_spawn( World *world, Camera *cam, Fight *fight )
     qglMemFree( (long) buf );
 
     if ( h.nmodels != world->model_count ) {
-        fprintf( stderr, "%s is from another map\n", name );
-        exit( 1 );
+        sys_error( "entities are from another map" );
     }
 
     /* SelectSpawnPoint: info_player_start2 once a rune is held */
@@ -336,7 +336,7 @@ static void near ent_load_doors( World *world, unsigned char far *buf, long *ofs
 
     world->door_count = 0;
     world->door = (DoorEnt far *) qglMemAlloc( (long) ( count ? count : 1 ) * sizeof(DoorEnt) );
-    if ( !world->door ) { fprintf( stderr, "ents: no room for the doors\n" ); exit( 1 ); }
+    if ( !world->door ) sys_error( "ents: no room for the doors" );
 
     for ( i = 0; i < count; i++ ) {
         EntsDoor dr;
@@ -361,6 +361,7 @@ static void near ent_load_doors( World *world, unsigned char far *buf, long *ofs
         d->say_at  = 0.0f;
         d->ofs_mid = dr.mid;
         d->msg     = dr.msg;
+        d->order   = dr.order;
         d->state   = ENT_DOOR_SHUT;
         d->link    = world->door_count;
 
@@ -396,7 +397,7 @@ static void near ent_load_trigs( World *world, unsigned char far *buf, long *ofs
 
     world->trig_count = 0;
     world->trig = (TrigEnt far *) qglMemAlloc( (long) ( count ? count : 1 ) * sizeof(TrigEnt) );
-    if ( !world->trig ) { fprintf( stderr, "ents: no room for the triggers\n" ); exit( 1 ); }
+    if ( !world->trig ) sys_error( "ents: no room for the triggers" );
 
     for ( i = 0; i < count; i++ ) {
         EntsTrig xr;
@@ -421,6 +422,7 @@ static void near ent_load_trigs( World *world, unsigned char far *buf, long *ofs
         t->snd   = xr.snd;
         t->ofs_out = xr.travel;
         t->delay = xr.delay;
+        t->order = xr.order;
         t->delay_left = 0.0f;
         if ( t->kind == ENT_TRIG_FIREBALL ) ent_fireball_spawn( world, t );
         t->msg   = xr.msg;
@@ -482,7 +484,7 @@ static void near ent_load_corners( World *world, unsigned char far *buf, long *o
 {
     world->corner_count = count;
     world->corner = (PathCorner far *) qglMemAlloc( (long) ( count ? count : 1 ) * sizeof(PathCorner) );
-    if ( !world->corner ) { fprintf( stderr, "ents: no room for the path corners\n" ); exit( 1 ); }
+    if ( !world->corner ) sys_error( "ents: no room for the path corners" );
     if ( count ) _fmemcpy( world->corner, buf + *ofs, (long) count * sizeof(PathCorner) );
     *ofs += (long) count * sizeof(PathCorner);
 }
@@ -494,7 +496,7 @@ static void near ent_load_lights( World *world, unsigned char far *buf, long *of
 
     world->light_count = count;
     world->light = (LightEnt far *) qglMemAlloc( (long) ( count ? count : 1 ) * sizeof(LightEnt) );
-    if ( !world->light ) { fprintf( stderr, "ents: no room for the lights\n" ); exit( 1 ); }
+    if ( !world->light ) sys_error( "ents: no room for the lights" );
     for ( i = 0; i < count; i++ ) {
         _fmemcpy( &lr, buf + *ofs, sizeof(EntsLight) );
         *ofs += sizeof(EntsLight);
@@ -513,13 +515,11 @@ static void near ent_load_lights( World *world, unsigned char far *buf, long *of
 static void near ent_load_msgs( World *world, unsigned char far *buf, long *ofs, short count, long total )
 {
     if ( *ofs + (long) count * ENT_MSG_LEN != total ) {
-        fprintf( stderr, "ents: %ld bytes of messages, header says %d\n",
-                 total - *ofs, (int) count );
-        exit( 1 );
+        sys_error( "ents: message table size does not match its header" );
     }
     world->msg_count = count;
     world->msgs = (char far *) qglMemAlloc( (long) ( count ? count : 1 ) * ENT_MSG_LEN );
-    if ( !world->msgs ) { fprintf( stderr, "ents: no room for the messages\n" ); exit( 1 ); }
+    if ( !world->msgs ) sys_error( "ents: no room for the messages" );
     if ( count ) _fmemcpy( world->msgs, buf + *ofs, (long) count * ENT_MSG_LEN );
     *ofs += (long) count * ENT_MSG_LEN;
 }
@@ -704,8 +704,7 @@ void ent_load_world( World *world )
     ofs = sizeof(EntsHead);
 
     if ( h.nmodels != world->model_count ) {
-        fprintf( stderr, "%s is from another map\n", name );
-        exit( 1 );
+        sys_error( "entities are from another map" );
     }
 
     /* Sized to the map, not a fixed bound: e1m3 has 106 submodels, and
@@ -716,8 +715,7 @@ void ent_load_world( World *world )
     world->plat_max = (short) ( h.nplat + h.ntrain );
     world->plat = (PlatEnt far *) qglMemAlloc( (long) (world->plat_max ? world->plat_max : 1) * sizeof(PlatEnt) );
     if ( !world->brush || !world->tele || !world->plat ) {
-        fprintf( stderr, "ents: out of memory\n" );
-        exit( 1 );
+        sys_error( "ents: out of memory" );
     }
 
     world->tele_count = 0;
@@ -794,7 +792,8 @@ void ent_reset( World *world, Fight *fight )
         world->trig[k].wait_left = 0.0f;
         world->trig[k].delay_left = 0.0f;
         if ( world->trig[k].kind == ENT_TRIG_FIREBALL ) ent_fireball_spawn( world, &world->trig[k] );
-        if ( world->trig[k].kind == ENT_TRIG_BUTTON ) {
+        if ( world->trig[k].kind == ENT_TRIG_BUTTON ||
+             world->trig[k].kind == ENT_TRIG_SHOOT_BUTTON ) {
             world->brush[ world->trig[k].model ].ofs.x = 0.0f;
             world->brush[ world->trig[k].model ].ofs.y = 0.0f;
             world->brush[ world->trig[k].model ].ofs.z = 0.0f;

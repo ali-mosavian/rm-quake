@@ -12,6 +12,7 @@
 #include "video.h"
 #include "qgl.h"
 #include "pal.h"
+#include "sys.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -29,8 +30,7 @@ void v_init_ugl( void )
 {
     qglMemInit();
     if ( qglSfInit() == 0 ) {
-        fprintf( stderr, "0x0000, Could not init qgl...\n" );
-        exit( 1 );
+        sys_error( "0x0000, Could not init qgl" );
     }
     qglGemInit();
 }
@@ -51,15 +51,13 @@ void v_init( Video *v, long pal )
        page count -- qgl does not page, and v_present blits. */
     v->h_video_dc = qglVgaInit();
     if ( v->h_video_dc == 0 ) {
-        fprintf( stderr, "0x0001, Could not set video mode...\n" );
-        exit( 1 );
+        sys_error( "0x0001, Could not set video mode" );
     }
 
     {
         v->h_back_bdc = qglSfNew( v->x_res, v->y_res, QGL_SURF_CMEM );
         if ( v->h_back_bdc == 0 ) {
-            fprintf( stderr, "0x0002, Could not create a backbuffer...\n" );
-            exit( 1 );
+            sys_error( "0x0002, Could not create a backbuffer" );
         }
 
         if ( v->comp ) {
@@ -73,8 +71,7 @@ void v_init( Video *v, long pal )
                so it is the wrong trade twice over. */
             v->h_comp_dc = qglSfNew( v->scr_x_res, v->scr_y_res, QGL_SURF_EMS );
             if ( v->h_comp_dc == 0 ) {
-                fprintf( stderr, "0x0003, Could not create the composite buffer...\n" );
-                exit( 1 );
+                sys_error( "0x0003, Could not create the composite buffer" );
             }
         }
     }

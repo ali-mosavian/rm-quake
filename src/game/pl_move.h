@@ -54,6 +54,9 @@ typedef struct {
     BspVec3  norm;
     short all_solid;      /* the whole sweep was inside solid */
     short start_solid;    /* it began inside solid */
+    short in_open;        /* crossed an empty leaf */
+    short in_water;       /* crossed water/slime/lava */
+    short hit_model;      /* solid submodel hit, 0 world, -1 none */
 } TraceResult;
 
 /*

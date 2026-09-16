@@ -46,6 +46,7 @@ declare function qglFileOpenBas ( flname as string ) as integer
 declare function qglFileRead ( byval h as integer, byval dst as long, byval nbytes as long ) as long
 declare function qglFileSize ( byval h as integer ) as long
 declare function qglGemAlloc ( byval nbytes as long ) as integer
+declare function qglGemAvail () as integer
 declare function qglGemFrame () as integer
 declare sub qglGemFree ( byval h as integer )
 declare function qglGemMap ( byval h as integer, byval pg as integer, byval slot as integer ) as integer

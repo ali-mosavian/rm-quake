@@ -79,6 +79,7 @@ void r_load_portals( World *world, Renderer *rdr, long leaf_count );
  *       that they're Renderer fields rather than loose COMMON arrays.
  */
 void r_alloc_scratch( Renderer *rdr, short face_count, short node_count, short leaf_count );
+void r_free_scratch( Renderer *rdr );
 
 /*
  * name: r_build_parents

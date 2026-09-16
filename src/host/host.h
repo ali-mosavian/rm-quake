@@ -2,9 +2,8 @@
 #define __HOST_H__
 
 /*
- * host.h -- one run, Quake's host.c. host_init loads the map, host_frame
- * runs the ticks a frame owes and draws it, host_shutdown reports and
- * gives the machine back.
+ * host.h -- one session, Quake's host.c. Maps are loaded and released
+ * inside it; video, input and the allocator live until host_shutdown.
  */
 
 #include "renderer.h"
@@ -59,11 +58,14 @@ typedef struct {
     Mat4           mtx_prj;
     Vec3           cam_up;
     QSurf          z_dc, h_dst_dc;
+    long           map_mem_total, map_mem_largest;
+    short          map_ems_pages;
 } Host;
 
 void  host_init( Host *h );
 short host_running( const Host *h );
 void  host_frame( Host *h );
+short host_changelevel( Host *h );
 void  host_shutdown( Host *h );
 
 #endif

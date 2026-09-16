@@ -33,6 +33,8 @@ void pl_reset_player( Player *player, Fight *fight, Renderer *rdr )
     player->pos = fight->spawn;
     player->vel.x = player->vel.y = player->vel.z = 0.0f;
     player->fall_vz = 0.0f;
+    player->water_dir.x = player->water_dir.y = player->water_dir.z = 0.0f;
+    player->water_until = 0.0f;
 }
 
 void pl_respawn( Player *player, Fight *fight, Renderer *rdr )
@@ -41,32 +43,23 @@ void pl_respawn( Player *player, Fight *fight, Renderer *rdr )
     pl_reset_player( player, fight, rdr );
 }
 
-/* SetChangeParms: the kit the next level starts with, to CARRY.BIN.
-   Keys and powerups are the level's own and do not travel. */
-void pl_carry_save( Fight *fight )
+/* SetChangeParms: keys and powerups are the level's own and do not travel. */
+void pl_carry_capture( PlayerCarry *c, const Fight *fight )
 {
-    PlayerCarry c;
-    FILE *f;
-
-    c.items   = fight->items & ~( (long) ( PL_IT_KEY1 | PL_IT_KEY2 ) );
-    c.health  = fight->health;
-    if ( c.health > PL_HEALTH )    c.health = PL_HEALTH;
-    if ( c.health < PL_CARRY_MIN ) c.health = PL_CARRY_MIN;
-    c.armor      = fight->armor;
-    c.armor_type = fight->armor_type;
-    c.shells     = fight->shells;
-    if ( c.shells < PL_SHELLS ) c.shells = PL_SHELLS;
-    c.nails   = fight->nails;
-    c.rockets = fight->rockets;
-    c.cells   = fight->cells;
-    c.weapon  = fight->weapon;
-    c.skill   = fight->skill;
-    c.serverflags = fight->serverflags;
-
-    f = fopen( "CARRY.BIN", "wb" );
-    if ( !f ) return;
-    fwrite( &c, sizeof(c), 1, f );
-    fclose( f );
+    c->items   = fight->items & ~( (long) ( PL_IT_KEY1 | PL_IT_KEY2 ) );
+    c->health  = fight->health;
+    if ( c->health > PL_HEALTH )    c->health = PL_HEALTH;
+    if ( c->health < PL_CARRY_MIN ) c->health = PL_CARRY_MIN;
+    c->armor      = fight->armor;
+    c->armor_type = fight->armor_type;
+    c->shells     = fight->shells;
+    if ( c->shells < PL_SHELLS ) c->shells = PL_SHELLS;
+    c->nails   = fight->nails;
+    c->rockets = fight->rockets;
+    c->cells   = fight->cells;
+    c->weapon  = fight->weapon;
+    c->skill   = fight->skill;
+    c->serverflags = fight->serverflags;
 }
 
 /* DecodeLevelParms: -carry reads it back over pl_reset_player's kit.
@@ -108,6 +101,7 @@ void pl_intermission( Player *player, Camera *cam, Fight *fight,
     player->pos = fight->inter;
     player->vel.x = player->vel.y = player->vel.z = 0.0f;
     player->fall_vz = 0.0f;
+    player->water_until = 0.0f;
     cam->pos.x = fight->inter.x;
     cam->pos.z = fight->inter.y;
     cam->pos.y = fight->inter.z;

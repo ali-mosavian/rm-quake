@@ -29,7 +29,7 @@
 /* The .qmp's own header and directory. QMAP_NAME and QMAP_ENT are
    mkassets.py's write_qmap; the guard below is the other half. */
 #define QMAP_SIG   0x50414D51L      /* "QMAP" */
-#define QMAP_VER   1L
+#define QMAP_VER   2L
 #define QMAP_NAME  16
 #define QMAP_ENT   24
 /* Members a map may carry. 19 lumps, three atlases and the palette,
@@ -57,6 +57,7 @@ typedef struct {
    each said by name, because "wrong map" used to be a silent wrong
    picture. */
 void pak_open( Pak *pak, char *qmp );
+void pak_close( Pak *pak );
 
 /* Puts the shared handle at member's first byte and answers the handle,
    its size through *out_bytes. Fatal if there is no such member. The

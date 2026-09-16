@@ -26,6 +26,7 @@ typedef struct {
  *       own, so it's a parameter rather than a field here.
  */
 void in_init( Input *input, QSurf h_video_dc );
+void in_reset( Input *input );
 
 /*
  * name: in_handle_toggles

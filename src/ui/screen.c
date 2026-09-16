@@ -349,12 +349,54 @@ void scr_draw_msg( Hud far *hud, World *world, Fight *fight, Renderer *rdr,
     short len, secs;
     char *msg;
     char buf[64];
+    static char *finale[] = {
+        "As the corpse of the monstrous entity",
+        "Chthon sinks back into the lava whence",
+        "it rose, you grip the Rune of Earth",
+        "Magic tightly. Now that you have",
+        "conquered the Dimension of the Doomed,",
+        "realm of Earth Magic, you are ready to",
+        "complete your task in the other three",
+        "haunted lands of Quake. Or are you? If",
+        "you don't register Quake, you'll never",
+        "know what awaits you in the Realm of",
+        "Black Magic, the Netherworld, and the",
+        "Elder World!"
+    };
+    short i, shown, n, y;
 
     if ( rdr->anim_time < fight->msg_until ) {
         len = (short) strlen( fight->msg );
         if ( len )
             draw_string( hud, h_dst_dc, (short) ( ( w - 4 * len ) / 2 ), (short) ( h / 3 ),
                          fight->msg, hud->hc_text );
+    }
+
+    if ( fight->state == GS_FINALE ) {
+        shown = (short) ( ( rdr->anim_time - ( fight->state_until - 1.0f ) ) * 8.0f );
+        if ( shown < 0 ) shown = 0;
+        y = (short) ( h / 3 );
+        for ( i = 0; i < 12 && shown > 0; i++, y += 7 ) {
+            short full = (short) strlen( finale[i] );
+            n = full;
+            if ( n > shown ) n = shown;
+            memcpy( buf, finale[i], n ); buf[n] = 0;
+            draw_string( hud, h_dst_dc, (short) ( ( w - 4 * full ) / 2 ), y,
+                         buf, hud->hc_text );
+            shown = (short) ( shown - full );
+        }
+        return;
+    }
+    if ( fight->state == GS_SELL ) {
+        msg = "THE DIMENSION OF THE DOOMED IS CONQUERED";
+        len = (short) strlen( msg );
+        draw_string( hud, h_dst_dc, (short) ( ( w - 4 * len ) / 2 ),
+                     (short) ( h / 2 - 8 ), msg, hud->hc_text );
+        msg = "REGISTER QUAKE TO CONTINUE";
+        len = (short) strlen( msg );
+        draw_string( hud, h_dst_dc, (short) ( ( w - 4 * len ) / 2 ),
+                     (short) ( h / 2 + 2 ), msg, hud->hc_text );
+        return;
     }
 
     /* what the fight has to say, centred: the font is 4 wide */

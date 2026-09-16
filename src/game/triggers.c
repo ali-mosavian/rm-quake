@@ -180,6 +180,30 @@ void ent_trig_fire( World *world, Player *player, Fight *fight,
     ent_use_targets( world, player, fight, rdr, t->target );
 }
 
+static short ent_shot_button( TrigEnt far *t )
+{
+    if ( t->kind != ENT_TRIG_SHOOT_BUTTON ) return 0;
+    t->state = ENT_TRIG_GOING;
+    return -1;
+}
+
+short ent_trig_selftest( void )
+{
+    TrigEnt t;
+    t.kind = ENT_TRIG_SHOOT_BUTTON;
+    t.state = ENT_TRIG_READY;
+    return (short) ( ent_shot_button( &t ) && t.state == ENT_TRIG_GOING );
+}
+
+void ent_trig_shot( World *world, Player *player, Fight *fight,
+                    Renderer *rdr, short k )
+{
+    TrigEnt far *t = &world->trig[k];
+
+    if ( t->state != ENT_TRIG_READY ) return;
+    if ( !ent_shot_button( t ) ) ent_trig_fire( world, player, fight, rdr, k );
+}
+
 void ent_move_trigs( World *world, Player *player, Camera *cam, Fight *fight,
                       Renderer *rdr, float dt, short scr_x_res, short scr_y_res )
 {
@@ -218,9 +242,11 @@ void ent_move_trigs( World *world, Player *player, Camera *cam, Fight *fight,
 
         switch ( t->kind ) {
         case ENT_TRIG_BUTTON:
+        case ENT_TRIG_SHOOT_BUTTON:
             switch ( t->state ) {
             case ENT_TRIG_READY:
-                if ( ent_box_touched( player, &t->mins, &t->maxs, ENT_TOUCH_SLACK ) )
+                if ( t->kind == ENT_TRIG_BUTTON &&
+                     ent_box_touched( player, &t->mins, &t->maxs, ENT_TOUCH_SLACK ) )
                     t->state = ENT_TRIG_GOING;
                 break;
             case ENT_TRIG_GOING:

@@ -179,9 +179,9 @@ def build_models(pak: str, kinds: set[int], boss: bool, tmp: str) -> dict[str, b
 
 SKILLS     = 4   # easy, normal, hard, nightmare: an ents<N>.bin each
 ENTS_HEAD  = '<4f3fff13hfhh3ffh'   # ent.h's EntsHead; the monsters follow it
-ENTS_MON   = '<h3ffhh'           # ent.h's EntsMon
+ENTS_MON   = '<hh3ffhh'          # ent.h's EntsMon
 
-QMAP_VER   = 1
+QMAP_VER   = 2
 QMAP_HEAD  = 64
 QMAP_NAME  = 16
 QMAP_ENT   = 24
@@ -638,6 +638,7 @@ def convert_lightmaps(d, lumps, out):
 
 ENT_PAIR = re.compile(r'"([^"]*)"\s*"([^"]*)"')
 TRIG_ONCE, TRIG_MULTI, TRIG_COUNTER, TRIG_BUTTON, TRIG_EXIT, TRIG_SHOOT, TRIG_SECRET = 0, 1, 2, 3, 4, 5, 6   # ENT_TRIG_*
+TRIG_SHOOT_BUTTON = 14
 TRIG_SHOOTER = 7
 TRIG_RELAY, TRIG_BOSS, TRIG_BOLT = 8, 9, 10   # a use passed on; Chthon, unseen; event_lightning
 TRIG_FIREBALL = 11   # misc_fireball: a lava ball up from its origin every 3 to 8 seconds
@@ -827,6 +828,7 @@ class Ents:
     corners: list[tuple[str, tuple[float, float, float], float, str]] = field(default_factory=list)
     trains: list[tuple] = field(default_factory=list)   # model, speed, targetname id, first corner, sounds
     lights: list[tuple[int, int, int]] = field(default_factory=list)   # targetname id, style, starts on
+    combat_order: dict[int, int] = field(default_factory=dict)         # brush model -> source edict
 
 
 def ent_vec(v: str) -> tuple[float, float, float]:
@@ -965,7 +967,8 @@ def ent_button(e: Ents, m: int, kv: dict[str, str], box: tuple[float, ...]) -> t
     wait = float(kv.get('wait', '0')) or 1.0
     lip = float(kv.get('lip', '0')) or 4.0
     travel = ent_travel(float(kv.get('angle', '0')), box, lip)
-    return (m, TRIG_BUTTON, ent_name_id(e, kv.get('target', '')), ent_name_id(e, kv.get('targetname', '')),
+    kind = TRIG_SHOOT_BUTTON if int(kv.get('health', '0')) > 0 else TRIG_BUTTON
+    return (m, kind, ent_name_id(e, kv.get('target', '')), ent_name_id(e, kv.get('targetname', '')),
             ent_name_id(e, kv.get('killtarget', '')), 0, wait, speed, travel, int(kv.get('sounds', '0')), ent_msg(kv))
 
 
@@ -1226,7 +1229,7 @@ SPAWN: dict[str, Callable[[Ents, dict[str, str]], bool]] = {
 }
 
 
-def ent_spawn(e: Ents, kv: dict[str, str]) -> None:
+def ent_spawn(e: Ents, kv: dict[str, str], order: int) -> None:
     # ED_FindFunction: the classname's spawn function, and for one it has
     # not or one that declined, the kinds a classname can still name
     c = kv.get('classname')
@@ -1242,12 +1245,13 @@ def ent_spawn(e: Ents, kv: dict[str, str]) -> None:
             e.hides.append(m)
         case str() if c in MON_KIND:
             # SPAWN_CRUCIFIED: a zombie nailed up, never walkmonster_start
-            e.mons.append((MON_KIND[c], ent_vec(kv.get('origin', '0 0 0')), float(kv.get('angle', '0')),
+            e.mons.append((MON_KIND[c], order, ent_vec(kv.get('origin', '0 0 0')), float(kv.get('angle', '0')),
                            kv.get('target', ''), int(kv.get('spawnflags', '0')) & 1 if c == 'monster_zombie' else 0))
         case str() if c in ITEM_KIND:
             amount = ent_item_amount(c, int(kv.get('spawnflags', '0')))
             e.items.append((ITEM_KIND[c], amount, ent_name_id(e, kv.get('target', '')),
-                            e.crates.crate(crate_name(c, amount)), ent_vec(kv.get('origin', '0 0 0'))))
+                            e.crates.crate(crate_name(c, amount)), order,
+                            ent_vec(kv.get('origin', '0 0 0'))))
         case str() if c in AMB_KIND:
             wav, fvol = AMB_KIND[c]
             e.ambs.append((mksnd.SOUNDS.index(wav), int(255 * fvol), ent_vec(kv.get('origin', '0 0 0'))))
@@ -1265,15 +1269,17 @@ def spawn_entities(text: str, nmodels: int, boxes: list[tuple[float, ...]], skil
     # NOT_EASY 256, NOT_MEDIUM 512, NOT_HARD 1024, on any entity -- e1m1's
     # ambush hints exist only below hard; nightmare is hard's set
     skip = 256 << min(skill, 2)
-    for block in text.split('{')[1:]:
+    for order, block in enumerate(text.split('{')[1:], 1):
         kv = dict(ENT_PAIR.findall(block.split('}')[0]))
+        if m := ent_model(e, kv.get('model', '')):
+            e.combat_order[m] = order
         if int(kv.get('spawnflags', '0')) & skip:
             # an entity the skill removes never links its brush: e1m3's NOT_EASY
             # trigger_once *67 drew as a solid wall of the "trigger" texture
             if ent_model(e, kv.get('model', '')):
                 e.hides.append(ent_model(e, kv['model']))
             continue
-        ent_spawn(e, kv)
+        ent_spawn(e, kv, order)
     return e
 
 
@@ -1315,8 +1321,8 @@ def pack_entities(e: Ents, nmodels: int, gravity: float, crates: CrateSet) -> by
                                 len(teles), len(plats), len(hides), len(items), len(doors), len(uses), len(mons),
                                 len(ambs), len(trains), len(corners), worldtype, len(crates.used), gravity,
                                 len(msgs), len(lights), *spawn2, angle2, len(e.gates)))
-    for kind, org, yaw, target, cruc in mons:
-        buf += struct.pack(ENTS_MON, kind, *org, yaw, corner_at.get(target, -1), cruc)   # its patrol's first corner
+    for kind, order, org, yaw, target, cruc in mons:
+        buf += struct.pack(ENTS_MON, kind, order, *org, yaw, corner_at.get(target, -1), cruc)
     for m, org, yaw, name, only in teles:
         buf += struct.pack('<h3ffhh', m, *org, yaw, name, only)
     for m, speed, height, snd in plats:
@@ -1325,17 +1331,17 @@ def pack_entities(e: Ents, nmodels: int, gravity: float, crates: CrateSet) -> by
         buf += struct.pack('<h', m)
     for m, boss, bits in e.gates:
         buf += struct.pack('<hhh', m, boss, bits)
-    for kind, amount, target, crate, org in items:
-        buf += struct.pack('<hhhh3f', kind, amount, target, crate, *org)
+    for kind, amount, target, crate, order, org in items:
+        buf += struct.pack('<hhhhh3f', kind, amount, target, crate, order, *org)
     for m, travel, mid, speed, hold, start_open, nolink, targeted, secret, shoot, snd, key, msg in doors:
-        buf += struct.pack('<h3f3fffhhhhhhhh', m, *travel, *mid, speed, hold, start_open, nolink, targeted,
-                           secret, shoot, snd, key, msg_id(msg))
+        buf += struct.pack('<h3f3fffhhhhhhhhh', m, *travel, *mid, speed, hold, start_open, nolink, targeted,
+                           secret, shoot, snd, key, msg_id(msg), e.combat_order.get(m, 0))
     for m, kind, target, name, kill, count, wait, speed, travel, snd, msg, *rest in uses:
         org = rest[0] if rest else (0.0, 0.0, 0.0)   # a shooter's
         delay = rest[1] if len(rest) > 1 else 0.0
         count = msg_id(count) if kind == TRIG_EXIT else count
-        buf += struct.pack('<6hff3f3fhhf', m, kind, target, name, kill, count, wait, speed, *travel, *org, snd,
-                           msg_id(msg), delay)
+        buf += struct.pack('<6hff3f3fhhfh', m, kind, target, name, kill, count, wait, speed, *travel, *org, snd,
+                           msg_id(msg), delay, e.combat_order.get(m, 0))
     for snd, vol, org in ambs:
         buf += struct.pack('<hh3f', snd, vol, *org)
     for m, speed, targeted, first, snd in trains:

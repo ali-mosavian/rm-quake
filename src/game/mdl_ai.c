@@ -399,19 +399,26 @@ static void mdl_move_to_goal( World *world, Player *player, MdlEnt far *ent,
         mdl_new_chase_dir( world, player, ent, goal, dist );
 }
 
+static short mdl_visible( World *world, BspVec3 *eye, BspVec3 *peye )
+{
+    TraceResult tr;
+
+    pl_trace_point( world, eye, peye, &tr );
+    return (short) ( tr.frac == 1.0f && !tr.all_solid &&
+                     !( tr.in_open && tr.in_water ) );
+}
+
 /*
  * FindTarget, collapsed to the one enemy this world has. RANGE_MELEE
  * skips infront -- "will become hostile even if back is turned";
  * RANGE_NEAR needs it unless the player fired within the second.
- * visible() goes through hull 1, the clipnodes pl_trace already walks,
- * not id's hull-0 traceline: a real point trace sees past a few corners
- * this cannot.
+ * visible() is id's hull-0 eye-to-eye traceline. Crossing from open air
+ * into water is not visible even when the line itself is unobstructed.
  */
 static short mdl_find_target( World *world, Player *player, Fight *fight,
                                Renderer *rdr, MdlEnt far *ent )
 {
     BspVec3 eye, peye;
-    TraceResult tr;
     float dx, dy, dz, r, yaw_rad, dlen, dot;
 
     eye  = ent->pos;    eye.z  += MDL_VIEW_OFS;
@@ -421,8 +428,7 @@ static short mdl_find_target( World *world, Player *player, Fight *fight,
     r = (float) sqrt( dx*dx + dy*dy + dz*dz );
     if ( r >= MDL_RANGE_MID ) return 0;          /* RANGE_FAR */
 
-    pl_trace( world, &eye, &peye, &tr );
-    if ( tr.frac <= 0.999f || tr.all_solid ) return 0;   /* not visible */
+    if ( !mdl_visible( world, &eye, &peye ) ) return 0;
 
     if ( r >= MDL_RANGE_NEAR || fight->show_hostile < rdr->anim_time ) {
         if ( r >= MDL_RANGE_MELEE ) {
@@ -674,11 +680,11 @@ static void near atk_knight( Think *t )
     World *world = t->world;
     Player *player = t->player;
     MdlEnt far *ent = t->ent;
-    short dmg;
+    float dmg;
 
     if ( ent->anim_frame >= KNIGHT_ATK_FIRST && ent->anim_frame <= KNIGHT_ATK_LAST &&
          mdl_in_reach( player, ent, KNIGHT_MELEE_RANGE ) ) {
-        dmg = (short) ( ( rng_float( &world->rng ) + rng_float( &world->rng ) + rng_float( &world->rng ) ) * KNIGHT_MELEE_DMG );
+        dmg = ( rng_float( &world->rng ) + rng_float( &world->rng ) + rng_float( &world->rng ) ) * KNIGHT_MELEE_DMG;
         if ( dmg > 0 ) combat_damage_player( player, world, t->fight, t->rdr, dmg );
     }
 }
@@ -693,7 +699,7 @@ static void near atk_demon( Think *t )
     if ( ( ent->anim_frame == DEMON_CLAW_A || ent->anim_frame == DEMON_CLAW_B ) &&
          mdl_in_reach( player, ent, DEMON_CLAW_RANGE ) )
         combat_damage_player( player, world, t->fight, t->rdr,
-                    (short) ( DEMON_CLAW_BASE + (short) ( rng_float( &world->rng ) * DEMON_CLAW_DMG ) ) );
+                    DEMON_CLAW_BASE + rng_float( &world->rng ) * DEMON_CLAW_DMG );
 }
 
 static void near atk_ogre( Think *t )
@@ -782,7 +788,7 @@ static void near ai_leap( Think *t )
             if ( ent->vel.x * ent->vel.x + ent->vel.y * ent->vel.y +
                  ent->vel.z * ent->vel.z > thr * thr ) {
                 combat_damage_player( player, world, t->fight, t->rdr,
-                    (short) ( inf->leap_dmg + rng_float( &world->rng ) * inf->leap_scale ) );
+                    inf->leap_dmg + rng_float( &world->rng ) * inf->leap_scale );
                 ent->leapt = -1;
             }
         }
@@ -866,7 +872,7 @@ static short near ai_check_dog( Think *t )
     Renderer *rdr = t->rdr;
     MdlEnt far *ent = t->ent;
     float dx, dy, dz;
-    short dmg;
+    float dmg;
 
     if ( rdr->anim_time >= ent->next_attack &&
          mdl_find_target( world, player, fight, rdr, ent ) ) {
@@ -876,7 +882,7 @@ static short near ai_check_dog( Think *t )
         if ( dx*dx + dy*dy + dz*dz < DOG_BITE_RANGE * DOG_BITE_RANGE ) {
             ent->next_attack = rdr->anim_time + DOG_BITE_RATE;
             mdl_say( player, &world->snd, ent, 1 );
-            dmg = (short) ( ( rng_float( &world->rng ) + rng_float( &world->rng ) + rng_float( &world->rng ) ) * DOG_BITE_DMG );
+            dmg = ( rng_float( &world->rng ) + rng_float( &world->rng ) + rng_float( &world->rng ) ) * DOG_BITE_DMG;
             if ( dmg > 0 ) combat_damage_player( player, world, fight, rdr, dmg );
         } else if ( dx*dx + dy*dy > DOG_LEAP_MIN * DOG_LEAP_MIN &&
                     dx*dx + dy*dy < DOG_LEAP_MAX * DOG_LEAP_MAX &&
@@ -901,7 +907,7 @@ static short near ai_check_ogre( Think *t )
     Renderer *rdr = t->rdr;
     MdlEnt far *ent = t->ent;
     float dx, dy, dz, d2, chance;
-    short dmg;
+    float dmg;
 
     if ( mdl_find_target( world, player, fight, rdr, ent ) ) {
         dx = player->pos.x - ent->pos.x;
@@ -914,7 +920,7 @@ static short near ai_check_ogre( Think *t )
                 mdl_say( player, &world->snd, ent, 1 );
             }
             if ( ( ent->anim_frame & 1 ) && mdl_in_reach( player, ent, OGRE_SAW_RANGE ) ) {
-                dmg = (short) ( ( rng_float( &world->rng ) + rng_float( &world->rng ) + rng_float( &world->rng ) ) * OGRE_SAW_DMG );
+                dmg = ( rng_float( &world->rng ) + rng_float( &world->rng ) + rng_float( &world->rng ) ) * OGRE_SAW_DMG;
                 if ( dmg > 0 ) combat_damage_player( player, world, fight, rdr, dmg );
             }
         } else if ( rdr->anim_time >= ent->next_attack ) {
@@ -975,7 +981,7 @@ static short near ai_check_shambler( Think *t )
     Renderer *rdr = t->rdr;
     MdlEnt far *ent = t->ent;
     float dx, dy, dz, d2, chance;
-    short dmg;
+    float dmg;
 
     if ( mdl_find_target( world, player, fight, rdr, ent ) ) {
         dx = player->pos.x - ent->pos.x;
@@ -991,7 +997,7 @@ static short near ai_check_shambler( Think *t )
                 mdl_voice( player, &world->snd, ent, CHAN_VOICE,
                            (short) ( chance > 0.3f && chance <= 0.6f && ent->health < SHAMBLER_HEALTH
                                      ? SND_SHAM_MELEE2 : SND_SHAM_MELEE ), ATTN_NORM );
-                dmg = (short) ( ( rng_float( &world->rng ) + rng_float( &world->rng ) + rng_float( &world->rng ) ) * SHAMBLER_SMASH_DMG );
+                dmg = ( rng_float( &world->rng ) + rng_float( &world->rng ) + rng_float( &world->rng ) ) * SHAMBLER_SMASH_DMG;
                 if ( dmg > 0 ) {
                     combat_damage_player( player, world, fight, rdr, dmg );
                     mdl_voice( player, &world->snd, ent, CHAN_VOICE, SND_SHAM_SMACK, ATTN_NORM );
@@ -1229,6 +1235,30 @@ void mdl_ai_stats( World *world, short *hunting, short *moved )
     }
     *hunting = h;
     *moved = mv;
+}
+
+short mdl_ai_visible_selftest( World *world, Player *player )
+{
+    MdlEnt far *best = 0;
+    BspVec3 eye, peye;
+    TraceResult tr;
+    float dx, dy, dz, d, best_d = 1.0e30f;
+    short i;
+
+    for ( i = 0; i < world->mon_count; i++ ) {
+        MdlEnt far *e = &world->mon[i];
+        if ( e->cruc || e->state == MDL_ST_DEAD ) continue;
+        if ( e->kind == MDL_KIND_DEMON ) { best = e; break; }
+        dx = e->pos.x - player->pos.x; dy = e->pos.y - player->pos.y; dz = e->pos.z - player->pos.z;
+        d = dx*dx + dy*dy + dz*dz;
+        if ( d < best_d ) { best = e; best_d = d; }
+    }
+    if ( !best ) return -1;
+    eye = best->pos; eye.z += MDL_VIEW_OFS;
+    peye = player->pos; peye.z += PL_EYE;
+    i = mdl_visible( world, &eye, &peye );
+    pl_trace( world, &eye, &peye, &tr );
+    return (short) ( i | ( ( tr.frac == 1.0f && !tr.all_solid ) ? 2 : 0 ) );
 }
 
 void mdl_tick( World *world, Player *player, Fight *fight, Renderer *rdr )

@@ -16,6 +16,7 @@
 #include "r_bsp.h"       /* r_load_leaves/r_load_lfaces/r_load_portals/r_alloc_scratch */
 #include "pl_move.h"     /* pl_load_hulls */
 #include "ent.h"         /* ent_load_spawn/ent_load_world */
+#include "mdl.h"
 #include "sys.h"         /* sys_error */
 
 /* q_map.bi's own constants -- project-specific, not mgl's. */
@@ -212,4 +213,52 @@ unsigned char far *mod_cm_map( World *world )
 unsigned char far *mod_geom_map( World *world, short row )
 {
     return (unsigned char far *) qglSfAccessRdEx( world->geom_dc, row, PAGE_SLOT );
+}
+
+void mod_unload( World *world )
+{
+    short i;
+
+    for ( i = 0; i < TEX_HEIGHTS; i++ ) {
+        if ( world->tex_v_raw[i] ) qglDelView( world->tex_v_raw[i] );
+        if ( world->tex_v_shaded[i] ) qglDelView( world->tex_v_shaded[i] );
+    }
+    if ( world->tex_raw )     qglSfFree( world->tex_raw );
+    if ( world->tex_shaded )  qglSfFree( world->tex_shaded );
+    if ( world->sky_layers )  qglSfFree( world->sky_layers );
+    if ( world->sky_dc )      qglSfFree( world->sky_dc );
+    if ( world->geom_dc )     qglSfFree( world->geom_dc );
+    if ( world->light_atlas ) qglSfFree( world->light_atlas );
+    if ( world->cmap_dc )     qglSfFree( world->cmap_dc );
+
+    for ( i = 0; i < MDL_KINDS; i++ ) mdl_unload( &world->mdl[i] );
+    for ( i = 0; i < PL_VIEW_N; i++ ) mdl_unload( &world->vmdl[i] );
+    mdl_unload( &world->boss );
+
+    if ( world->models )   qglMemFree( (long) world->models );
+    if ( world->nodes )    qglMemFree( (long) world->nodes );
+    if ( world->planes )   qglMemFree( (long) world->planes );
+    if ( world->brush )    qglMemFree( (long) world->brush );
+    if ( world->clip )     qglMemFree( (long) world->clip );
+    if ( world->leaves )   qglMemFree( (long) world->leaves );
+    if ( world->lfc )      qglMemFree( (long) world->lfc );
+    if ( world->pvs_data ) qglMemFree( (long) world->pvs_data );
+    if ( world->faces )    qglMemFree( (long) world->faces );
+    if ( world->texinfo )  qglMemFree( (long) world->texinfo );
+    if ( world->miptex )   qglMemFree( (long) world->miptex );
+    if ( world->anim_tab ) qglMemFree( (long) world->anim_tab );
+    if ( world->pt_idx )   qglMemFree( (long) world->pt_idx );
+    if ( world->pt_ref )   qglMemFree( (long) world->pt_ref );
+    if ( world->tele )     qglMemFree( (long) world->tele );
+    if ( world->plat )     qglMemFree( (long) world->plat );
+    if ( world->door )     qglMemFree( (long) world->door );
+    if ( world->trig )     qglMemFree( (long) world->trig );
+    if ( world->corner )   qglMemFree( (long) world->corner );
+    if ( world->light )    qglMemFree( (long) world->light );
+    if ( world->item )     qglMemFree( (long) world->item );
+    if ( world->crate )    qglMemFree( (long) world->crate );
+    if ( world->mon )      qglMemFree( (long) world->mon );
+    if ( world->msgs )     qglMemFree( (long) world->msgs );
+
+    memset( world, 0, sizeof(*world) );
 }

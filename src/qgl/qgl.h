@@ -81,6 +81,7 @@ short pascal far qglFileSeek( short h, long pos );
 long pascal far qglFileSize( short h );
 long pascal far qglFileWrite( short h, long src, long nbytes );
 short pascal far qglGemAlloc( long nbytes );
+short pascal far qglGemAvail( void );
 short pascal far qglGemFrame( void );
 void pascal far qglGemFree( short hnd );
 short pascal far qglGemInit( void );

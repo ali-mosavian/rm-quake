@@ -110,12 +110,17 @@ void demo_close( Demo *dm, const RunArgs *args )
     short i;
 
     if ( dm->rf ) fclose( dm->rf );
-    if ( !dm->buf || dm->buf->count == 0 ) return;
-    wf = fopen( args->record_name, "wb" );
-    if ( !wf ) return;
-    for ( i = 0; i < dm->buf->count; i++ ) {
-        e = dm->buf->e[i];
-        fwrite( &e, sizeof(e), 1, wf );
+    dm->rf = 0;
+    if ( dm->buf && dm->buf->count != 0 ) {
+        wf = fopen( args->record_name, "wb" );
+        if ( wf ) {
+            for ( i = 0; i < dm->buf->count; i++ ) {
+                e = dm->buf->e[i];
+                fwrite( &e, sizeof(e), 1, wf );
+            }
+            fclose( wf );
+        }
     }
-    fclose( wf );
+    if ( dm->buf ) qglMemFree( (long) (void far *) dm->buf );
+    dm->buf = 0;
 }

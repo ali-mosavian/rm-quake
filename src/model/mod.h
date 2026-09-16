@@ -67,6 +67,10 @@ void mod_load_world( World *world, Renderer *rdr, Camera *cam, Fight *fight, cha
  */
 void mod_load_colormap( World *world );
 
+/* Releases every allocation owned by a loaded World. Sound and the
+   container handle must already be shut down by their own modules. */
+void mod_unload( World *world );
+
 /* One scanline of the luxel atlas, mapped, as a far pointer. The
    packer keeps a face's whole rect inside one scanline, so a single
    mapping reaches all of it. */

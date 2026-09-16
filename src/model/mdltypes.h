@@ -93,6 +93,7 @@ typedef struct {
     float   yaw;                /* Quake's own, CCW from +x -- not mirrored */
     float   ideal_yaw;          /* what change_yaw turns towards */
     short   kind;
+    short   order;              /* source edict order, for findradius/owner */
     short   state;              /* MDL_ST_* */
     short   anim_frame;         /* within the set state selects */
     float   next_think;         /* anim_time of the next 10 Hz think */

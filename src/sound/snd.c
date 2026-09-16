@@ -9,6 +9,7 @@
 #include "snd.h"
 #include "r_bsp.h"
 #include "qgl.h"
+#include "sys.h"
 
 #define SND_RATE       11025
 #define SND_PAGE       16384L
@@ -58,10 +59,10 @@ void snd_init( Sound *snd, Pak *pak, short off )
     }
     for ( pg = 0; remain > 0; pg++ ) {
         pgseg = qglGemMap( snd->hnd, pg, PAGE_SLOT );
-        if ( !pgseg ) { fprintf( stderr, "snd.bsc: page %d would not map\n", (int) pg ); exit( 1 ); }
+        if ( !pgseg ) sys_error( "snd.bsc: a page would not map" );
         want = remain > SND_PAGE ? SND_PAGE : remain;
         if ( qglFileRead( fh, (long) pgseg << 16, want ) != want ) {
-            fprintf( stderr, "snd.bsc: short read\n" ); exit( 1 );
+            sys_error( "snd.bsc: short read" );
         }
         remain -= want;
     }
@@ -74,6 +75,7 @@ void snd_init( Sound *snd, Pak *pak, short off )
         qglMemFree( (long) dec );
         qglMemFree( (long) raw );
         qglGemFree( snd->hnd );
+        snd->hnd = 0;
         qglDspShutdown();
         return;
     }
@@ -134,10 +136,12 @@ void snd_frame( Sound *snd, World *world, Player *player, float dt )
 
 void snd_shutdown( Sound *snd )
 {
-    if ( !snd->on ) return;
-    snd->on = 0;
-    qglDspShutdown();
-    qglGemFree( snd->hnd );
+    if ( snd->on ) qglDspShutdown();
+    if ( snd->hnd ) qglGemFree( snd->hnd );
+    if ( snd->mix.pts ) qglMemFree( (long) (void far *) snd->mix.pts );
+    snd->on = snd->hnd = 0;
+    snd->mix.pts = 0;
+    snd->mix.ptmax = snd->mix.npts = 0;
 }
 
 void snd_stats( const Sound *snd, short *started, short *loops, short *under )

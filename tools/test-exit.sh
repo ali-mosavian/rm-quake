@@ -4,20 +4,19 @@
 # What it is written against, each arm mutation-checked:
 #
 #   0. Nothing restored INT 8 or INT 9 on the way out. DOS does not do
-#      it for a program that ends, so the SECOND run in a session
+#      it for a program that ends, so another run in a session
 #      installed its timer over the first run's dead handler and
 #      chained to it: the BIOS tick stopped advancing and
 #      sys_time_init spun in its tick-edge wait for ever, two marks
-#      into the load. Invisible while one run was the whole session,
-#      and a changelevel is exactly a second run.
+#      into the load. Invisible while one run was the whole session.
 #   1. ENT_TRIG_EXIT had no case in ent_move_trigs at all -- a touch on
 #      e1m1's changelevel volume did nothing, so the level never ended.
 #      Without the case the run reads gs_state 1 and the camera stays
 #      where it walked; with it, gs_state 4 at the map's own
 #      info_intermission, (-112,704).
-#   2. host_next_level writes NEXT.BAT, which run.sh calls: without it
-#      the run ends at e1m1 and the second "start" never appears.
-#   3. pl_carry_save/pl_carry_load carry the kit. The first leg runs
+#   2. changelevel releases e1m1 and loads e1m2 in the same process.
+#      The resource baseline catches leaks before the second load.
+#   3. PlayerCarry carries the kit in memory. The first leg runs
 #      WITH the AI, so e1m1's soldiers take health off before the exit
 #      -- a fresh kit is exactly 100, so a carry that does nothing is
 #      visible. That is the whole reason this arm does not use -noai.
@@ -65,11 +64,12 @@ elif [[ $(( (px+112)*(px+112) + (pz-704)*(pz-704) )) -gt 400 ]]; then
 fi
 
 # 2 and 3: the changelevel, with the AI on so the carry has something
-# to say. run.sh calls NEXT.BAT, so cstep.txt holds both legs.
+# to say. cstep.txt holds both maps under one start marker.
 TIMEOUT="${TIMEOUT:-1200}" "$RUN" "$OUT" "e1m1.qmp -nostats $WALK -fire -ticks 300" >/dev/null 2>&1
-legs=$(tr -d '\r' < "$log" 2>/dev/null | grep -c '^start$')
-if [[ "$legs" -lt 2 ]]; then
-    echo "FAIL: the changelevel ran $legs map(s); NEXT.BAT should have started e1m2" >&2
+starts=$(tr -d '\r' < "$log" 2>/dev/null | grep -c '^start$')
+legs=$(tr -d '\r' < "$log" 2>/dev/null | grep -c '^asset_map ok ')
+if [[ "$starts" -ne 1 || "$legs" -lt 2 ]]; then
+    echo "FAIL: changelevel used $starts process(es) and loaded $legs map(s); wanted one and two" >&2
     fail=1
 else
     # the second leg's OWN load mark, not the last gs_state line: what
@@ -77,6 +77,7 @@ else
     # -ticks to the end is a much longer run than that claim needs.
     map2=$(tr -d '\r' < "$log" | grep '^asset_map ok ' | tail -1 | awk '{print $3}')
     [[ "$map2" == "e1m2.qmp" ]] || { echo "FAIL: the second leg opened ${map2:-nothing}, not e1m2.qmp" >&2; fail=1; }
+    grep -q '^map_release ok ' "$log" || { echo "FAIL: e1m1 did not return to the session memory baseline" >&2; fail=1; }
 
     carry=$(tr -d '\r' < "$log" | grep -m1 '^carry health ')
     [[ -n "$carry" ]] || { echo "FAIL: e1m2 was started without -carry" >&2; fail=1; }
@@ -107,7 +108,7 @@ fi
 
 # 5: -carry with no CARRY.BIN (run.sh deletes it) loaded nothing, and the log still
 #    printed the default kit as "carry health 100 ...". A short file is untested: every
-#    -carry run follows the pl_carry_save that wrote it.
+#    -carry run used to follow the save that wrote it.
 TIMEOUT="${TIMEOUT:-300}" "$RUN" "$OUT" "e1m1.qmp -nostats -noai -carry -ticks 2" >/dev/null 2>&1
 if ! tr -d '\r' < "$log" 2>/dev/null | grep -q '^carry refused' || tr -d '\r' < "$log" | grep -q '^carry health '; then
     echo "FAIL: -carry with no CARRY.BIN is not reported refused" >&2

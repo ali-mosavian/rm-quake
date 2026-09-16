@@ -20,8 +20,8 @@ def members(path: str) -> dict[str, tuple[int, int]]:
     magic, ver, n, dirofs, _sum, _name = HEAD.unpack_from(d, 0)
     if magic != b"QMAP":
         raise SystemExit(f"{path}: not a map container")
-    if ver != 1:
-        raise SystemExit(f"{path}: version {ver}, not 1")
+    if ver != 2:
+        raise SystemExit(f"{path}: version {ver}, not 2")
     out = {}
     for k in range(n):
         name, ofs, size = ENT.unpack_from(d, dirofs + k * ENT.size)

@@ -38,6 +38,9 @@ void ent_talk( Player *player, Sound *snd, Fight *fight, Renderer *rdr, char far
 /* misc_fireball: its first ball 0..5 s from now. ent_fireballs_sent
    counts every emitter's balls, for the run summary. */
 void  ent_fireball_spawn( World *world, TrigEnt far *t );
+void  ent_trig_shot( World *world, Player *player, Fight *fight,
+                     Renderer *rdr, short k );
+short ent_trig_selftest( void );
 short ent_fireballs_sent( World *world );
 
 /*

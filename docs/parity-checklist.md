@@ -87,23 +87,19 @@ PAK0 and are left out.
       `r_main.c` `R_DrawViewModel`
       qcport: `ENT_ITEM_INVIS`; `tools/test-items.sh` on e1m3. Not ported:
       the whisper's half volume, the eyes model, the status bar icon
-- [ ] T_RadiusDamage as id runs it
+- [x] T_RadiusDamage as id runs it
       id: `combat.qc` `T_RadiusDamage`, `CanDamage`; `pr_cmds.c` `PF_findradius`
-      qcport: `combat_radius` hurts the player first where findradius's chain
-      reaches edict 1 last (the RNG draws move with it); has no damage + 40
-      cutoff; asks no line; spares every monster from a monster's blast where
-      id halves only the attacker; gives the shambler full damage (id: half);
-      and a barrel's blast sets off no other barrel
-- [ ] Monsters see through hull 0
+      qcport: source-edict order, damage + 40 cutoff, hull-0 `CanDamage`,
+      attacker and shambler halving, chained barrels, and shootable brushes;
+      `tools/test-guns.sh`, `tools/test-shoot-brushes.sh`
+- [x] Monsters see through hull 0
       id: `ai.qc` `visible`, a hull-0 point `traceline` eye to eye
-      qcport: `mdl_find_target` traces hull 1, whose grown solid hides a player
-      id's demon sees: e1m2 `-at -246 552 340 -yaw 0 -fire`, 150 units from it
-      and 17 above its eye, stops the trace at 0.373 every check, and at 0
-      once the demon closes to 95; `show_hostile` holds, so infront is not asked
-- [ ] Fractional damage ceiled, not truncated
+      qcport: `pl_trace_point`; e1m2 `-at -150 625 340` is
+      `tools/test-ai-visible.sh`
+- [x] Fractional damage ceiled, not truncated
       id: `combat.qc` `T_Damage` takes float damage, `take = ceil(damage - save)`
-      qcport: radius damage and random melee cut to `short` first, one point
-      short (`combat_radius`, `src/game/mdl_ai.c:649`)
+      qcport: damage stays float through armor and final `ceil`, including the
+      x87 float32 barrier; `tools/test-combat-round.sh`
 - [x] Red armor: `item_armorInv` (1, start, deathmatch only: spawnflags 1792)
       id: `items.qc` `item_armorInv`
       qcport: `ENT_ITEM_ARMOR3`, 200 at 0.8; dm3ish's arms in
@@ -128,18 +124,20 @@ PAK0 and are left out.
       `client.qc` `respawn`
       qcport (partial): "YOU DIED" and a reset respawn, no frames or gibs,
       `src/host/host.c:139`, `:142`
-- [ ] Water jump
+- [x] Water jump
       id: `client.qc` `CheckWaterJump`
-      qcport: none in `src/game/pl_move.c`
+      qcport: hull-0 waist/upper probes, 225 up and two-second state;
+      `tools/test-waterjump.sh`
 - [x] Skill chosen in game
       id: `host.c` `skill` cvar, set by start's `triggers.qc`
       `trigger_skill_touch` (4, start)
       qcport: `ents<N>.bin` a skill, `ENT_TRIG_SKILL`, carried in
       `CARRY.BIN`, `-skill`; `tools/test-skill.sh`. Nightmare plays hard
-- [ ] Episode end text
+- [x] Episode end text
       id: `client.qc` `ExitIntermission` sends the finale on e1m7;
       `sbar.c` `Sbar_FinaleOverlay`
-      qcport: e1m7's intermission goes straight to start
+      qcport: finale text, sell screen, then start; fire or jump advances;
+      `tools/test-finale.sh`
 - [x] **Bug:** every slipgate on start leads to the last one parsed
       id: `client.qc` `changelevel_touch` reads its own trigger's `map`
       qcport: each changelevel's map is a message, copied on touch;

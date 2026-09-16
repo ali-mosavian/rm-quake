@@ -33,6 +33,7 @@
 #include "snd.h"
 #include "dl.h"
 #include "pal.h"
+#include "combat.h"
 #include "ls.h"
 #include "mod.h"
 #include "pl_move.h"
@@ -111,29 +112,19 @@ static void near host_state_sum( Host *h, long tick )
 }
 #endif
 
-/* changelevel: the kit to CARRY.BIN, the next map's run to NEXT.BAT,
-   and the host loop ends. The next map is a new process because its
-   container is a different file and nothing here unloads one.
-   run.sh runs NEXT.BAT from a copy, since a batch deleted while it is
-   running is "Batch file missing". */
-static void near host_next_level( Fight *fight )
+/* changelevel stops at a frame boundary. The session loop releases the
+   old map and loads this name with the captured kit still in Host. */
+static void near host_next_level( Host *h )
 {
-    FILE *f;
-
-    pl_carry_save( fight );
-    f = fopen( "NEXT.BAT", "w" );
-    if ( f ) {
-        fprintf( f, "QCPORT.EXE %s.qmp -carry%s >> run.out\n",
-                 fight->next_map, fight->next_flags );
-        fclose( f );
-    }
-    fight->state = GS_NEXT;
+    pl_carry_capture( &h->carry, &h->fight );
+    h->carried = -1;
+    h->fight.state = GS_NEXT;
 }
 
 /* One tick of the state machine: dying and respawning, the area cleared,
    and the intermission's held fire -- on to the next map, or this one
    again. */
-static void near host_state( Host *h, short fire )
+static void near host_state( Host *h, short fire, short advance )
 {
     World    *world  = &h->world;
     Player   *player = &h->player;
@@ -183,15 +174,29 @@ static void near host_state( Host *h, short fire )
            the player does, then a held button goes on. A changelevel
            naming no map, as dm3ish's, plays this level again; nothing
            checks that a named one is shipped. */
-        if ( fire && rdr->anim_time >= fight->exit_time + PL_INTER_HOLD ) {
-            if ( fight->next_map[0] ) {
-                host_next_level( fight );
+        if ( advance && rdr->anim_time >= fight->exit_time + PL_INTER_HOLD ) {
+            if ( !stricmp( h->args.map_name, "e1m7.qmp" ) ) {
+                fight->state = GS_FINALE;
+                fight->state_until = rdr->anim_time + 1.0f;
+            } else if ( fight->next_map[0] ) {
+                host_next_level( h );
             } else {
                 pl_game_reset( world, player, cam, fight, rdr, scr_x_res );
                 ent_reset( world, fight );
                 fight->state = GS_PLAY;
             }
         }
+        break;
+
+    case GS_FINALE:
+        if ( advance && rdr->anim_time >= fight->state_until ) {
+            fight->state = GS_SELL;
+            fight->state_until = rdr->anim_time + 1.0f;
+        }
+        break;
+
+    case GS_SELL:
+        if ( advance && rdr->anim_time >= fight->state_until ) host_next_level( h );
         break;
 
     case GS_NEXT:
@@ -232,6 +237,7 @@ static void near host_tick( Host *h, float dt )
        original's binding too. Read once: outside GS_PLAY it is what
        starts the next thing rather than what shoots. */
     short fire = (short) ( input->mouse.left || input->keyboard.k[KEY_CTRL] );
+    short advance = (short) ( fire || input->keyboard.k[KEY_SPCBAR] );
 
     /* id decays after drawing; this is the same place, before the next */
     dl_decay( rdr, dt );
@@ -267,7 +273,7 @@ static void near host_tick( Host *h, float dt )
     pl_traps_tick( world, player, fight, rdr );
     pl_spikes_tick( world, player, fight, rdr, dt );
 
-    host_state( h, fire );
+    host_state( h, fire, advance );
 
     /* where each mover ended up, so the draw order can place it */
     ent_place_models( world );
@@ -594,6 +600,12 @@ static void near host_selftests( void )
     mark( buf );
     sprintf( buf, "item_selftest %d", item_selftest() );
     mark( buf );
+    sprintf( buf, "combat_selftest %d", combat_selftest() );
+    mark( buf );
+    sprintf( buf, "combat_brush_selftest %d", combat_brush_selftest() );
+    mark( buf );
+    sprintf( buf, "ent_trig_selftest %d", ent_trig_selftest() );
+    mark( buf );
 
     /* sys_time's calibration: tick_hz near 144 on this emulator, not the
        1000 it falls back to uncalibrated -- that fallback once ran the
@@ -700,8 +712,8 @@ static void near host_load_rest( Host *h, LoadScreen *ldr )
     ls_init( &h->ls );
     ld_step( ldr, vdc, h->hud );
 
-    ld_stage( ldr, vdc, h->hud, "input" );
-    in_init( &h->input, vdc );
+    ld_stage( ldr, vdc, h->hud, "starting level" );
+    in_reset( &h->input );
     ld_step( ldr, vdc, h->hud );
 }
 
@@ -726,7 +738,6 @@ static void near host_load( Host *h )
 
     /* the skill picks the map's ents<N>.bin, so it is known first: the
        carried one wins over -skill, as the cvar outlives a changelevel */
-    h->carried = (short) ( h->args.carry && pl_carry_read( &h->carry ) );
     h->world.skill = h->carried ? h->carry.skill : h->args.skill;
     if ( h->world.skill < 0 ) h->world.skill = 0;
     if ( h->world.skill > 3 ) h->world.skill = 3;
@@ -763,27 +774,6 @@ static void near host_load( Host *h )
     mark( "scr_hud_colors ok" );
 }
 
-/* what the next map's process is told about this run: how it runs,
-   never where it started -- -at and -yaw belong to this map's geometry */
-static void near host_next_flags( Host *h )
-{
-    const RunArgs *a  = &h->args;
-    char          *nf = h->fight.next_flags;
-
-    nf[0] = '\0';
-    if ( a->use_lm )   strcat( nf, " -lm" );
-    if ( a->no_stats ) strcat( nf, " -nostats" );
-    if ( a->no_ai )    strcat( nf, " -noai" );
-    if ( a->no_mdl )   strcat( nf, " -nomdl" );
-    if ( a->no_items ) strcat( nf, " -noitems" );
-    if ( a->no_view )  strcat( nf, " -noview" );
-    if ( a->no_sound ) strcat( nf, " -nosound" );
-    if ( a->comp )     strcat( nf, " -comp" );
-    if ( a->fire )     strcat( nf, " -fire" );
-    if ( a->bench_ticks > 0 )
-        sprintf( nf + strlen( nf ), " -ticks %ld", a->bench_ticks );
-}
-
 /* the player at the spawn or -at, the carried kit, the aim, and the
    inputs a headless run holds */
 static void near host_spawn( Host *h )
@@ -815,8 +805,6 @@ static void near host_spawn( Host *h )
                  h->fight.armor, h->fight.items, h->fight.weapon );
         mark( buf );
     }
-    host_next_flags( h );
-
     /* The camera reads its angle from the mouse, so aiming is moving the
        mouse. v_update_camera reads phi as PI*(mouse.y+2)/y_res; y 110 is
        100.8 degrees, a little below the horizon, what every headless
@@ -890,9 +878,36 @@ static void near host_view_setup( Host *h )
     h->pt.n = 0;
 }
 
+static void near host_map_init( Host *h )
+{
+    char buf[48];
+
+    memset( &h->cam, 0, sizeof(h->cam) );
+    memset( &h->player, 0, sizeof(h->player) );
+    memset( &h->fight, 0, sizeof(h->fight) );
+    memset( &h->ls, 0, sizeof(h->ls) );
+    memset( &h->sysclk, 0, sizeof(h->sysclk) );
+    memset( &h->clock, 0, sizeof(h->clock) );
+    memset( &h->pt, 0, sizeof(h->pt) );
+    memset( &h->bs, 0, sizeof(h->bs) );
+    memset( &h->demo, 0, sizeof(h->demo) );
+    h->hud = 0;
+    h->sc = 0;
+    h->z_dc = h->h_dst_dc = 0;
+    rng_init( &h->world.rng );
+    host_load( h );
+    host_spawn( h );
+    sprintf( buf, "ai_visible_selftest %d", mdl_ai_visible_selftest( &h->world, &h->player ) );
+    mark( buf );
+    host_view_setup( h );
+
+    /* the largest DOS block once the map, caches and depth are in */
+    bench_begin( &h->bs );
+    demo_open( &h->demo, &h->args );
+}
+
 void host_init( Host *h )
 {
-    rng_init( &h->world.rng );
     sys_parse_args( &h->args );
     mark( "sys_parse_args ok" );
     config_load( &h->cfg, "stuff.ini" );
@@ -900,13 +915,12 @@ void host_init( Host *h )
 
     host_video( h );
     host_selftests();
-    host_load( h );
-    host_spawn( h );
-    host_view_setup( h );
-
-    /* the largest DOS block once the map, caches and depth are in */
-    bench_begin( &h->bs );
-    demo_open( &h->demo, &h->args );
+    in_init( &h->input, h->v.h_video_dc );
+    h->map_mem_largest = qglMemAvail( QGL_MEM_LARGEST );
+    h->map_mem_total = qglMemAvail( QGL_MEM_TOTAL );
+    h->map_ems_pages = qglGemAvail();
+    h->carried = (short) ( h->args.carry && pl_carry_read( &h->carry ) );
+    host_map_init( h );
 }
 
 /* ------------------------------------------------------------------ */
@@ -1035,6 +1049,12 @@ static void near host_report( Host *h )
              (int) fight->state, h->args.map_name, fight->next_map,
              (int) fight->secrets, (int) fight->secret_total, (int) fight->skill );
     mark( buf );
+    sprintf( buf, "water level %d type %d peak %ld jump %d vel %ld,%ld,%ld",
+             (int) h->player.water_level, (int) h->player.water_type,
+             (long) h->player.peak_z,
+             (int) ( h->player.water_until > h->rdr.anim_time ),
+             (long) h->player.vel.x, (long) h->player.vel.y, (long) h->player.vel.z );
+    mark( buf );
     sprintf( buf, "sflags %d", (int) fight->serverflags );
     mark( buf );
 
@@ -1047,14 +1067,12 @@ static void near host_report( Host *h )
     bench_mark_times( &h->bs, buf );
 }
 
-void host_shutdown( Host *h )
+static void near host_map_finish( Host *h )
 {
     Video *v = &h->v;
 
     demo_close( &h->demo, &h->args );
     host_report( h );
-
-    /* under -comp the composited frame is in h_comp_dc */
     if ( v->comp )
         scr_screenshot( "bench.bmp", v->h_comp_dc, v->scr_x_res, v->scr_y_res );
     else
@@ -1062,13 +1080,89 @@ void host_shutdown( Host *h )
     mark( "scr_screenshot ok" );
     bench_write( &h->bs, &h->pt, &h->rdr, h->sc );
     if ( h->args.mdlsum ) mdl_report_sums( &h->world );
+}
 
+static void near host_map_release( Host *h )
+{
+    char  buf[160];
+    long  largest, total;
+    short ems;
+
+    if ( h->z_dc ) qglSfZFree( h->h_dst_dc );
+    h->z_dc = 0;
+    if ( h->sc ) {
+        sc_shutdown( h->sc );
+        qglMemFree( (long) (void far *) h->sc );
+        h->sc = 0;
+    }
+    scr_sbar_shutdown();
+    snd_shutdown( &h->world.snd );
+    pak_close( &h->world.pak );
+    mod_unload( &h->world );
+    r_free_scratch( &h->rdr );
+    if ( h->hud ) qglMemFree( (long) (void far *) h->hud );
+    h->hud = 0;
+    h->h_dst_dc = 0;
+
+    largest = qglMemAvail( QGL_MEM_LARGEST );
+    total = qglMemAvail( QGL_MEM_TOTAL );
+    ems = qglGemAvail();
+    if ( total != h->map_mem_total || largest != h->map_mem_largest ||
+         ems != h->map_ems_pages )
+        sys_error( "map release did not restore the session memory baseline" );
+    sprintf( buf, "map_release ok far=%ld/%ld largest=%ld/%ld ems=%d/%d",
+             total, h->map_mem_total, largest, h->map_mem_largest,
+             (int) ems, (int) h->map_ems_pages );
+    mark( buf );
+}
+
+/* Preserve exactly the flags NEXT.BAT used to pass. Positions and
+   recording names belong to the old map; the captured carry supplies
+   skill and serverflags. */
+static void near host_change_args( RunArgs *args, char *map )
+{
+    RunArgs old = *args;
+
+    memset( args, 0, sizeof(*args) );
+    strcpy( args->map_name, map );
+    args->bench_ticks = old.bench_ticks;
+    args->no_stats = old.no_stats;
+    args->no_ai = old.no_ai;
+    args->no_mdl = old.no_mdl;
+    args->no_items = old.no_items;
+    args->no_view = old.no_view;
+    args->no_sound = old.no_sound;
+    args->comp = old.comp;
+    args->fire = old.fire;
+    args->use_lm = old.use_lm;
+    args->carry = -1;
+}
+
+short host_changelevel( Host *h )
+{
+    char map[64];
+
+    if ( h->fight.state != GS_NEXT ) return 0;
+    sprintf( map, "%.8s.qmp", h->fight.next_map );
+    host_map_finish( h );
+    host_map_release( h );
+    host_change_args( &h->args, map );
+    host_map_init( h );
+    return -1;
+}
+
+void host_shutdown( Host *h )
+{
+    Video *v = &h->v;
+
+    host_map_finish( h );
+    host_map_release( h );
     if ( v->h_back_bdc ) qglSfFree( v->h_back_bdc );
+    if ( v->h_comp_dc ) qglSfFree( v->h_comp_dc );
     /* The ISRs out FIRST: INT 8 and INT 9 point into this program, and
        DOS does not restore a vector at exit. A changelevel's second run
        once chained its timer to a dead handler and hung in
        sys_time_init. */
-    snd_shutdown( &h->world.snd );
     qglTmrShutdown();
     qglKbdShutdown();
     qglMouseShutdown();

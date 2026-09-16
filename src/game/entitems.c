@@ -11,6 +11,7 @@
 #include "ent.h"
 #include "pl_trace.h"
 #include "qgl.h"
+#include "sys.h"
 
 void ent_load_items( World *world, unsigned char far *buf, long *ofs, short count )
 {
@@ -23,8 +24,7 @@ void ent_load_items( World *world, unsigned char far *buf, long *ofs, short coun
     world->item = (ItemEnt far *) qglMemAlloc(
                      (long) ( world->item_max ? world->item_max : 1 ) * sizeof(ItemEnt) );
     if ( !world->item ) {
-        fprintf( stderr, "ents: out of memory for %d items\n", (int) count );
-        exit( 1 );
+        sys_error( "ents: out of memory for items" );
     }
 
     for ( i = 0; i < count; i++ ) {
@@ -37,6 +37,7 @@ void ent_load_items( World *world, unsigned char far *buf, long *ofs, short coun
         p->amount = it.amount;
         p->target = it.target;
         p->crate  = it.crate;
+        p->order  = it.order;
         p->pos    = it.org;
         p->gone   = 0;
     }
@@ -47,8 +48,7 @@ void ent_load_crates( World *world, unsigned char far *buf, long *ofs, short cou
     world->crate_count = count;
     world->crate = (CrateModel far *) qglMemAlloc( (long) ( count ? count : 1 ) * sizeof(CrateModel) );
     if ( !world->crate ) {
-        fprintf( stderr, "ents: out of memory for %d crates\n", (int) count );
-        exit( 1 );
+        sys_error( "ents: out of memory for crates" );
     }
     if ( count ) _fmemcpy( world->crate, buf + *ofs, (long) count * sizeof(CrateModel) );
     *ofs += (long) count * sizeof(CrateModel);

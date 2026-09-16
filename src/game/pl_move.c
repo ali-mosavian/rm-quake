@@ -500,6 +500,38 @@ static void pl_water_move( BspVec3 *vel, float fwd, float strafe, float dir_x, f
     vel->z += accelspeed*wishdir.z;
 }
 
+static short pl_water_jump( World *world, Player *player, Renderer *rdr,
+                            float dir_x, float dir_y )
+{
+    BspVec3 start, fin, norm;
+    TraceResult tr;
+
+    start = player->pos;
+    start.z += 8.0f;
+    fin = start;
+    fin.x += dir_x * 24.0f;
+    fin.y += dir_y * 24.0f;
+    pl_trace_point( world, &start, &fin, &tr );
+    if ( tr.frac == 1.0f || tr.all_solid ) return 0;
+    norm = tr.norm;
+
+    start = player->pos;
+    start.z += PL_ZHI;
+    fin = start;
+    fin.x += dir_x * 24.0f;
+    fin.y += dir_y * 24.0f;
+    pl_trace_point( world, &start, &fin, &tr );
+    if ( tr.frac != 1.0f || tr.all_solid ) return 0;
+
+    player->water_dir.x = norm.x * -50.0f;
+    player->water_dir.y = norm.y * -50.0f;
+    player->water_dir.z = 0.0f;
+    player->vel.z = 225.0f;
+    player->water_until = rdr->anim_time + 2.0f;
+    player->on_ground = 0;
+    return 1;
+}
+
 /*
  * name: pl_init
  * desc: Seeds the player from a spawn point. The height does NOT come
@@ -526,6 +558,7 @@ void pl_init( Player *player, Camera *cam, BspVec3 *start_override )
     player->vel.z = 0.0f;
 
     player->on_ground = 0;
+    player->water_until = 0.0f;
 }
 
 /*
@@ -555,7 +588,10 @@ void pl_move( World *world, Player *player, Camera *cam, Fight *fight,
      * against SV_CheckWater: friction and accel run before the server
      * re-checks where the player ended up wet.
      */
-    if ( player->water_level >= 2 ) {
+    if ( player->water_until > rdr->anim_time ) {
+        player->vel.x = player->water_dir.x;
+        player->vel.y = player->water_dir.y;
+    } else if ( player->water_level >= 2 ) {
         pl_water_move( &player->vel, fwd, strafe, dir_x, dir_y, dt );
     } else {
         wishvel.x = dir_x*fwd*PL_FWDSPEED - dir_y*strafe*PL_FWDSPEED;
@@ -582,7 +618,19 @@ void pl_move( World *world, Player *player, Camera *cam, Fight *fight,
     pl_water_level( player, world );
     pl_water_check( player, world, fight, rdr, dt );
 
-    pl_gravity( world, player, fight, rdr, dt, &tr );
+    if ( player->water_until > 0.0f &&
+         ( player->water_level == 0 || rdr->anim_time >= player->water_until ) )
+        player->water_until = 0.0f;
+    if ( player->water_until == 0.0f && player->water_level == 2 )
+        pl_water_jump( world, player, rdr, dir_x, dir_y );
+
+    if ( player->water_until > rdr->anim_time ) {
+        player->vel.x = player->water_dir.x;
+        player->vel.y = player->water_dir.y;
+        player->on_ground = 0;
+    } else {
+        pl_gravity( world, player, fight, rdr, dt, &tr );
+    }
 
     /*
      * Jump. After pl_gravity, which is what decides whether there is
@@ -595,7 +643,9 @@ void pl_move( World *world, Player *player, Camera *cam, Fight *fight,
      * The velocity is SET rather than added, so holding the key gives
      * one jump or one stroke instead of accumulating thrust.
      */
-    if ( player->water_level >= 2 ) {
+    if ( player->water_until > rdr->anim_time ) {
+        /* SV_WaterJump owns the velocity until it clears. */
+    } else if ( player->water_level >= 2 ) {
         if ( jump ) {
             switch ( player->water_type ) {
             case CONTENTS_SLIME: player->vel.z = PL_SWIM_SLIME; break;
@@ -629,7 +679,10 @@ void pl_move( World *world, Player *player, Camera *cam, Fight *fight,
     if ( player->vel.z >  PL_MAXVEL ) player->vel.z =  PL_MAXVEL;
     if ( player->vel.z < -PL_MAXVEL ) player->vel.z = -PL_MAXVEL;
 
-    pl_step_move( world, player, &player->pos, &player->vel, dt, &tr );
+    if ( player->water_until > rdr->anim_time )
+        pl_slide_move( world, &player->pos, &player->vel, dt, &tr );
+    else
+        pl_step_move( world, player, &player->pos, &player->vel, dt, &tr );
 
     if ( player->pos.z > player->peak_z ) player->peak_z = player->pos.z;
 

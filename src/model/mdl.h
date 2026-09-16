@@ -25,6 +25,7 @@
  *       not there.
  */
 void mdl_load( Pak *pak, MdlState *m, char *name, short need );
+void mdl_unload( MdlState *m );
 
 /* Chthon's model, when the map's triggers hold ENT_TRIG_BOSS. */
 void mdl_load_boss( World *world );

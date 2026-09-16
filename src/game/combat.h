@@ -13,7 +13,7 @@
  * desc: T_Damage on the player: the pentagram, then the armor's share,
  *       then the health.
  */
-void combat_damage_player( Player *player, World *world, Fight *fight, Renderer *rdr, short dmg );
+void combat_damage_player( Player *player, World *world, Fight *fight, Renderer *rdr, float dmg );
 
 /*
  * name: combat_damage_monster
@@ -22,17 +22,21 @@ void combat_damage_player( Player *player, World *world, Fight *fight, Renderer 
  *       is now its enemy.
  */
 void combat_damage_monster( World *world, Player *player, Fight *fight, Renderer *rdr,
-                  MdlEnt far *ent, short dmg );
+                  MdlEnt far *ent, float dmg );
 
 /*
  * name: combat_radius
  * desc: T_RadiusDamage from org: the player, then every standing monster
  *       unless a monster threw it. By the player, the player takes half.
  */
-#define COMBAT_BY_WORLD   0
-#define COMBAT_BY_PLAYER  1
-#define COMBAT_BY_MONSTER 2
+#define COMBAT_BY_WORLD  (-1)
+#define COMBAT_BY_PLAYER (-2)
+#define COMBAT_NO_IGNORE (-1)
 void combat_radius( World *world, Player *player, Fight *fight, Renderer *rdr,
-                    BspVec3 org, float dmg, short attacker );
+                    BspVec3 org, float dmg, short attacker, short ignore );
+void combat_damage_box( World *world, Player *player, Fight *fight,
+                        Renderer *rdr, short i, float dmg );
+short combat_selftest( void );
+short combat_brush_selftest( void );
 
 #endif

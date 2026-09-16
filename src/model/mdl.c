@@ -15,6 +15,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "mdl.h"
 #include "fight.h"
@@ -22,6 +23,7 @@
 #include "pak.h"
 #include "qgl.h"
 #include "dbg.h"
+#include "sys.h"
 
 #define PAGE_SLOT 2     /* shared with nodes, leaves, the lightmap */
 #define MDL_PAGE  16384L
@@ -157,6 +159,13 @@ void mdl_load( Pak *pak, MdlState *m, char *name, short need )
     m->loaded = 1;
 }
 
+void mdl_unload( MdlState *m )
+{
+    if ( m->skin ) qglSfFree( m->skin );
+    if ( m->vtx_hnd ) qglGemFree( m->vtx_hnd );
+    memset( m, 0, sizeof(*m) );
+}
+
 /* q_pl.bi's weapon bits to this project's own view-model order. */
 short pl_view_of( short weapon )
 {
@@ -273,7 +282,7 @@ void mdl_load_monsters( World *world, unsigned char far *buf, long *ofs, short c
 
     world->mon_count = count;
     world->mon = (MdlEnt far *) qglMemAlloc( (long) ( count ? count : 1 ) * sizeof(MdlEnt) );
-    if ( !world->mon ) { fprintf( stderr, "ents: out of memory for %d monsters\n", (int) count ); exit( 1 ); }
+    if ( !world->mon ) sys_error( "ents: out of memory for monsters" );
 
     for ( i = 0; i < count; i++ ) {
         EntsMon mr;
@@ -282,6 +291,7 @@ void mdl_load_monsters( World *world, unsigned char far *buf, long *ofs, short c
         _fmemcpy( &mr, buf + *ofs, sizeof(EntsMon) ); *ofs += sizeof(EntsMon);
 
         e->kind   = mr.kind;
+        e->order  = mr.order;
         e->pos    = mr.org;
         e->yaw    = mr.angle;   /* a model's yaw is Quake's, CCW from +x: no mirror */
         e->patrol = mr.first;   /* its path_corner, -1 for none */

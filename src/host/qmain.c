@@ -25,7 +25,9 @@ int main( void )
     dbg_probe_paint( &host.probe );
 
     host_init( &host );
-    while ( host_running( &host ) ) host_frame( &host );
+    do {
+        while ( host_running( &host ) ) host_frame( &host );
+    } while ( host_changelevel( &host ) );
     host_shutdown( &host );
     return 0;
 }

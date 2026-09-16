@@ -12,4 +12,7 @@
  */
 void pl_trace( World *world, BspVec3 *start, BspVec3 *fin, TraceResult *tr );
 
+/* Hull-0 point line, including solid brush entities. */
+void pl_trace_point( World *world, BspVec3 *start, BspVec3 *fin, TraceResult *tr );
+
 #endif

@@ -19,11 +19,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <mem.h>    /* _fmemcpy/_fmemset -- the per-frame walk bitmaps */
+#include <string.h>
 
 #include "r_bsp.h"
 #include "r_walk.h"
 #include "r_portal.h"
 #include "pak.h"
+#include "sys.h"
 
 /* Takes a RENDERER point: Y-up there, Z-up in the BSP, so y pairs with
    norm.z. Single, not double: returning double moved two edge-on faces
@@ -247,8 +249,7 @@ void r_mark_leaves( World *world, Renderer *rdr, short nodenr, Vec3 *campos )
 
     leafnr = ~nodenr;
     if ( world->leaves[leafnr].vis_list == -2 ) {
-        fprintf( stderr, "Leaf has no pvs data.\n" );
-        exit( 1 );
+        sys_error( "leaf has no PVS data" );
     }
 
     if ( world->leaves[leafnr].vis_list == -1 ) {
@@ -493,7 +494,23 @@ void r_alloc_scratch( Renderer *rdr, short face_count, short node_count, short l
     rdr->pvs_now = (short far *) qglMemAlloc( (long) leaf_count * sizeof(short) );
 
     if ( !rdr->vis_sub || !rdr->vis_walk || !rdr->nd_parent || !rdr->lf_parent || !rdr->ent_nd || !rdr->ent_lf || !rdr->pflag || !rdr->ord || !rdr->pvsb || !rdr->pvs_now ) {
-        fprintf( stderr, "r_alloc_scratch: out of memory\n" );
-        exit( 1 );
+        sys_error( "r_alloc_scratch: out of memory" );
     }
+}
+
+void r_free_scratch( Renderer *rdr )
+{
+    if ( rdr->vis_sub )   qglMemFree( (long) rdr->vis_sub );
+    if ( rdr->vis_walk )  qglMemFree( (long) rdr->vis_walk );
+    if ( rdr->nd_parent ) qglMemFree( (long) rdr->nd_parent );
+    if ( rdr->lf_parent ) qglMemFree( (long) rdr->lf_parent );
+    if ( rdr->ent_nd )    qglMemFree( (long) rdr->ent_nd );
+    if ( rdr->ent_lf )    qglMemFree( (long) rdr->ent_lf );
+    if ( rdr->pflag )     qglMemFree( (long) rdr->pflag );
+    if ( rdr->ord )       qglMemFree( (long) rdr->ord );
+    if ( rdr->pvsb )      qglMemFree( (long) rdr->pvsb );
+    if ( rdr->pvs_now )   qglMemFree( (long) rdr->pvs_now );
+    if ( rdr->item_lc )   qglMemFree( (long) rdr->item_lc );
+    if ( rdr->mdl_lc )    qglMemFree( (long) rdr->mdl_lc );
+    memset( rdr, 0, sizeof(*rdr) );
 }

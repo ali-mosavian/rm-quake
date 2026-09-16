@@ -43,6 +43,13 @@ void pak_open( Pak *pak, char *qmp )
         pak_fatal( qmp, "directory short read" );
 }
 
+void pak_close( Pak *pak )
+{
+    if ( pak->fh ) qglFileClose( pak->fh );
+    pak->fh = 0;
+    pak->n = 0;
+}
+
 short pak_seek( Pak *pak, char *member, long *out_bytes )
 {
     short i;
