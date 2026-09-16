@@ -154,9 +154,11 @@ PAK0 and are left out.
       `M_Menu_Load_f`, `M_Menu_Save_f`; `host_cmd.c` `Host_Savegame_f`,
       `Host_Loadgame_f`
       qcport: none; only `CARRY.BIN` crosses a map, `src/game/client.c:42`
-- [ ] Console and cvars
+- [x] Console and cvars
       id: `console.c` `Con_Init`, `cvar.c` `Cvar_RegisterVariable`
-      qcport: a fixed `stuff.ini` table, `src/host/config.c:45`
+      qcport: queued keyboard input, scrollback/history/completion, bounded
+      command buffer, archived `skill`/`fov` cvars and `+commands`;
+      `tools/test-console.sh`, `tools/test-console-dos.sh`
 - [ ] Key bindings and `config.cfg`
       id: `keys.c` `Key_WriteBindings`, `host.c` `Host_WriteConfiguration`,
       `cmd.c` `Cmd_Exec_f`

@@ -36,5 +36,18 @@ for arm in "2 42" "0 10"; do
     fi
 done
 
+cp "$ROOT/tools/ref/carry-skill0.bin" "$OUT/CARRY.BIN"
+KEEP_CARRY=1 TIMEOUT="${TIMEOUT:-300}" "$RUN" "$OUT" \
+  "e1m1.qmp -nostats -noai -carry -ticks 2 +skill 2" >/dev/null 2>&1
+grep -q '^carry health 100 shells 78 nails 50 rockets 0 armor 69 items 1 weapon 1$' "$log" || {
+    echo "FAIL: real carry fixture was not applied" >&2
+    fail=1
+}
+mon=$(tr -d '\r' < "$log" 2>/dev/null | grep -m1 '^mod_load_world ok' | sed -n 's/.* mon=\([0-9]*\).*/\1/p')
+[[ "$mon" == "42" ]] || {
+    echo "FAIL: -carry +skill 2 loaded ${mon:-no} monsters, want hard's 42" >&2
+    fail=1
+}
+
 [[ $fail -eq 0 ]] && echo "ok: trigger_setskill sets the skill, and e1m1 loads 42 monsters on hard and 10 on easy"
 exit $fail

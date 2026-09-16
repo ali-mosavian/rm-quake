@@ -27,13 +27,14 @@ typedef struct {
  */
 void in_init( Input *input, QSurf h_video_dc );
 void in_reset( Input *input );
+short in_key_event( Input *input, short *shift );
 
 /*
  * name: in_handle_toggles
  * desc: The render-mode keys. Each waits for its own key to come back
  *       up, so one press is one toggle, not one per frame it's held.
  */
-void in_handle_toggles( Input *input, Renderer *rdr, Camera *cam, Player *player, Hud far *hud );
+void in_handle_key( short key, Renderer *rdr, Camera *cam, Player *player, Hud far *hud );
 
 /*
  * name: in_screenshot_key

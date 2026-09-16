@@ -92,6 +92,7 @@ typedef struct {
                                    recorded frames, for a deterministic
                                    repro of a live session -- ends the
                                    run (sets esc) at F's last frame */
+    char  startup_cmd[128];    /* +command args, queued after cvars exist */
 } RunArgs;
 
 /*

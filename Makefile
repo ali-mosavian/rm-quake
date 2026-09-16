@@ -162,6 +162,7 @@ test:                           ## header deps, far-to-near pointers, then qgl's
 	@tools/depcheck.sh
 	@tools/test-dups.sh
 	@tools/test-assetdeps.sh
+	@tools/test-console.sh
 	@python3 tools/farnear.py
 	@tools/test-x87cmp.sh
 	@tools/test-bufcheck.sh

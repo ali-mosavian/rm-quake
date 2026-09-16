@@ -20,6 +20,8 @@
 #include "bench.h"
 #include "demo.h"
 #include "dbg.h"
+#include "cmd.h"
+#include "console.h"
 
 /* host_advance's accumulator and tick counter: variable real frame time
    turned into a constant-rate simulation. */
@@ -53,6 +55,12 @@ typedef struct {
     PhaseTimes     pt;
     BenchStats     bs;
     Demo           demo;
+    CmdState far  *cmd;
+    Console far   *console;
+    short          quit;
+    long           console_frames;
+    float          fov_applied;
+    float          skill_cvar_seen;
     Hud far       *hud;
     SurfCache far *sc;
     Mat4           mtx_prj;

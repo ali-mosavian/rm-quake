@@ -43,37 +43,33 @@ void in_reset( Input *input )
     input->mouse.left = input->mouse.right = 0;
 }
 
-/*
- * True once per press, not once per frame: the key is read through a
- * pointer into the live Keys struct the keyboard ISR writes, so waiting
- * for it to clear here is what makes one press read as one toggle.
- */
-static short in_keystroke( int *key_down )
+short in_key_event( Input *input, short *shift )
 {
-    if ( !*key_down ) return 0;
+    Keys *keys = &input->keyboard;
+    unsigned char tail = keys->event_tail;
+    short key;
 
-    while ( *key_down ) { /* wait for the release */ }
-
-    return 1;
+    if ( tail == keys->event_head ) return 0;
+    key = keys->event[tail];
+    keys->event_tail = (unsigned char) ( ( tail + 1 ) & ( QGL_KEYQ - 1 ) );
+    *shift = (short) ( key & 0x80 );
+    return (short) ( key & 0x7f );
 }
 
-void in_handle_toggles( Input *input, Renderer *rdr, Camera *cam, Player *player, Hud far *hud )
+void in_handle_key( short key, Renderer *rdr, Camera *cam, Player *player, Hud far *hud )
 {
-    Keys *k = &input->keyboard;
-
-    if ( in_keystroke( &k->k[KEY_F1] ) ) rdr->use_mips = !rdr->use_mips;
+    if ( key == KEY_F1 ) rdr->use_mips = !rdr->use_mips;
 
     /* Perspective / wireframe only -- affine dropped with the fan path
        that was its only renderer (uglPolyTP has no affine equivalent). */
-    if ( in_keystroke( &k->k[KEY_F2] ) ) rdr->rend_mode = ( rdr->rend_mode == 0 ) ? 2 : 0;
-
-    if ( in_keystroke( &k->k[KEY_F3] ) ) cam->fps_view    = !cam->fps_view;
-    if ( in_keystroke( &k->k[KEY_F12] ) ) hud->stats       = !hud->stats;
-    if ( in_keystroke( &k->k[KEY_B] ) ) rdr->backface    = !rdr->backface;
-    if ( in_keystroke( &k->k[KEY_L] ) ) rdr->lightmap    = !rdr->lightmap;
-    if ( in_keystroke( &k->k[KEY_P] ) ) rdr->portal      = !rdr->portal;
-    if ( in_keystroke( &k->k[KEY_O] ) ) hud->portal_wire = !hud->portal_wire;
-    if ( in_keystroke( &k->k[KEY_F4] ) ) player->no_clip  = !player->no_clip;
+    if ( key == KEY_F2 ) rdr->rend_mode = ( rdr->rend_mode == 0 ) ? 2 : 0;
+    if ( key == KEY_F3 ) cam->fps_view    = !cam->fps_view;
+    if ( key == KEY_F12 ) hud->stats       = !hud->stats;
+    if ( key == KEY_B ) rdr->backface    = !rdr->backface;
+    if ( key == KEY_L ) rdr->lightmap    = !rdr->lightmap;
+    if ( key == KEY_P ) rdr->portal      = !rdr->portal;
+    if ( key == KEY_O ) hud->portal_wire = !hud->portal_wire;
+    if ( key == KEY_F4 ) player->no_clip  = !player->no_clip;
 }
 
 /* F5, not S: S walks backwards. */

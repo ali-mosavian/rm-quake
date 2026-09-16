@@ -220,6 +220,7 @@ void sys_parse_args( RunArgs *args )
     unsigned char far *tail;
     unsigned len;
     int argc, i;
+    short used;
 
     memset( args, 0, sizeof(*args) );
 
@@ -240,6 +241,27 @@ void sys_parse_args( RunArgs *args )
     for ( i = 1; i < argc; i++ ) {
         if ( arg_flag( args, argv[i] ) ) continue;
         i += arg_values( args, argv[i], argv + i + 1, argc - i - 1 );
+    }
+
+    /* Quake's +commands. A '-' begins the next engine option; another
+       '+' begins the next console command and becomes a semicolon. */
+    used = 0;
+    for ( i = 1; i < argc && used < (short) sizeof(args->startup_cmd) - 1; i++ ) {
+        char *tok = argv[i];
+        short j;
+        if ( tok[0] != '+' ) continue;
+        if ( used ) args->startup_cmd[used++] = ';';
+        tok++;
+        for ( ; i < argc && tok[0] != '-'; i++, tok = i < argc ? argv[i] : "" ) {
+            if ( tok[0] == '+' ) {
+                i--;
+                break;
+            }
+            if ( used && args->startup_cmd[used - 1] != ';' ) args->startup_cmd[used++] = ' ';
+            for ( j = 0; tok[j] && used < (short) sizeof(args->startup_cmd) - 1; j++ )
+                args->startup_cmd[used++] = tok[j];
+        }
+        args->startup_cmd[used] = 0;
     }
 
     /* -nodraw rasterises no overlay either */

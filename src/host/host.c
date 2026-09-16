@@ -40,12 +40,23 @@
 #include "pak.h"
 #include "loadscr.h"
 #include "r_portal.h"
+#include "cmd.h"
+#include "console.h"
+#include "fov.h"
 
 /* q_scr.bi's HOST_DT#/HOST_MAXSTEPS. */
 #define HOST_DT       0.0166666f
 #define HOST_MAXSTEPS 5
 
 #define QGL_Z_OFF 0
+
+static void near host_apply_cvars( Host *h );
+
+static float near host_view_aspect( const Host *h )
+{
+    return ( (float) h->cfg.view_w * h->cfg.scr_y_res * 4.0f )
+           / ( (float) h->cfg.view_h * h->cfg.scr_x_res * 3.0f );
+}
 
 #if QR_PROF
 /* one phase, begun at t0, into its sum and its max -- once pt.n has armed
@@ -242,7 +253,6 @@ static void near host_tick( Host *h, float dt )
     /* id decays after drawing; this is the same place, before the next */
     dl_decay( rdr, dt );
 
-    in_handle_toggles( input, rdr, cam, player, h->hud );
     v_update_camera( cam, player, world, input, fight, rdr, dt, scr_x_res, scr_y_res );
 
     ent_check_teleport( player, world, rdr->anim_time, scr_x_res );
@@ -490,6 +500,7 @@ static void near host_render_overlay( Host *h )
                       h->h_dst_dc, h->v.x_res, h->v.y_res );
         scr_draw_msg( h->hud, &h->world, &h->fight, &h->rdr, h->h_dst_dc,
                       h->v.x_res, h->v.y_res );
+        con_draw( h->console, h->hud, h->h_dst_dc, h->v.x_res, h->v.y_res );
     }
 #if QR_PROF
     pt_stop( h, t0, &h->pt.hud_sum, &h->pt.hud_max );
@@ -736,9 +747,9 @@ static void near host_load( Host *h )
     if ( !h->hud ) sys_error( "out of far memory for Hud" );
     _fmemset( h->hud, 0, sizeof(*h->hud) );
 
-    /* the skill picks the map's ents<N>.bin, so it is known first: the
-       carried one wins over -skill, as the cvar outlives a changelevel */
-    h->world.skill = h->carried ? h->carry.skill : h->args.skill;
+    /* The cvar is seeded from a carried game and startup assignments
+       may override it before ents<N>.bin is selected. */
+    h->world.skill = (short) cvar_value( h->cmd, "skill" );
     if ( h->world.skill < 0 ) h->world.skill = 0;
     if ( h->world.skill > 3 ) h->world.skill = 3;
     h->fight.skill = h->world.skill;
@@ -854,9 +865,11 @@ static void near host_view_setup( Host *h )
     /* VGA 13h's pixels are not square: the SCALED view size cancels
        against the mode's */
     {
-        float aspect = ( (float) h->cfg.view_w * h->cfg.scr_y_res * 4.0f )
-                      / ( (float) h->cfg.view_h * h->cfg.scr_x_res * 3.0f );
-        qglM4Persp( &h->mtx_prj, h->cfg.cam_fov, aspect, h->cfg.z_near, h->cfg.z_far );
+        float aspect = host_view_aspect( h );
+        float fov = cvar_value( h->cmd, "fov" );
+        qglM4Persp( &h->mtx_prj, fov_vertical( fov, aspect ), aspect,
+                    h->cfg.z_near, h->cfg.z_far );
+        h->fov_applied = fov;
     }
 
     h->h_dst_dc = h->v.h_back_bdc;
@@ -908,6 +921,12 @@ static void near host_map_init( Host *h )
 
 void host_init( Host *h )
 {
+    char value[24];
+    short initial_skill;
+    CmdResult result;
+    CmdKind kind;
+    float aspect;
+
     sys_parse_args( &h->args );
     mark( "sys_parse_args ok" );
     config_load( &h->cfg, "stuff.ini" );
@@ -916,10 +935,31 @@ void host_init( Host *h )
     host_video( h );
     host_selftests();
     in_init( &h->input, h->v.h_video_dc );
+    h->cmd = (CmdState far *) qglMemAlloc( (long) sizeof(*h->cmd) );
+    h->console = (Console far *) qglMemAlloc( (long) sizeof(*h->console) );
+    if ( !h->cmd || !h->console ) sys_error( "out of far memory for front end" );
+    h->carried = (short) ( h->args.carry && pl_carry_read( &h->carry ) );
+    cmd_init( h->cmd );
+    initial_skill = h->carried ? h->carry.skill : h->args.skill;
+    if ( initial_skill < 0 ) initial_skill = 0;
+    if ( initial_skill > 3 ) initial_skill = 3;
+    h->args.skill = initial_skill;
+    h->world.skill = h->fight.skill = initial_skill;
+    sprintf( value, "%d", (int) initial_skill );
+    cvar_register( h->cmd, "skill", value, CVAR_ARCHIVE, 0.0f, 3.0f );
+    h->skill_cvar_seen = initial_skill;
+    aspect = host_view_aspect( h );
+    sprintf( value, "%.3f", fov_horizontal( h->cfg.cam_fov, aspect ) );
+    cvar_register( h->cmd, "fov", value, CVAR_ARCHIVE, 10.0f, 170.0f );
+    con_init( h->console );
+    if ( h->args.startup_cmd[0] ) cmd_enqueue( h->cmd, h->args.startup_cmd );
+    while ( ( kind = cmd_run_cvar( h->cmd, &result ) ) != CMD_NONE ) {
+        if ( kind == CMD_ERROR ) con_print( h->console, result.text );
+        host_apply_cvars( h );
+    }
     h->map_mem_largest = qglMemAvail( QGL_MEM_LARGEST );
     h->map_mem_total = qglMemAvail( QGL_MEM_TOTAL );
     h->map_ems_pages = qglGemAvail();
-    h->carried = (short) ( h->args.carry && pl_carry_read( &h->carry ) );
     host_map_init( h );
 }
 
@@ -929,7 +969,117 @@ void host_init( Host *h )
 short host_running( const Host *h )
 {
     return (short) ( ( h->clock.bench_ticks == 0 || h->clock.ticks < h->clock.bench_ticks )
-                     && !h->input.keyboard.k[KEY_ESC] && h->fight.state != GS_NEXT );
+                     && !h->quit && h->fight.state != GS_NEXT );
+}
+
+static void near host_console_result( Host *h, CmdKind kind, CmdResult *result )
+{
+    char name[CMD_NAME];
+    char value[CMD_VALUE];
+    char line[CMD_TEXT];
+    short i, flags;
+
+    if ( kind == CMD_PRINT || kind == CMD_CVAR || kind == CMD_ERROR ) {
+        con_print( h->console, result->text );
+        return;
+    }
+    if ( kind == CMD_CLEAR ) { con_clear( h->console ); return; }
+    if ( kind == CMD_CMDLIST ) {
+        con_print( h->console, "clear cmdlist cvarlist echo map quit set toggleconsole wait" );
+        return;
+    }
+    if ( kind == CMD_CVARLIST ) {
+        for ( i = 0; cvar_get( h->cmd, i, name, value, &flags ); i++ ) {
+            strcpy( line, name );
+            strcat( line, " \"" );
+            strcat( line, value );
+            strcat( line, flags & CVAR_ARCHIVE ? "\" *" : "\"" );
+            con_print( h->console, line );
+        }
+        return;
+    }
+    if ( kind != CMD_EXTERNAL ) return;
+    if ( !strcmp( result->name, "toggleconsole" ) ) {
+        con_toggle( h->console, &h->input );
+        return;
+    }
+    if ( !strcmp( result->name, "quit" ) ) { h->quit = -1; return; }
+    if ( !strcmp( result->name, "map" ) ) {
+        char map[CMD_TEXT];
+        short len;
+        if ( !result->text[0] ) { con_print( h->console, "usage: map <level>" ); return; }
+        strncpy( map, result->text, sizeof(map) - 1 );
+        map[sizeof(map) - 1] = 0;
+        len = (short) strlen( map );
+        if ( len > 4 && !stricmp( map + len - 4, ".qmp" ) ) map[len -= 4] = 0;
+        if ( len > 8 ) { con_print( h->console, "map name is longer than 8 characters" ); return; }
+        strcpy( h->fight.next_map, map );
+        h->console->open = 0;
+        h->carried = 0;             /* Host_Map_f starts a fresh game */
+        h->fight.state = GS_NEXT;
+        return;
+    }
+    strcpy( line, "Unknown command \"" );
+    strncat( line, result->name, CMD_NAME - 1 );
+    strcat( line, "\"" );
+    con_print( h->console, line );
+}
+
+static void near host_apply_cvars( Host *h )
+{
+    float fov = cvar_value( h->cmd, "fov" );
+    float skill_value = cvar_value( h->cmd, "skill" );
+    short skill = (short) skill_value;
+
+    if ( skill_value != h->skill_cvar_seen ) {
+        h->args.skill = h->world.skill = h->fight.skill = skill;
+        h->skill_cvar_seen = skill_value;
+    } else if ( h->fight.skill != skill ) {
+        char value[CMD_VALUE];
+        char error[CMD_TEXT];
+        value[0] = (char) ( '0' + h->fight.skill );
+        value[1] = 0;
+        cvar_set( h->cmd, "skill", value, error );
+        h->args.skill = h->fight.skill;
+        h->skill_cvar_seen = h->fight.skill;
+    }
+    if ( fov != h->fov_applied ) {
+        float aspect = host_view_aspect( h );
+        qglM4Persp( &h->mtx_prj, fov_vertical( fov, aspect ), aspect,
+                    h->cfg.z_near, h->cfg.z_far );
+        h->fov_applied = fov;
+    }
+}
+
+static void near host_input_events( Host *h )
+{
+    short key, shift;
+    CmdResult result;
+    CmdKind kind;
+
+    while ( ( key = in_key_event( &h->input, &shift ) ) != 0 ) {
+        if ( key == KEY_TILDE || key == KEY_OEM102 ) {
+            con_toggle( h->console, &h->input );
+            continue;
+        }
+        if ( con_open( h->console ) ) {
+            if ( key == KEY_ESC ) {
+                con_toggle( h->console, &h->input );
+                continue;
+            }
+            con_key( h->console, h->cmd, key, shift );
+            continue;
+        }
+        if ( key == KEY_ESC ) { h->quit = -1; continue; }
+        in_handle_key( key, &h->rdr, &h->cam, &h->player, h->hud );
+    }
+    while ( ( kind = cmd_run( h->cmd, &result ) ) != CMD_NONE ) {
+        host_console_result( h, kind, &result );
+        if ( kind == CMD_CVAR ) host_apply_cvars( h );
+        if ( h->quit || h->fight.state == GS_NEXT ) break;
+        if ( kind == CMD_WAIT ) break;
+    }
+    host_apply_cvars( h );
 }
 
 /* -comp: v_present has scaled the view into the composite and left the
@@ -950,6 +1100,7 @@ static void near host_present( Host *h )
                       v->h_comp_dc, v->scr_x_res, v->scr_y_res );
         scr_draw_msg( h->hud, &h->world, &h->fight, &h->rdr, v->h_comp_dc,
                       v->scr_x_res, v->scr_y_res );
+        con_draw( h->console, h->hud, v->h_comp_dc, v->scr_x_res, v->scr_y_res );
         qglDrBlit( v->h_video_dc, 0, 0, v->h_comp_dc );
     }
 #if QR_PROF
@@ -966,9 +1117,11 @@ void host_frame( Host *h )
 
     frame_dt = sys_frame_time( &h->sysclk, &raw_dt );
     if ( !demo_input( &h->demo, &h->input, &frame_dt ) ) {
-        h->input.keyboard.k[KEY_ESC] = -1;   /* the recording ended: stop, as the live run did */
+        h->quit = -1;   /* the recording ended: stop, as the live run did */
         return;
     }
+    host_input_events( h );
+    if ( h->quit || h->fight.state == GS_NEXT ) return;
 
     bench_frame_time( &h->bs, raw_dt );
     /* The same predicate as ft_*, so pt_frames and ft_n are the same
@@ -988,7 +1141,11 @@ void host_frame( Host *h )
 #endif
     }
 
-    host_advance( h, frame_dt );
+    if ( con_open( h->console ) ) {
+        h->console_frames++;
+        h->clock.accum = 0.0f;
+    } else
+        host_advance( h, frame_dt );
 
     /* Between the tick and the render, where nothing holds an EMS window:
        the mixer takes PAGE_SLOT. Every frame: the DMA never stops, and
@@ -1056,6 +1213,11 @@ static void near host_report( Host *h )
              (long) h->player.vel.x, (long) h->player.vel.y, (long) h->player.vel.z );
     mark( buf );
     sprintf( buf, "sflags %d", (int) fight->serverflags );
+    mark( buf );
+    sprintf( buf, "cvars skill=%d fov=%d", (int) cvar_value( h->cmd, "skill" ),
+             (int) cvar_value( h->cmd, "fov" ) );
+    mark( buf );
+    sprintf( buf, "console paused=%ld", h->console_frames );
     mark( buf );
 
     sprintf( buf, "fight=health %d shells %d nails %d rockets %d armor %d items %ld took %d kills %d booms %d deaths %d cells %d",
@@ -1135,6 +1297,7 @@ static void near host_change_args( RunArgs *args, char *map )
     args->comp = old.comp;
     args->fire = old.fire;
     args->use_lm = old.use_lm;
+    args->skill = old.skill;
     args->carry = -1;
 }
 
@@ -1142,6 +1305,7 @@ short host_changelevel( Host *h )
 {
     char map[64];
 
+    if ( h->quit ) return 0;
     if ( h->fight.state != GS_NEXT ) return 0;
     sprintf( map, "%.8s.qmp", h->fight.next_map );
     host_map_finish( h );
@@ -1157,6 +1321,10 @@ void host_shutdown( Host *h )
 
     host_map_finish( h );
     host_map_release( h );
+    if ( h->console ) qglMemFree( (long) (void far *) h->console );
+    if ( h->cmd ) qglMemFree( (long) (void far *) h->cmd );
+    h->console = 0;
+    h->cmd = 0;
     if ( v->h_back_bdc ) qglSfFree( v->h_back_bdc );
     if ( v->h_comp_dc ) qglSfFree( v->h_comp_dc );
     /* The ISRs out FIRST: INT 8 and INT 9 point into this program, and

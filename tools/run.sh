@@ -29,8 +29,9 @@ fi
 # as this run's. Three of them reported ok that way once.
 rm -f "$OUT/cport.txt" "$OUT/cstep.txt" "$OUT/error.log" \
       "$OUT/BENCH.BMP" "$OUT/BENCH.TXT" \
-      "$OUT/CARRY.BIN" "$OUT/run.out" \
+      "$OUT/run.out" \
       "$OUT/dosbox.log" "$OUT/dosbox.out"
+[[ -n "${KEEP_CARRY:-}" ]] || rm -f "$OUT/CARRY.BIN"
 
 # The program's trace goes out port E9h (src/host/dbg.c); the emulator logs it
 # and it becomes cstep.txt below.

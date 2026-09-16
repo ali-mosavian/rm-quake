@@ -44,7 +44,13 @@ typedef struct { unsigned char red, green, blue; } PalRgb;
    moved anything -- which reads as broken input, not as a clobbered
    struct. */
 #define QGL_KEYS 128
-typedef struct { short k[QGL_KEYS]; } Keys;
+#define QGL_KEYQ 32
+typedef struct {
+    short k[QGL_KEYS];
+    unsigned char event[QGL_KEYQ];
+    volatile unsigned char event_head;
+    volatile unsigned char event_tail;
+} Keys;
 
 
 /* Scancode per key, in the order qgl$KbdIsr fills the table: the
@@ -136,9 +142,11 @@ typedef struct { short k[QGL_KEYS]; } Keys;
 #define KEY_INS     82
 #define KEY_DEL     83
 #define KEY_SYSREQ  84
-/* 87/88, not 85/86: scancodes 85 and 86 are unassigned, so the field
-   ORDER in in.bi's Keys stops matching the scancode here. Every name
-   above this point happens to agree; these two do not. */
+/* Set-1 scancode for the extra ISO key beside left Shift. On an ISO
+   Mac keyboard the physical console key is reported here, not 41. */
+#define KEY_OEM102  86
+/* 87/88, not 85/86: 85 is unassigned and 86 is the ISO extra key, so
+   the old field order stops matching the scancode here. */
 #define KEY_F11     87
 #define KEY_F12     88
 

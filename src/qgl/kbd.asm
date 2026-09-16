@@ -36,6 +36,8 @@ qgl$kbd_tab     dd      0
 qgl$KbdIsr      proc    far private
                 push    ax
                 push    bx
+                push    cx
+                push    dx
                 push    si
                 push    ds
                 lds     si, cs:qgl$kbd_tab
@@ -44,6 +46,7 @@ qgl$KbdIsr      proc    far private
                 and     al, 7Fh
                 movzx   bx, al
                 shl     bx, 1
+                mov     dx, [si+bx]             ;; typematic repeats see -1
                 shl     ah, 1                   ;; bit 7 set = released
                 sbb     ah, ah
                 not     ah                      ;; FFh down, 0 up
@@ -51,10 +54,38 @@ qgl$KbdIsr      proc    far private
                 mov     [si+bx+1], ah
                 and     al, ah
                 mov     [si], al
+                or      al, al
+                jz      @@eoi
+                or      dx, dx
+                jnz     @@eoi                    ;; queue one make per press
+
+                cmp     W [si+84], 0             ;; left Shift, k[42]
+                jne     @@shifted
+                cmp     W [si+108], 0            ;; right Shift, k[54]
+                je      @@queue
+@@shifted:      or      al, 80h                  ;; modifier at make time
+@@queue:
+
+                ;; A held-state table cannot preserve typing between
+                ;; two slow frames. Queue each make code; the ISR owns
+                ;; head and the foreground owns tail, so neither side
+                ;; updates the other's byte.
+                mov     cl, [si+288]
+                mov     ch, cl
+                inc     ch
+                and     ch, 31
+                cmp     ch, [si+289]
+                je      @@eoi                 ;; full: keep the old events
+                movzx   bx, cl
+                mov     [si+256+bx], al
+                mov     [si+288], ch
+@@eoi:
                 mov     al, PIC_EOI
                 out     PIC_CMD, al
                 pop     ds
                 pop     si
+                pop     dx
+                pop     cx
                 pop     bx
                 pop     ax
                 iret
@@ -74,7 +105,7 @@ qglKbdInit    proc    public uses bx cx dx di es ds,\
                 mov     W cs:qgl$kbd_tab, di
                 mov     W cs:qgl$kbd_tab+2, es
                 xor     ax, ax
-                mov     cx, 128
+                mov     cx, 145                   ;; state, event queue, head/tail
                 cld
                 rep     stosw
 
