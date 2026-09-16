@@ -159,10 +159,12 @@ PAK0 and are left out.
       qcport: queued keyboard input, scrollback/history/completion, bounded
       command buffer, archived `skill`/`fov` cvars and `+commands`;
       `tools/test-console.sh`, `tools/test-console-dos.sh`
-- [ ] Key bindings and `config.cfg`
+- [x] Key bindings and `config.cfg`
       id: `keys.c` `Key_WriteBindings`, `host.c` `Host_WriteConfiguration`,
       `cmd.c` `Cmd_Exec_f`
-      qcport: hardcoded, `src/render/view.c:47`, `src/game/weapons.c:528`
+      qcport: Quake key names and logical `+button` bindings, streamed nested
+      `exec`, default/config/autoexec startup order and archived config writes;
+      `tools/test-keybind.sh`, `tools/test-keybind-dos.sh`
 - [ ] Full status bar: weapons row, all ammo, keys, runes, powerups,
       armor type
       id: `sbar.c` `Sbar_Draw`

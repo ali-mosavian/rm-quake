@@ -47,10 +47,13 @@ typedef struct { unsigned char red, green, blue; } PalRgb;
 #define QGL_KEYQ 32
 typedef struct {
     short k[QGL_KEYS];
-    unsigned char event[QGL_KEYQ];
+    unsigned short event[QGL_KEYQ];
     volatile unsigned char event_head;
     volatile unsigned char event_tail;
+    volatile unsigned char event_overflow;
+    unsigned char event_pad;       /* qglKbdInit clears whole words */
 } Keys;
+typedef char QglKeysSizeMustMatchKbdInit[( sizeof(Keys) == 324 ) ? 1 : -1];
 
 
 /* Scancode per key, in the order qgl$KbdIsr fills the table: the

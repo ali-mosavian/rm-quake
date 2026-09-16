@@ -12,6 +12,7 @@
 
 typedef struct {
     short open;
+    float height;
     short line_head, line_count, scroll;
     char  line[CON_LINES][CON_LINE];
     char  input[CON_LINE];
@@ -24,6 +25,7 @@ typedef struct {
 void  con_init( Console CMD_FAR *con );
 void  con_toggle( Console CMD_FAR *con, Input *input );
 short con_open( const Console CMD_FAR *con );
+void  con_animate( Console CMD_FAR *con, float dt, short screen_h );
 void  con_key( Console CMD_FAR *con, CmdState CMD_FAR *cmd, short key, short shift );
 void  con_print( Console CMD_FAR *con, const char *text );
 void  con_clear( Console CMD_FAR *con );

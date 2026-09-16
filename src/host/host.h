@@ -22,6 +22,7 @@
 #include "dbg.h"
 #include "cmd.h"
 #include "console.h"
+#include "keybind.h"
 
 /* host_advance's accumulator and tick counter: variable real frame time
    turned into a constant-rate simulation. */
@@ -57,6 +58,7 @@ typedef struct {
     Demo           demo;
     CmdState far  *cmd;
     Console far   *console;
+    KeyBindings far *keys;
     short          quit;
     long           console_frames;
     float          fov_applied;

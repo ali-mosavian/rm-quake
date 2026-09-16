@@ -10,6 +10,8 @@
 #include "qgl.h"
 #include "demo.h"
 
+static char demo_magic[4] = { 'Q', 'C', 'R', '2' };
+
 void demo_open( Demo *dm, const RunArgs *args )
 {
     memset( dm, 0, sizeof(*dm) );
@@ -24,8 +26,12 @@ void demo_open( Demo *dm, const RunArgs *args )
         sprintf( mbuf, "rec_buf seg=%ld ofs=%ld max=%d", raw >> 16, raw & 0xFFFFL, REC_MAX );
         mark( mbuf );
     } else if ( args->play_name[0] ) {
+        char magic[4];
         dm->rf = fopen( args->play_name, "rb" );
         if ( !dm->rf ) sys_error( "could not open -play file" );
+        dm->actions = (short) ( fread( magic, 1, sizeof(magic), dm->rf ) == sizeof(magic) &&
+                                !memcmp( magic, demo_magic, sizeof(magic) ) );
+        if ( !dm->actions ) fseek( dm->rf, 0L, SEEK_SET );
     }
 }
 
@@ -40,13 +46,20 @@ short demo_input( Demo *dm, Input *input, float *frame_dt )
         *frame_dt                   = r->dt;
         input->mouse.x              = r->in[0];
         input->mouse.y              = r->in[1];
-        input->mouse.left           = r->in[2];
-        input->mouse.right          = r->in[3];
-        input->keyboard.k[KEY_W]      = r->in[4];
-        input->keyboard.k[KEY_A]      = r->in[5];
-        input->keyboard.k[KEY_S]      = r->in[6];
-        input->keyboard.k[KEY_D]      = r->in[7];
-        input->keyboard.k[KEY_SPCBAR] = r->in[8];
+        if ( dm->actions ) {
+            input->mouse.left = input->mouse.right = 0;
+            input->keyboard.k[KEY_W] = input->keyboard.k[KEY_A] = 0;
+            input->keyboard.k[KEY_S] = input->keyboard.k[KEY_D] = 0;
+            input->keyboard.k[KEY_SPCBAR] = 0;
+        } else {
+            input->mouse.left             = r->in[2];
+            input->mouse.right            = r->in[3];
+            input->keyboard.k[KEY_W]       = r->in[4];
+            input->keyboard.k[KEY_A]       = r->in[5];
+            input->keyboard.k[KEY_S]       = r->in[6];
+            input->keyboard.k[KEY_D]       = r->in[7];
+            input->keyboard.k[KEY_SPCBAR]  = r->in[8];
+        }
     } else if ( dm->buf ) {
         r->dt    = *frame_dt;
         r->in[0] = (short) input->mouse.x;
@@ -60,6 +73,20 @@ short demo_input( Demo *dm, Input *input, float *frame_dt )
         r->in[8] = (short) input->keyboard.k[KEY_SPCBAR];
     }
     return 1;
+}
+
+void demo_actions( Demo *dm, const KeyBindings KB_FAR *keys )
+{
+    RecEntry *r;
+    if ( !dm->buf ) return;
+    r = &dm->rec;
+    r->in[2] = keybind_record_state( keys, KA_ATTACK );
+    r->in[3] = 0;
+    r->in[4] = keybind_record_state( keys, KA_FORWARD );
+    r->in[5] = keybind_record_state( keys, KA_MOVELEFT );
+    r->in[6] = keybind_record_state( keys, KA_BACK );
+    r->in[7] = keybind_record_state( keys, KA_MOVERIGHT );
+    r->in[8] = keybind_record_state( keys, KA_JUMP );
 }
 
 /* -play: the camera is not pinned, so a replay that has left the
@@ -114,6 +141,7 @@ void demo_close( Demo *dm, const RunArgs *args )
     if ( dm->buf && dm->buf->count != 0 ) {
         wf = fopen( args->record_name, "wb" );
         if ( wf ) {
+            fwrite( demo_magic, 1, sizeof(demo_magic), wf );
             for ( i = 0; i < dm->buf->count; i++ ) {
                 e = dm->buf->e[i];
                 fwrite( &e, sizeof(e), 1, wf );

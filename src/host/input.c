@@ -43,33 +43,27 @@ void in_reset( Input *input )
     input->mouse.left = input->mouse.right = 0;
 }
 
-short in_key_event( Input *input, short *shift )
+short in_key_event( Input *input, short *shift, short *down )
 {
     Keys *keys = &input->keyboard;
     unsigned char tail = keys->event_tail;
-    short key;
+    unsigned short event;
 
     if ( tail == keys->event_head ) return 0;
-    key = keys->event[tail];
+    event = keys->event[tail];
     keys->event_tail = (unsigned char) ( ( tail + 1 ) & ( QGL_KEYQ - 1 ) );
-    *shift = (short) ( key & 0x80 );
-    return (short) ( key & 0x7f );
+    *shift = (short) ( event & 0x80 );
+    *down = (short) ( event & 0x100 );
+    return (short) ( event & 0x7f );
 }
 
-void in_handle_key( short key, Renderer *rdr, Camera *cam, Player *player, Hud far *hud )
+short in_event_overflow( Input *input )
 {
-    if ( key == KEY_F1 ) rdr->use_mips = !rdr->use_mips;
-
-    /* Perspective / wireframe only -- affine dropped with the fan path
-       that was its only renderer (uglPolyTP has no affine equivalent). */
-    if ( key == KEY_F2 ) rdr->rend_mode = ( rdr->rend_mode == 0 ) ? 2 : 0;
-    if ( key == KEY_F3 ) cam->fps_view    = !cam->fps_view;
-    if ( key == KEY_F12 ) hud->stats       = !hud->stats;
-    if ( key == KEY_B ) rdr->backface    = !rdr->backface;
-    if ( key == KEY_L ) rdr->lightmap    = !rdr->lightmap;
-    if ( key == KEY_P ) rdr->portal      = !rdr->portal;
-    if ( key == KEY_O ) hud->portal_wire = !hud->portal_wire;
-    if ( key == KEY_F4 ) player->no_clip  = !player->no_clip;
+    Keys *keys = &input->keyboard;
+    if ( !keys->event_overflow ) return 0;
+    keys->event_overflow = 0;
+    keys->event_tail = keys->event_head;
+    return -1;
 }
 
 /* F5, not S: S walks backwards. */
@@ -77,9 +71,15 @@ void in_screenshot_key( Input *input, QSurf h_dst_dc, short w, short h )
 {
     char name[16];
 
-    if ( input->keyboard.k[KEY_F5] ) {
+    if ( input->screenie_pending ) {
         sprintf( name, "scrn%d.bmp", input->screenie );
         scr_screenshot( name, h_dst_dc, w, h );
         input->screenie++;
+        input->screenie_pending = 0;
     }
+}
+
+void in_screenshot( Input *input )
+{
+    input->screenie_pending = -1;
 }

@@ -139,6 +139,7 @@ static void near take_play( RunArgs *args, char **val )
 static void near take_skill( RunArgs *args, char **val )
 {
     args->skill = (short) atoi( val[0] );
+    args->skill_set = -1;
 }
 
 static void near take_sflags( RunArgs *args, char **val )

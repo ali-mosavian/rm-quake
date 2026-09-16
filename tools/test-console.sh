@@ -9,5 +9,5 @@ trap 'rm -rf "$OUT"' EXIT HUP INT TERM
 cc -std=c89 -pedantic -Wall -Wextra -Werror \
   -I"$ROOT/src/host" -I"$ROOT/src/render" "$ROOT/tools/test-console.c" \
   "$ROOT/src/host/cmd.c" "$ROOT/src/render/fov.c" -lm -o "$OUT/test-console"
-"$OUT/test-console"
+(cd "$ROOT" && "$OUT/test-console")
 echo "ok: console parser and cvar registry"

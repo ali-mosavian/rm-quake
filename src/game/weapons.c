@@ -390,16 +390,14 @@ void pl_fire( World *world, Player *player, Camera *cam, Fight *fight,
             combat_damage_monster( world, player, fight, rdr, &world->mon[i], hit[i] );
 }
 
-void pl_select_weapon( Input *input, Fight *fight )
+void pl_select_weapon( Fight *fight, short impulse )
 {
-    Keys *k = &input->keyboard;
-
-    if ( k->k[KEY_ONE] )                                   fight->weapon = PL_IT_SHOTGUN;
-    if ( k->k[KEY_TWO] && ( fight->items & PL_IT_SSG ) )     fight->weapon = PL_IT_SSG;
-    if ( k->k[KEY_THREE] && ( fight->items & PL_IT_NAILGUN ) ) fight->weapon = PL_IT_NAILGUN;
-    if ( k->k[KEY_FOUR] && ( fight->items & PL_IT_GL ) )      fight->weapon = PL_IT_GL;
-    if ( k->k[KEY_FIVE] && ( fight->items & PL_IT_SNG ) )     fight->weapon = PL_IT_SNG;
-    if ( k->k[KEY_SIX] && ( fight->items & PL_IT_RL ) )      fight->weapon = PL_IT_RL;
+    if ( impulse == 2 ) fight->weapon = PL_IT_SHOTGUN;
+    if ( impulse == 3 && ( fight->items & PL_IT_SSG ) ) fight->weapon = PL_IT_SSG;
+    if ( impulse == 4 && ( fight->items & PL_IT_NAILGUN ) ) fight->weapon = PL_IT_NAILGUN;
+    if ( impulse == 5 && ( fight->items & PL_IT_SNG ) ) fight->weapon = PL_IT_SNG;
+    if ( impulse == 6 && ( fight->items & PL_IT_GL ) ) fight->weapon = PL_IT_GL;
+    if ( impulse == 7 && ( fight->items & PL_IT_RL ) ) fight->weapon = PL_IT_RL;
 }
 
 /* MOVETYPE_BOUNCE, either side's: what it can hurt over the step blows

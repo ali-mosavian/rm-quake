@@ -33,7 +33,7 @@ void pl_fire( World *world, Player *player, Camera *cam, Fight *fight,
  * name: pl_select_weapon
  * desc: W_ChangeWeapon on the number keys, for the weapons owned.
  */
-void pl_select_weapon( Input *input, Fight *fight );
+void pl_select_weapon( Fight *fight, short impulse );
 
 /*
  * name: pl_spikes_tick

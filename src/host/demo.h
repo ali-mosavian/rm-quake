@@ -21,6 +21,7 @@
 #include "input.h"
 #include "renderer.h"
 #include "sys.h"
+#include "keybind.h"
 
 /* far, not huge: REC_MAX * 38 + 2 has to stay under 64K */
 #define REC_MAX 1600
@@ -33,10 +34,12 @@ typedef struct {
     FILE       *rf;           /* -play: the recording */
     RecEntry    rec;          /* this frame's */
     short       drift;        /* -play: divergence reported, stop checking */
+    short       actions;      /* file carries logical actions, not raw keys */
 } Demo;
 
 void  demo_open( Demo *dm, const RunArgs *args );
 short demo_input( Demo *dm, Input *input, float *frame_dt );
+void  demo_actions( Demo *dm, const KeyBindings KB_FAR *keys );
 void  demo_check( Demo *dm, const Camera *cam, short frame );
 void  demo_capture( Demo *dm, const Camera *cam );
 void  demo_close( Demo *dm, const RunArgs *args );

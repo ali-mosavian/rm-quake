@@ -7,6 +7,7 @@
 #include "qrcfg.h"
 #include "dbg.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <mem.h>    /* _fmemset */
 #include "host.h"
@@ -51,11 +52,33 @@
 #define QGL_Z_OFF 0
 
 static void near host_apply_cvars( Host *h );
+static void near host_input_events( Host *h );
+static void near host_console_result( Host *h, CmdKind kind, CmdResult *result );
 
 static float near host_view_aspect( const Host *h )
 {
     return ( (float) h->cfg.view_w * h->cfg.scr_y_res * 4.0f )
            / ( (float) h->cfg.view_h * h->cfg.scr_x_res * 3.0f );
+}
+
+static short near host_file_exists( const char *name )
+{
+    FILE *file = fopen( name, "rt" );
+    if ( !file ) return 0;
+    fclose( file );
+    return -1;
+}
+
+static short near host_command_add( char *commands, short size, const char *text )
+{
+    short used = (short) strlen( commands );
+    short add = (short) strlen( text );
+    if ( !add ) return -1;
+    if ( used + ( used ? 1 : 0 ) + add >= size ) return 0;
+    if ( used ) commands[used++] = ';';
+    while ( *text ) commands[used++] = *text++;
+    commands[used] = 0;
+    return -1;
 }
 
 #if QR_PROF
@@ -244,16 +267,14 @@ static void near host_tick( Host *h, float dt )
     Fight    *fight  = &h->fight;
     short scr_x_res  = h->v.scr_x_res;
     short scr_y_res  = h->v.scr_y_res;
-    /* fire is mouse 1 or ctrl; mouse 1 also walks forward, the
-       original's binding too. Read once: outside GS_PLAY it is what
-       starts the next thing rather than what shoots. */
-    short fire = (short) ( input->mouse.left || input->keyboard.k[KEY_CTRL] );
-    short advance = (short) ( fire || input->keyboard.k[KEY_SPCBAR] );
+    short fire = keybind_action( h->keys, KA_ATTACK );
+    short advance = (short) ( fire || keybind_action( h->keys, KA_JUMP ) );
 
     /* id decays after drawing; this is the same place, before the next */
     dl_decay( rdr, dt );
 
-    v_update_camera( cam, player, world, input, fight, rdr, dt, scr_x_res, scr_y_res );
+    v_update_camera( cam, player, world, input, h->keys, fight, rdr,
+                     dt, scr_x_res, scr_y_res );
 
     ent_check_teleport( player, world, rdr->anim_time, scr_x_res );
     ent_fog_tick( world, player, rdr->anim_time );
@@ -276,7 +297,6 @@ static void near host_tick( Host *h, float dt )
        frame drew them. A dead player fires nothing, but what is already
        in the air keeps flying. */
     if ( fight->state == GS_PLAY ) {
-        pl_select_weapon( input, fight );
         if ( fire ) pl_fire( world, player, cam, fight, rdr );
     }
     host_view_load( world, fight->weapon );
@@ -299,6 +319,7 @@ static void near host_tick( Host *h, float dt )
     }
 
     dl_relink( rdr, player, fight );
+    keybind_tick( h->keys );
 }
 
 /*
@@ -724,6 +745,7 @@ static void near host_load_rest( Host *h, LoadScreen *ldr )
     ld_step( ldr, vdc, h->hud );
 
     ld_stage( ldr, vdc, h->hud, "starting level" );
+    keybind_release_all( h->keys );
     in_reset( &h->input );
     ld_step( ldr, vdc, h->hud );
 }
@@ -908,6 +930,9 @@ static void near host_map_init( Host *h )
     h->sc = 0;
     h->z_dc = h->h_dst_dc = 0;
     rng_init( &h->world.rng );
+    /* The fixed-size recorder needs one contiguous block. Reserve it before
+       map assets fragment conventional memory; map_finish frees it first. */
+    demo_open( &h->demo, &h->args );
     host_load( h );
     host_spawn( h );
     sprintf( buf, "ai_visible_selftest %d", mdl_ai_visible_selftest( &h->world, &h->player ) );
@@ -916,18 +941,18 @@ static void near host_map_init( Host *h )
 
     /* the largest DOS block once the map, caches and depth are in */
     bench_begin( &h->bs );
-    demo_open( &h->demo, &h->args );
 }
 
 void host_init( Host *h )
 {
     char value[24];
-    short initial_skill;
-    CmdResult result;
-    CmdKind kind;
+    char commands[CMD_TEXT];
+    char command[CMD_TEXT];
+    short initial_skill, requested_skill;
     float aspect;
 
     sys_parse_args( &h->args );
+    requested_skill = h->args.skill;
     mark( "sys_parse_args ok" );
     config_load( &h->cfg, "stuff.ini" );
     mark( "config_load ok" );
@@ -937,9 +962,11 @@ void host_init( Host *h )
     in_init( &h->input, h->v.h_video_dc );
     h->cmd = (CmdState far *) qglMemAlloc( (long) sizeof(*h->cmd) );
     h->console = (Console far *) qglMemAlloc( (long) sizeof(*h->console) );
-    if ( !h->cmd || !h->console ) sys_error( "out of far memory for front end" );
+    h->keys = (KeyBindings far *) qglMemAlloc( (long) sizeof(*h->keys) );
+    if ( !h->cmd || !h->console || !h->keys ) sys_error( "out of far memory for front end" );
     h->carried = (short) ( h->args.carry && pl_carry_read( &h->carry ) );
     cmd_init( h->cmd );
+    keybind_init( h->keys );
     initial_skill = h->carried ? h->carry.skill : h->args.skill;
     if ( initial_skill < 0 ) initial_skill = 0;
     if ( initial_skill > 3 ) initial_skill = 3;
@@ -952,15 +979,69 @@ void host_init( Host *h )
     sprintf( value, "%.3f", fov_horizontal( h->cfg.cam_fov, aspect ) );
     cvar_register( h->cmd, "fov", value, CVAR_ARCHIVE, 10.0f, 170.0f );
     con_init( h->console );
-    if ( h->args.startup_cmd[0] ) cmd_enqueue( h->cmd, h->args.startup_cmd );
-    while ( ( kind = cmd_run_cvar( h->cmd, &result ) ) != CMD_NONE ) {
+    commands[0] = 0;
+    if ( host_file_exists( "default.cfg" ) &&
+         !host_command_add( commands, sizeof(commands), "exec default.cfg" ) )
+        sys_error( "startup command buffer overflow" );
+    if ( host_file_exists( "config.cfg" ) &&
+         !host_command_add( commands, sizeof(commands), "exec config.cfg" ) )
+        sys_error( "startup command buffer overflow" );
+    if ( host_file_exists( "autoexec.cfg" ) &&
+         !host_command_add( commands, sizeof(commands), "exec autoexec.cfg" ) )
+        sys_error( "startup command buffer overflow" );
+    if ( commands[0] && cmd_enqueue( h->cmd, commands ) < 0 )
+        sys_error( "startup command queue overflow" );
+    commands[0] = 0;
+    while ( 1 ) {
+        CmdResult result;
+        CmdKind kind = cmd_run( h->cmd, &result );
+        short safe_external;
+        if ( kind == CMD_NONE ) break;
+        safe_external = (short) ( kind == CMD_EXTERNAL &&
+            ( !strcmp( result.name, "bind" ) || !strcmp( result.name, "unbind" ) ||
+              !strcmp( result.name, "unbindall" ) || !strcmp( result.name, "exec" ) ) );
+        if ( kind == CMD_WAIT ) continue;
+        if ( kind == CMD_EXTERNAL && !safe_external ) {
+            short used = (short) strlen( result.name );
+            strcpy( command, result.name );
+            if ( result.text[0] ) {
+                short add = (short) strlen( result.text );
+                if ( used + 1 + add >= (short) sizeof(command) )
+                    sys_error( "startup command buffer overflow" );
+                command[used++] = ' ';
+                strcpy( command + used, result.text );
+            }
+            if ( !host_command_add( commands, sizeof(commands), command ) )
+                sys_error( "startup command buffer overflow" );
+            continue;
+        }
+        host_console_result( h, kind, &result );
+        if ( kind == CMD_CVAR ) host_apply_cvars( h );
+    }
+    if ( h->args.skill_set ) {
+        char error[CMD_TEXT];
+        sprintf( value, "%d", (int) requested_skill );
+        cvar_set( h->cmd, "skill", value, error );
+        host_apply_cvars( h );
+    }
+    if ( h->args.startup_cmd[0] && cmd_enqueue( h->cmd, h->args.startup_cmd ) < 0 )
+        sys_error( "startup command queue overflow" );
+    while ( 1 ) {
+        CmdResult result;
+        CmdKind kind = cmd_run_cvar( h->cmd, &result );
+        if ( kind == CMD_NONE ) break;
         if ( kind == CMD_ERROR ) con_print( h->console, result.text );
         host_apply_cvars( h );
     }
+    while ( cmd_take_queue( h->cmd, command ) )
+        if ( !host_command_add( commands, sizeof(commands), command ) )
+            sys_error( "startup command buffer overflow" );
     h->map_mem_largest = qglMemAvail( QGL_MEM_LARGEST );
     h->map_mem_total = qglMemAvail( QGL_MEM_TOTAL );
     h->map_ems_pages = qglGemAvail();
     host_map_init( h );
+    if ( commands[0] && cmd_enqueue( h->cmd, commands ) < 0 )
+        sys_error( "startup command queue overflow" );
 }
 
 /* ------------------------------------------------------------------ */
@@ -970,6 +1051,11 @@ short host_running( const Host *h )
 {
     return (short) ( ( h->clock.bench_ticks == 0 || h->clock.ticks < h->clock.bench_ticks )
                      && !h->quit && h->fight.state != GS_NEXT );
+}
+
+static short near host_write_config( Host *h, const char *name )
+{
+    return keybind_write_config( h->keys, h->cmd, name );
 }
 
 static void near host_console_result( Host *h, CmdKind kind, CmdResult *result )
@@ -985,7 +1071,7 @@ static void near host_console_result( Host *h, CmdKind kind, CmdResult *result )
     }
     if ( kind == CMD_CLEAR ) { con_clear( h->console ); return; }
     if ( kind == CMD_CMDLIST ) {
-        con_print( h->console, "clear cmdlist cvarlist echo map quit set toggleconsole wait" );
+        con_print( h->console, "bind clear cmdlist cvarlist echo exec impulse map quit set unbind unbindall wait writeconfig" );
         return;
     }
     if ( kind == CMD_CVARLIST ) {
@@ -999,8 +1085,63 @@ static void near host_console_result( Host *h, CmdKind kind, CmdResult *result )
         return;
     }
     if ( kind != CMD_EXTERNAL ) return;
+    if ( !strcmp( result->name, "bind" ) ) {
+        char key[16], command[KB_TEXT], error[CMD_TEXT];
+        char *p = result->text;
+        short n = 0;
+        while ( *p && *p != ' ' && n < (short) sizeof(key) - 1 ) key[n++] = *p++;
+        key[n] = 0;
+        while ( *p == ' ' ) p++;
+        if ( !key[0] || result->argc < 2 ) con_print( h->console, "usage: bind <key> [command]" );
+        else if ( result->argc == 2 ) {
+            if ( keybind_get( h->keys, key, command ) && command[0] ) {
+                strcpy( line, "\"" ); strcat( line, key ); strcat( line, "\" = \"");
+                strncat( line, command, CMD_TEXT - strlen(line) - 2 ); strcat( line, "\"" );
+                con_print( h->console, line );
+            } else con_print( h->console, "key is not bound" );
+        } else if ( !keybind_set( h->keys, key, p, error ) ) con_print( h->console, error );
+        return;
+    }
+    if ( !strcmp( result->name, "unbind" ) ) {
+        char error[CMD_TEXT];
+        if ( !result->text[0] ) con_print( h->console, "usage: unbind <key>" );
+        else if ( !keybind_set( h->keys, result->text, "", error ) ) con_print( h->console, error );
+        return;
+    }
+    if ( !strcmp( result->name, "unbindall" ) ) { keybind_unbind_all( h->keys ); return; }
+    if ( !strcmp( result->name, "exec" ) ) {
+        char error[CMD_TEXT];
+        if ( !result->text[0] ) con_print( h->console, "usage: exec <filename>" );
+        else if ( !cmd_exec_file( h->cmd, result->text, error ) ) con_print( h->console, error );
+        return;
+    }
+    if ( !strcmp( result->name, "writeconfig" ) ) {
+        char *name = result->text[0] ? result->text : "config.cfg";
+        if ( !host_write_config( h, name ) ) con_print( h->console, "could not write config" );
+        return;
+    }
+    if ( !strcmp( result->name, "impulse" ) ) {
+        pl_select_weapon( &h->fight, (short) atoi( result->text ) );
+        return;
+    }
+    if ( result->name[0] == '+' && keybind_command( h->keys, result->name, -1 ) ) return;
+    if ( result->name[0] == '-' && keybind_command( h->keys, result->name, 0 ) ) return;
     if ( !strcmp( result->name, "toggleconsole" ) ) {
+        keybind_release_all( h->keys );
         con_toggle( h->console, &h->input );
+        return;
+    }
+    if ( !strcmp( result->name, "togglemips" ) ) { h->rdr.use_mips = !h->rdr.use_mips; return; }
+    if ( !strcmp( result->name, "togglewire" ) ) { h->rdr.rend_mode = h->rdr.rend_mode ? 0 : 2; return; }
+    if ( !strcmp( result->name, "toggleview" ) ) { h->cam.fps_view = !h->cam.fps_view; return; }
+    if ( !strcmp( result->name, "noclip" ) ) { h->player.no_clip = !h->player.no_clip; return; }
+    if ( !strcmp( result->name, "screenshot" ) ) { in_screenshot( &h->input ); return; }
+    if ( !strcmp( result->name, "togglestats" ) ) { if ( h->hud ) h->hud->stats = !h->hud->stats; return; }
+    if ( !strcmp( result->name, "togglebackface" ) ) { h->rdr.backface = !h->rdr.backface; return; }
+    if ( !strcmp( result->name, "togglelightmap" ) ) { h->rdr.lightmap = !h->rdr.lightmap; return; }
+    if ( !strcmp( result->name, "toggleportal" ) ) { h->rdr.portal = !h->rdr.portal; return; }
+    if ( !strcmp( result->name, "toggleportalwire" ) ) {
+        if ( h->hud ) h->hud->portal_wire = !h->hud->portal_wire;
         return;
     }
     if ( !strcmp( result->name, "quit" ) ) { h->quit = -1; return; }
@@ -1053,17 +1194,26 @@ static void near host_apply_cvars( Host *h )
 
 static void near host_input_events( Host *h )
 {
-    short key, shift;
+    short key, shift, down;
     CmdResult result;
     CmdKind kind;
 
-    while ( ( key = in_key_event( &h->input, &shift ) ) != 0 ) {
+    if ( in_event_overflow( &h->input ) ) keybind_release_all( h->keys );
+    if ( h->demo.rf ) keybind_mouse( h->keys, h->cmd, 0, 0, 0 );
+    else if ( con_open( h->console ) ) keybind_mouse( h->keys, h->cmd, 0, 0, 0 );
+    else keybind_mouse( h->keys, h->cmd, h->input.mouse.left,
+                        h->input.mouse.right, h->input.mouse.middle );
+
+    while ( ( key = in_key_event( &h->input, &shift, &down ) ) != 0 ) {
+        if ( !down ) { keybind_event( h->keys, h->cmd, key, 0 ); continue; }
         if ( key == KEY_TILDE || key == KEY_OEM102 ) {
+            keybind_release_all( h->keys );
             con_toggle( h->console, &h->input );
             continue;
         }
         if ( con_open( h->console ) ) {
             if ( key == KEY_ESC ) {
+                keybind_release_all( h->keys );
                 con_toggle( h->console, &h->input );
                 continue;
             }
@@ -1071,7 +1221,7 @@ static void near host_input_events( Host *h )
             continue;
         }
         if ( key == KEY_ESC ) { h->quit = -1; continue; }
-        in_handle_key( key, &h->rdr, &h->cam, &h->player, h->hud );
+        keybind_event( h->keys, h->cmd, key, -1 );
     }
     while ( ( kind = cmd_run( h->cmd, &result ) ) != CMD_NONE ) {
         host_console_result( h, kind, &result );
@@ -1080,6 +1230,35 @@ static void near host_input_events( Host *h )
         if ( kind == CMD_WAIT ) break;
     }
     host_apply_cvars( h );
+}
+
+static void near host_legacy_input( Host *h )
+{
+    short replay = (short) ( h->demo.rf != 0 );
+    short actions = (short) ( replay && h->demo.actions );
+    Input *input = &h->input;
+    if ( actions ) {
+        keybind_replay_state( h->keys, KA_FORWARD, h->demo.rec.in[4] );
+        keybind_replay_state( h->keys, KA_BACK, h->demo.rec.in[6] );
+        keybind_replay_state( h->keys, KA_MOVELEFT, h->demo.rec.in[5] );
+        keybind_replay_state( h->keys, KA_MOVERIGHT, h->demo.rec.in[7] );
+        keybind_replay_state( h->keys, KA_JUMP, h->demo.rec.in[8] );
+        keybind_replay_state( h->keys, KA_ATTACK, h->demo.rec.in[2] );
+        return;
+    }
+    keybind_force( h->keys, KA_FORWARD,
+                   (short) ( h->args.walk || h->args.fire ||
+                             ( replay && ( input->keyboard.k[KEY_W] || input->mouse.left ) ) ) );
+    keybind_force( h->keys, KA_BACK,
+                   (short) ( replay && ( input->keyboard.k[KEY_S] || input->mouse.right ) ) );
+    keybind_force( h->keys, KA_MOVELEFT,
+                   (short) ( h->args.strafe || ( replay && input->keyboard.k[KEY_A] ) ) );
+    keybind_force( h->keys, KA_MOVERIGHT,
+                   (short) ( replay && input->keyboard.k[KEY_D] ) );
+    keybind_force( h->keys, KA_JUMP,
+                   (short) ( h->args.jump || ( replay && input->keyboard.k[KEY_SPCBAR] ) ) );
+    keybind_force( h->keys, KA_ATTACK,
+                   (short) ( h->args.fire || ( replay && input->mouse.left ) ) );
 }
 
 /* -comp: v_present has scaled the view into the composite and left the
@@ -1120,8 +1299,11 @@ void host_frame( Host *h )
         h->quit = -1;   /* the recording ended: stop, as the live run did */
         return;
     }
+    host_legacy_input( h );
     host_input_events( h );
+    demo_actions( &h->demo, h->keys );
     if ( h->quit || h->fight.state == GS_NEXT ) return;
+    con_animate( h->console, frame_dt, h->v.scr_y_res );
 
     bench_frame_time( &h->bs, raw_dt );
     /* The same predicate as ft_*, so pt_frames and ft_n are the same
@@ -1298,6 +1480,7 @@ static void near host_change_args( RunArgs *args, char *map )
     args->fire = old.fire;
     args->use_lm = old.use_lm;
     args->skill = old.skill;
+    args->skill_set = old.skill_set;
     args->carry = -1;
 }
 
@@ -1319,11 +1502,15 @@ void host_shutdown( Host *h )
 {
     Video *v = &h->v;
 
+    if ( !host_write_config( h, "config.cfg" ) ) mark( "config write failed" );
     host_map_finish( h );
     host_map_release( h );
+    if ( h->cmd ) cmd_shutdown( h->cmd );
     if ( h->console ) qglMemFree( (long) (void far *) h->console );
+    if ( h->keys ) qglMemFree( (long) (void far *) h->keys );
     if ( h->cmd ) qglMemFree( (long) (void far *) h->cmd );
     h->console = 0;
+    h->keys = 0;
     h->cmd = 0;
     if ( v->h_back_bdc ) qglSfFree( v->h_back_bdc );
     if ( v->h_comp_dc ) qglSfFree( v->h_comp_dc );

@@ -32,6 +32,7 @@ rm -f "$OUT/cport.txt" "$OUT/cstep.txt" "$OUT/error.log" \
       "$OUT/run.out" \
       "$OUT/dosbox.log" "$OUT/dosbox.out"
 [[ -n "${KEEP_CARRY:-}" ]] || rm -f "$OUT/CARRY.BIN"
+[[ -n "${KEEP_CONFIG:-}" ]] || rm -f "$OUT/config.cfg" "$OUT/config.old" "$OUT/config.tmp"
 
 # The program's trace goes out port E9h (src/host/dbg.c); the emulator logs it
 # and it becomes cstep.txt below.

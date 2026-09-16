@@ -43,6 +43,11 @@ static void test_cvars( void )
     assert( cmd_enqueue( &state, "not_a_command" ) == 1 );
     assert( cmd_run( &state, &out ) == CMD_EXTERNAL );
     assert( strcmp( out.name, "not_a_command" ) == 0 );
+
+    assert( cmd_enqueue( &state, "bind w \"+forward fast\"" ) == 1 );
+    assert( cmd_run( &state, &out ) == CMD_EXTERNAL );
+    assert( strcmp( out.name, "bind" ) == 0 );
+    assert( strcmp( out.text, "w +forward fast" ) == 0 );
 }
 
 static void test_bounds( void )
@@ -64,6 +69,37 @@ static void test_bounds( void )
     assert( cmd_enqueue( &state, "echo overflow" ) == -2 );
 }
 
+static void test_exec( void )
+{
+    CmdState state;
+    CmdResult out;
+    char error[CMD_TEXT];
+
+    cmd_init( &state );
+    assert( cmd_enqueue( &state, "echo tail" ) == 1 );
+    assert( cmd_exec_file( &state, "tools/ref/cmd-outer.cfg", error ) );
+    assert( cmd_run( &state, &out ) == CMD_PRINT && !strcmp( out.text, "outer1" ) );
+    assert( cmd_run( &state, &out ) == CMD_EXTERNAL && !strcmp( out.name, "exec" ) );
+    assert( cmd_exec_file( &state, out.text, error ) );
+    assert( cmd_run( &state, &out ) == CMD_PRINT && !strcmp( out.text, "inner1" ) );
+    assert( cmd_run( &state, &out ) == CMD_WAIT );
+    assert( cmd_run( &state, &out ) == CMD_PRINT && !strcmp( out.text, "inner2" ) );
+    assert( cmd_run( &state, &out ) == CMD_PRINT && !strcmp( out.text, "outer2" ) );
+    assert( cmd_run( &state, &out ) == CMD_PRINT && !strcmp( out.text, "tail" ) );
+    cmd_shutdown( &state );
+}
+
+static void test_empty_argument( void )
+{
+    CmdState state;
+    CmdResult out;
+    cmd_init( &state );
+    assert( cmd_enqueue( &state, "bind w \"\"" ) == 1 );
+    assert( cmd_run( &state, &out ) == CMD_EXTERNAL );
+    assert( out.argc == 3 );
+    assert( !strcmp( out.name, "bind" ) && !strcmp( out.text, "w " ) );
+}
+
 int main( void )
 {
     float vertical = fov_vertical( 90.0f, 4.0f / 3.0f );
@@ -72,5 +108,7 @@ int main( void )
     assert( fov_horizontal( vertical, 4.0f / 3.0f ) < 90.01f );
     test_cvars();
     test_bounds();
+    test_exec();
+    test_empty_argument();
     return 0;
 }

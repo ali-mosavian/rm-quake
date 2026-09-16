@@ -66,4 +66,13 @@ grep -q '^frames=0 ' "$precedence/cstep.txt" || {
 grep -q '^gs_state 1 map dm3ish.qmp next  ' "$precedence/cstep.txt" || {
     echo "FAIL: map command executed after quit"; exit 1;
 }
+
+many="$B/console-many-startup"
+rm -rf "$many"; mkdir -p "$many"
+cp "$B/QCPORT.EXE" "$B/stuff.ini" "$ROOT/data/assets/dm3ish.qmp" "$many/"
+TIMEOUT="${TIMEOUT:-120}" "$ROOT/tools/run.sh" "$many" \
+  "dm3ish.qmp -nosound -noai +noclip +noclip +noclip +noclip +noclip +noclip +noclip +noclip +quit" >/dev/null
+tr -d '\r' < "$many/ERROR.LOG" | grep -qi '^startup command queue overflow$' || {
+    echo "FAIL: deferred startup overflow was silent"; exit 1;
+}
 echo "ok: console pause, cvar consumers and map persistence"

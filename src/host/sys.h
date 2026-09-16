@@ -80,6 +80,7 @@ typedef struct {
     short fire;               /* -fire: the trigger held, for a headless shot */
     short carry;              /* -carry: CARRY.BIN holds the last level's kit */
     short skill;              /* -skill N: the skill when nothing is carried */
+    short skill_set;          /* explicit -skill wins an archived config */
     short sflags;             /* -sflags N: the runes held when nothing is carried */
     short bad_order;          /* -badorder: brush entities after the world, depth or not */
     short ent_insert;         /* -entinsert: inserted into the walk, depth or not */

@@ -47,17 +47,27 @@ qgl$KbdIsr      proc    far private
                 movzx   bx, al
                 shl     bx, 1
                 mov     dx, [si+bx]             ;; typematic repeats see -1
-                shl     ah, 1                   ;; bit 7 set = released
-                sbb     ah, ah
-                not     ah                      ;; FFh down, 0 up
-                mov     [si+bx], ah
-                mov     [si+bx+1], ah
-                and     al, ah
-                mov     [si], al
-                or      al, al
-                jz      @@eoi
+                test    ah, 80h
+                jnz     @@release
+                mov     W [si+bx], -1
+                xor     ah, ah
+                mov     [si], ax
                 or      dx, dx
                 jnz     @@eoi                    ;; queue one make per press
+                mov     dl, 1
+                jmp     @@modifier
+
+@@release:      mov     W [si+bx], 0
+                mov     W [si], 0
+                or      dx, dx
+                jz      @@eoi                    ;; queue one break per held key
+                xor     dl, dl
+
+@@modifier:
+                xor     ah, ah
+                or      dl, dl
+                jz      @@queue                  ;; shift only matters to a make
+                mov     ah, 1                    ;; bit 8 = down
 
                 cmp     W [si+84], 0             ;; left Shift, k[42]
                 jne     @@shifted
@@ -66,19 +76,23 @@ qgl$KbdIsr      proc    far private
 @@shifted:      or      al, 80h                  ;; modifier at make time
 @@queue:
 
-                ;; A held-state table cannot preserve typing between
-                ;; two slow frames. Queue each make code; the ISR owns
+                ;; A held-state table cannot preserve transitions between
+                ;; two slow frames. Queue each make and break; the ISR owns
                 ;; head and the foreground owns tail, so neither side
                 ;; updates the other's byte.
-                mov     cl, [si+288]
+                mov     cl, [si+320]
                 mov     ch, cl
                 inc     ch
                 and     ch, 31
-                cmp     ch, [si+289]
-                je      @@eoi                 ;; full: keep the old events
+                cmp     ch, [si+321]
+                jne     @@store
+                mov     B [si+322], 1            ;; foreground releases every owner
+                jmp     @@eoi
+@@store:
                 movzx   bx, cl
-                mov     [si+256+bx], al
-                mov     [si+288], ch
+                shl     bx, 1
+                mov     [si+256+bx], ax
+                mov     [si+320], ch
 @@eoi:
                 mov     al, PIC_EOI
                 out     PIC_CMD, al
@@ -105,7 +119,7 @@ qglKbdInit    proc    public uses bx cx dx di es ds,\
                 mov     W cs:qgl$kbd_tab, di
                 mov     W cs:qgl$kbd_tab+2, es
                 xor     ax, ax
-                mov     cx, 145                   ;; state, event queue, head/tail
+                mov     cx, 162                   ;; state, word queue, indices/overflow
                 cld
                 rep     stosw
 

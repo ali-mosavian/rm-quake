@@ -227,6 +227,82 @@ static void cvar_result( const CmdState CMD_FAR *state, short i, CmdResult *resu
     text_add( result->text, used, CMD_TEXT, "\"" );
 }
 
+static short script_next( CmdState CMD_FAR *state, char *line )
+{
+    char raw[CMD_TEXT];
+    short quoted, start, end, i, n;
+    CmdScript CMD_FAR *script;
+
+    while ( state->script_count > 0 ) {
+        script = &state->script[state->script_count - 1];
+        far_text_get( raw, script->line, CMD_TEXT );
+        if ( !raw[script->pos] ) {
+            if ( !fgets( raw, sizeof(raw), script->file ) ) {
+                fclose( script->file );
+                script->file = 0;
+                state->script_count--;
+                continue;
+            }
+            n = (short) strlen( raw );
+            if ( n == CMD_TEXT - 1 && raw[n - 1] != '\n' && !feof( script->file ) ) {
+                while ( ( i = fgetc( script->file ) ) != '\n' && i != EOF ) ;
+                return -1;
+            }
+            while ( n > 0 && ( raw[n - 1] == '\r' || raw[n - 1] == '\n' ) ) raw[--n] = 0;
+            quoted = 0;
+            for ( i = 0; raw[i]; i++ ) {
+                if ( raw[i] == '"' ) quoted = !quoted;
+                if ( !quoted && raw[i] == '/' && raw[i + 1] == '/' ) { raw[i] = 0; break; }
+            }
+            far_text_put( script->line, raw, CMD_TEXT );
+            script->pos = 0;
+        }
+
+        far_text_get( raw, script->line, CMD_TEXT );
+        start = script->pos;
+        quoted = 0;
+        for ( end = start; raw[end]; end++ ) {
+            if ( raw[end] == '"' ) quoted = !quoted;
+            if ( raw[end] == ';' && !quoted ) break;
+        }
+        script->pos = (short) ( raw[end] ? end + 1 : end );
+        while ( start < end && ( raw[start] == ' ' || raw[start] == '\t' ) ) start++;
+        while ( end > start && ( raw[end - 1] == ' ' || raw[end - 1] == '\t' ) ) end--;
+        if ( end == start ) continue;
+        for ( i = 0; start < end; i++, start++ ) line[i] = raw[start];
+        line[i] = 0;
+        return 1;
+    }
+    return 0;
+}
+
+short cmd_exec_file( CmdState CMD_FAR *state, const char *name, char *error )
+{
+    FILE *file;
+    CmdScript CMD_FAR *script;
+    if ( state->script_count >= CMD_SCRIPTS ) {
+        text_put( error, "exec nesting is too deep", CMD_TEXT );
+        return 0;
+    }
+    file = fopen( name, "rt" );
+    if ( !file ) { text_put( error, "could not exec file", CMD_TEXT ); return 0; }
+    script = &state->script[state->script_count++];
+    script->file = file;
+    script->line[0] = 0;
+    script->pos = 0;
+    return -1;
+}
+
+void cmd_shutdown( CmdState CMD_FAR *state )
+{
+    while ( state->script_count > 0 ) {
+        state->script_count--;
+        if ( state->script[state->script_count].file )
+            fclose( state->script[state->script_count].file );
+        state->script[state->script_count].file = 0;
+    }
+}
+
 CmdKind cmd_run( CmdState CMD_FAR *state, CmdResult *result )
 {
     char line[CMD_TEXT];
@@ -234,12 +310,21 @@ CmdKind cmd_run( CmdState CMD_FAR *state, CmdResult *result )
     short i, used;
 
     result->name[0] = result->text[0] = 0;
-    if ( state->queue_count == 0 ) return CMD_NONE;
-    far_text_get( line, state->queue[state->queue_tail], CMD_TEXT );
-    state->queue_tail = (short) ( ( state->queue_tail + 1 ) % CMD_QUEUE );
-    state->queue_count--;
+    result->argc = 0;
+    i = script_next( state, line );
+    if ( i < 0 ) {
+        text_put( result->text, "script line is too long", CMD_TEXT );
+        return CMD_ERROR;
+    }
+    if ( i == 0 ) {
+        if ( state->queue_count == 0 ) return CMD_NONE;
+        far_text_get( line, state->queue[state->queue_tail], CMD_TEXT );
+        state->queue_tail = (short) ( ( state->queue_tail + 1 ) % CMD_QUEUE );
+        state->queue_count--;
+    }
     cmd_tokenize( line, &args );
     if ( args.argc == 0 ) return CMD_NONE;
+    result->argc = args.argc;
 
     if ( !strcmp( args.argv[0], "echo" ) ) {
         used = 0;
@@ -278,7 +363,11 @@ CmdKind cmd_run( CmdState CMD_FAR *state, CmdResult *result )
     }
 
     text_put( result->name, args.argv[0], CMD_NAME );
-    text_put( result->text, args.argc > 1 ? args.argv[1] : "", CMD_TEXT );
+    used = 0;
+    for ( i = 1; i < args.argc; i++ ) {
+        if ( i > 1 ) used = text_add( result->text, used, CMD_TEXT, " " );
+        used = text_add( result->text, used, CMD_TEXT, args.argv[i] );
+    }
     return CMD_EXTERNAL;
 }
 
@@ -296,4 +385,26 @@ CmdKind cmd_run_cvar( CmdState CMD_FAR *state, CmdResult *result )
          cvar_find( state, args.argv[1] ) >= 0 )
         return cmd_run( state, result );
     return CMD_NONE;
+}
+
+short cmd_take_queue( CmdState CMD_FAR *state, char *text )
+{
+    if ( state->queue_count == 0 ) return 0;
+    far_text_get( text, state->queue[state->queue_tail], CMD_TEXT );
+    state->queue_tail = (short) ( ( state->queue_tail + 1 ) % CMD_QUEUE );
+    state->queue_count--;
+    return -1;
+}
+
+short cmd_write_cvars( const CmdState CMD_FAR *state, FILE *file )
+{
+    short i;
+    char name[CMD_NAME], value[CMD_VALUE];
+    for ( i = 0; i < state->cvar_count; i++ ) {
+        if ( !( state->cvar[i].flags & CVAR_ARCHIVE ) ) continue;
+        far_text_get( name, state->cvar[i].name, CMD_NAME );
+        far_text_get( value, state->cvar[i].string, CMD_VALUE );
+        if ( fprintf( file, "%s \"%s\"\n", name, value ) < 0 ) return 0;
+    }
+    return -1;
 }

@@ -80,7 +80,7 @@ DATA     := $(basename $(MAP)).qmp
 # stuff.ini is read by name out of the working directory -- it is the
 # run's configuration, not the map's, and config.c opens it with plain
 # fopen.
-ROOT_DATA := stuff.ini
+ROOT_DATA := stuff.ini default.cfg
 DATA_OUT := $(addprefix $(BUILD)/,$(DATA) $(ROOT_DATA))
 
 all: build                      ## build QCPORT.EXE (default)
@@ -163,6 +163,7 @@ test:                           ## header deps, far-to-near pointers, then qgl's
 	@tools/test-dups.sh
 	@tools/test-assetdeps.sh
 	@tools/test-console.sh
+	@tools/test-keybind.sh
 	@python3 tools/farnear.py
 	@tools/test-x87cmp.sh
 	@tools/test-bufcheck.sh

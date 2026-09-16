@@ -47,6 +47,19 @@ short con_open( const Console CMD_FAR *con )
     return con->open;
 }
 
+void con_animate( Console CMD_FAR *con, float dt, short screen_h )
+{
+    float target = con->open ? screen_h * 0.5f : 0.0f;
+    float step = 300.0f * dt;
+    if ( con->height < target ) {
+        con->height += step;
+        if ( con->height > target ) con->height = target;
+    } else if ( con->height > target ) {
+        con->height -= step;
+        if ( con->height < target ) con->height = target;
+    }
+}
+
 void con_toggle( Console CMD_FAR *con, Input *input )
 {
     con->open = (short) !con->open;
@@ -147,7 +160,8 @@ static void con_history( Console CMD_FAR *con, short direction )
 static void con_complete( Console CMD_FAR *con, CmdState CMD_FAR *cmd )
 {
     static char *builtins[] = {
-        "clear", "cmdlist", "cvarlist", "echo", "map", "quit", "set", "toggleconsole", "wait"
+        "bind", "clear", "cmdlist", "cvarlist", "echo", "exec", "impulse", "map", "quit",
+        "set", "toggleconsole", "unbind", "unbindall", "wait", "writeconfig"
     };
     char input[CON_LINE], name[CMD_NAME], value[CMD_VALUE];
     short i, flags, len, found = 0;
@@ -225,14 +239,13 @@ void con_draw( const Console CMD_FAR *con, Hud far *hud, QSurf dc, short w, shor
     short panel_h, rows, i, idx, y, cols, input_len, input_start;
     char input[CON_LINE];
 
-    if ( !con->open ) return;
-    panel_h = (short) ( h / 2 );
+    if ( con->height <= 0.0f ) return;
+    panel_h = (short) con->height;
     qglDrFill( dc, 0, 0, (short) ( w - 1 ), panel_h, hud->hc_bg );
     qglDrHline( dc, 0, panel_h, (short) ( w - 1 ), hud->hc_slabhi );
-    draw_string( hud, dc, 4, 3, "QUAKE CONSOLE", hud->hc_text );
-    rows = (short) ( ( panel_h - 23 ) / 8 );
+    rows = (short) ( ( panel_h - 12 ) / 8 );
     if ( rows > con->line_count - con->scroll ) rows = (short) ( con->line_count - con->scroll );
-    y = (short) ( panel_h - 17 - rows * 8 );
+    y = (short) ( panel_h - 12 - rows * 8 );
     for ( i = rows; i > 0; i-- ) {
         idx = (short) ( ( con->line_head - con->scroll - i + CON_LINES ) % CON_LINES );
         far_get( text, con->line[idx], CON_LINE );
@@ -243,7 +256,8 @@ void con_draw( const Console CMD_FAR *con, Hud far *hud, QSurf dc, short w, shor
     far_get( input, con->input, CON_LINE );
     cols = (short) ( ( w - 8 ) / 4 );
     input_len = (short) strlen( input );
-    input_start = input_len > cols - 1 ? (short) ( input_len - ( cols - 1 ) ) : 0;
+    input_start = input_len > cols - 2 ? (short) ( input_len - ( cols - 2 ) ) : 0;
     strcpy( text + 1, input + input_start );
+    strcat( text, "_" );
     draw_string( hud, dc, 4, (short) ( panel_h - 12 ), text, hud->hc_text );
 }

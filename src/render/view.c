@@ -11,7 +11,7 @@
 #define PI 3.14159f
 
 void v_update_camera( Camera *cam, Player *player, World *world, Input *input,
-                       Fight *fight, Renderer *rdr,
+                       const KeyBindings KB_FAR *keys, Fight *fight, Renderer *rdr,
                        float dt, short x_res, short y_res )
 {
     int   tmx, tmy;
@@ -44,12 +44,10 @@ void v_update_camera( Camera *cam, Player *player, World *world, Input *input,
        because pl_move clamps to PL_MAXSPEED. */
     fwd    = 0.0f;
     strafe = 0.0f;
-    if ( input->keyboard.k[KEY_W] )     fwd    += 1.0f;
-    if ( input->keyboard.k[KEY_S] )     fwd    -= 1.0f;
-    if ( input->keyboard.k[KEY_A] )     strafe += 1.0f;
-    if ( input->keyboard.k[KEY_D] )     strafe -= 1.0f;
-    if ( input->mouse.left )     fwd    += 1.0f;
-    if ( input->mouse.right )    fwd    -= 1.0f;
+    if ( keybind_action( keys, KA_FORWARD ) )   fwd    += 1.0f;
+    if ( keybind_action( keys, KA_BACK ) )      fwd    -= 1.0f;
+    if ( keybind_action( keys, KA_MOVELEFT ) )  strafe += 1.0f;
+    if ( keybind_action( keys, KA_MOVERIGHT ) ) strafe -= 1.0f;
 
     if ( player->no_clip ) {
         /* the intermission holds still: the tally's camera is the
@@ -90,7 +88,7 @@ void v_update_camera( Camera *cam, Player *player, World *world, Input *input,
         }
 
         jump = 0;
-        if ( input->keyboard.k[KEY_SPCBAR] ) jump = -1;
+        if ( keybind_action( keys, KA_JUMP ) ) jump = -1;
 
         pl_move( world, player, cam, fight, rdr, fwd, strafe, dir_x, dir_y, jump, dt );
     }
