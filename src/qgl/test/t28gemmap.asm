@@ -128,8 +128,8 @@ tmain           proc    far public uses bx cx dx si di es
                 ;; already there
                 invoke  qglGemMap, hA, 0, SLOT
                 invoke  qglGemFree, hA
-                ;; dctems and the QuakeC VM compare this key inline and map
-                ;; nothing on a match: it has to forget the handle too
+                ;; dctems compares this key inline and maps nothing on a
+                ;; match: it has to forget the handle too
                 mov     ax, qgl$gem_key[SLOT*2]
                 CHK     n_keyfree, ax, 0FFFFh
                 invoke  qglGemAlloc, 16384

@@ -3,7 +3,6 @@
 bench.c | sprintf( buf, "ft_mean=%ld.%02dms fps_mean=%ld.%02d ft_min=%ld | destination is a caller's buffer through a pointer
 config.c | sprintf( msg, "%s: could not open" | %s of a char pointer
 config.c | sprintf( msg, "Unknown command, %s" | %s of a char pointer
-edict.c | sprintf( tok, "0 %s 0" | %s of temp, which ed_parse_edict refuses at ANGLE_MAX (32) the line before, into tok of ED_TOKEN (1024)
 ent.c | sprintf( name, "ents%d.bin" | destination is a pointer parameter; ent_load_world passes name[12] and skill is 0..3
 host.c | sprintf( buf, "asset_map ok %s" | %s of a char pointer
 host.c | sprintf( nf + strlen( nf ), " -ticks %ld" | append

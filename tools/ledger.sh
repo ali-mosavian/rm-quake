@@ -22,7 +22,7 @@ LEDGER="$ROOT/docs/ledger.tsv"
 MAP="$B/QCPORT.MAP"
 [[ -s "$MAP" ]] || { echo "ledger: no $MAP" >&2; exit 1; }
 
-commit="$(git -C "$ROOT" rev-parse --short HEAD)$(git -C "$ROOT" diff --quiet HEAD -- src ':(exclude)src/qvm' ':(exclude)src/qgl/test' || echo +)"
+commit="$(git -C "$ROOT" rev-parse --short HEAD)$(git -C "$ROOT" diff --quiet HEAD -- src ':(exclude)src/qgl/test' || echo +)"
 rows=()
 row() { rows+=("$LABEL	$commit	$1	$2	$3"); }
 

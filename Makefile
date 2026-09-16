@@ -52,8 +52,7 @@ export TOOLCHAINS DOSBOX_BIN CDEFS TIMEOUT
 BCC  := $(CURDIR)/tools/bcc.sh
 LINK := $(CURDIR)/tools/link.sh
 
-# The program's subsystems. src/qgl is qgl, built by the rules below, and
-# src/qvm is not linked yet.
+# The program's subsystems. src/qgl is qgl, built by the rules below.
 C_DIRS := $(addprefix src/,host render model game sound ui)
 C_SRC  := $(foreach d,$(C_DIRS),$(wildcard $(d)/*.c))
 C_MODS := $(sort $(basename $(notdir $(C_SRC))))
@@ -159,7 +158,7 @@ $(foreach m,$(MAPS),data/$(m).bsp): data/%.bsp: $(PAK) tools/pakget.py
 data/maps/%/assets.zip: data/%.bsp data/base.dat $(MKASSETS)
 	@python3 tools/mkassets.py data/$*.bsp data/base.dat data/maps/$* $(PAK)
 
-test:                           ## header deps, far-to-near pointers, then qgl's and the QuakeC VM's suites, native; needs `make assets`
+test:                           ## header deps, far-to-near pointers, then qgl's suite, native; needs `make assets`
 	@tools/depcheck.sh
 	@tools/test-dups.sh
 	@tools/test-assetdeps.sh
@@ -167,7 +166,6 @@ test:                           ## header deps, far-to-near pointers, then qgl's
 	@tools/test-x87cmp.sh
 	@tools/test-bufcheck.sh
 	@$(MAKE) --no-print-directory -C src/qgl/test
-	@$(MAKE) --no-print-directory -C src/qvm/test PAK=$(PAK)
 
 run: $(EXE)                     ## headless run; cport.txt/cstep.txt land in $(BUILD)
 	@tools/run.sh $(BUILD)

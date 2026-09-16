@@ -107,7 +107,7 @@ The rules below are for what gets written or touched from here:
 
 ### The gates
 
-    make test                    the qgl and QuakeC VM suites, native; needs `make assets`
+    make test                    the qgl suite and source gates, native; needs `make assets`
     tools/test-<name>.sh <build> one behaviour of QCPORT.EXE, headless
 
 `make test` needs no Borland C, which is what makes it worth running
@@ -2836,11 +2836,3 @@ in the same session.
 
 Which lumps are conventional, which are EMS, the rule that decides, and
 the 54 K of surface cache that does not fit on e1m1 -- `docs/cport-memory.md`.
-
-## QuakeC in 16K pages
-
-Whether id's `progs.dat` can run in four EMS slots: the call graph, the
-packing, the function headers, string ids and what does not fit --
-`docs/quakec-vm.md`, measured with `tools/qcvm/`. The paged VM built from
-it is `src/qvm/`, its strings hashed by `tools/qcvm/qchash.py`; a change to
-either runs `make -C src/qvm/test mutate` as well as the suite.

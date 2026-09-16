@@ -19,7 +19,6 @@ in this repository's history up to `chore: drop the BASIC renderer`.
 | `src/sound/` | the mixer and the sound table |
 | `src/ui/` | the screen text and the status bar |
 | `src/qgl/` | the graphics, memory, file, timer and input layer, in asm; `test/` is its suite |
-| `src/qvm/` | the paged QuakeC VM and id's entity loader, not linked yet; `test/` is its suite |
 | `tools/` | the build scripts, the asset pipeline and the `test-*.sh` gates |
 | `data/` | `stuff.ini`, `base.dat` and the dm3ish test map |
 | `docs/` | memory layout, portal culling, open bugs |
