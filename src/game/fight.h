@@ -146,6 +146,8 @@ typedef struct {
     float suit_until;         /* radsuit_finished */
     float pent_until;         /* invincible_finished */
     float bonus_pct;          /* the pickup flash, 50, fading 100/s */
+    float damage_pct;         /* V_ParseDamage's red/armor flash, fading 150/s */
+    short damage_red, damage_green, damage_blue;
     float pain_at;            /* PainSound: no new grunt before this */
     float pent_at;            /* protect3, while the pentagram holds */
     float air_used;           /* WaterMove: seconds under since the last

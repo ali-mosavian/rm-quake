@@ -13,6 +13,7 @@
 #include "dl.h"
 #include "doors.h"
 #include "triggers.h"
+#include "vshift.h"
 
 static short combat_take( float dmg, float armor_type, short armor,
                           short *saved )
@@ -92,6 +93,7 @@ void combat_damage_player( Player *player, World *world, Fight *fight, Renderer 
     take = combat_take( dmg, fight->armor_type, fight->armor, &save );
     if ( save >= fight->armor ) { save = fight->armor; fight->armor_type = 0.0f; }
     fight->armor = (short) ( fight->armor - save );
+    v_damage_shift( fight, save, take );
 
     /* then the pentagram stops the rest -- the armor above still wore --
        and protect3 says so no more than two seconds apart */

@@ -3,6 +3,8 @@
 
 #include "qgl.h"
 
+typedef struct ViewShift ViewShift;
+
 /*
  * pal -- the palette this program installed, and lookups against it.
  *
@@ -17,5 +19,6 @@
 void     pal_install( PalRgb far *p );
 PalRgb far *pal_current( void );
 short    pal_bestfit( short r, short g, short b );
+void     pal_apply_shifts( const ViewShift *shifts );
 
 #endif

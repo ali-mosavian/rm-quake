@@ -28,6 +28,7 @@
 #include "qgl.h"
 #include "view.h"
 #include "viewfx.h"
+#include "vshift.h"
 #include "screen.h"
 #include "sbar.h"
 #include "client.h"
@@ -637,6 +638,15 @@ static void near host_render( Host *h )
 
     /* Leave the completed 3D target with depth writes disabled. */
     if ( h->z_dc != 0 ) qglSfZMode( h->h_dst_dc, QGL_Z_OFF );
+}
+
+static void near host_palette( Host *h, float dt )
+{
+    ViewShift shifts[V_SHIFT_COUNT];
+
+    v_shifts( shifts, &h->fight, &h->player, h->rdr.anim_time );
+    pal_apply_shifts( shifts );
+    v_decay_shifts( &h->fight, dt );
 }
 
 /* ------------------------------------------------------------------ */
@@ -1657,6 +1667,7 @@ void host_frame( Host *h )
 
     qglDrFill( h->h_dst_dc, 0, 0, (short)(h->v.x_res - 1), (short)(h->v.y_res - 1), 0 );
     host_render( h );
+    host_palette( h, frame_dt );
     host_present( h );
 #if QR_DEBUG_CAPTURE
     host_debug_capture( h );

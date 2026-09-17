@@ -192,6 +192,7 @@ test:                           ## header deps, far-to-near pointers, then qgl's
 	@tools/test-centerprint.sh
 	@tools/test-video.sh
 	@tools/test-viewfx.sh
+	@tools/test-viewshift.sh
 	@tools/test-viewmdl.sh
 	@python3 tools/test-lighthash.py
 	@python3 tools/test-id-demo-camera.py $(PAK)

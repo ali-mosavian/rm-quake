@@ -147,6 +147,7 @@ typedef struct {
 #define REC_SUBMODEL  32
 #define REC_TEXINFO   34
 
+#ifndef QCPORT_NATIVE_TEST
 typedef char rec_plane_ok   [ sizeof(Plane)    == REC_PLANE    ? 1 : -1 ];
 typedef char rec_node_ok    [ sizeof(Node)     == REC_NODE     ? 1 : -1 ];
 typedef char rec_leaf_ok    [ sizeof(Leaf)     == REC_LEAF     ? 1 : -1 ];
@@ -154,6 +155,7 @@ typedef char rec_face_ok    [ sizeof(Face)     == REC_FACE     ? 1 : -1 ];
 typedef char rec_clip_ok    [ sizeof(ClipNode) == REC_CLIPNODE ? 1 : -1 ];
 typedef char rec_submodel_ok[ sizeof(Submodel) == REC_SUBMODEL ? 1 : -1 ];
 typedef char rec_texinfo_ok [ sizeof(TexInfo)  == REC_TEXINFO  ? 1 : -1 ];
+#endif
 
 /* q_ent.bi's Teleporter. */
 typedef struct {
