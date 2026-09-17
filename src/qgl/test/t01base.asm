@@ -26,6 +26,8 @@ n_frame         db      'ems page frame set  $'
 scr             dd      0
 
 .code
+qglSfRow       proto   far :dword, :word
+
 tmain           proc    far public uses bx es
 
                 ;;
@@ -46,9 +48,8 @@ tmain           proc    far public uses bx es
                 CHK     n_scr_x,      es:[bx].Surface.xRes,  320
                 CHK     n_scr_y,      es:[bx].Surface.yRes,  200
                 CHK     n_scr_stride, es:[bx].Surface.bps, 320
-                ;; row 0's address table entry: the segment the pixels are
-                ;; in, which is where the base segment used to be read
-                CHK     n_scr_seg,    W es:[bx+SF_addrTB+0], 0A000h
+                invoke  qglSfRow, scr, 0
+                CHK     n_scr_seg,    dx, 0A000h
 
                 les     bx, scr
                 mov     ax, es:[bx].Surface.typ

@@ -270,7 +270,7 @@ QGL_COV_ROWS    equ     256
 ;; from. Dropped at every qglRsPoly, which is exactly as long as a
 ;; mapping is allowed to live -- anything else may take the window
 ;; between one call and the next, and the surface builder does.
-;; 0FFFFh is no page: addrTB never holds it.
+;; 0FFFFh is no mapped page.
 qgl_zrow_pg     dw      0FFFFh
 qgl_zrow_seg    dw      0
 
@@ -305,25 +305,23 @@ CYLAP           macro   k
                 endif
 endm
 
-;; dx:ax = surface sf's row y, for writing. A conventional surface's row
-;; is its table entry, read here; anything else goes through slow, the
-;; accessor -- two far calls deep, and most of a scanline's walk when it
-;; ran for every one. bx, es gone.
+;; dx:ax = surface sf's row y, for writing.
 WRROW           macro   sf, y, slow
-                local   acc, have
-                mov     es, W sf+2              ;; a Surface sits at offset 0
-                cmp     es:[Surface.typ], SF_MEM
-                jne     acc
-                cmp     es:[Surface.pages], 0
-                je      acc
-                mov     bx, y
-                add     bx, es:[Surface.startSL]
-                shl     bx, 2
-                mov     dx, W es:[SF_addrTB][bx]      ;; segment, then
-                mov     ax, W es:[SF_addrTB][bx]+2    ;; offset: the table's order
+                local   dead, have
+                push    fs
+                push    di
+                mov     fs, W sf+2
+                mov     bx, fs:[Surface.typ]
+                CHECKKIND bx, dead
+                mov     di, y
+                call    qgl$dctTB[bx].wrAccess
+                mov     dx, es
+                mov     ax, di
                 jmp     short have
-acc:            slow
-have:
+dead:           xor     ax, ax
+                xor     dx, dx
+have:           pop     di
+                pop     fs
 endm
 
 ;; dx:ax = surface sf's row y through window slot: qglSfWrRowEx's
@@ -336,9 +334,7 @@ DCTROW          macro   sf, y, slot
                 mov     bx, fs:[Surface.typ]
                 CHECKKIND bx, dead
                 mov     di, y
-                add     di, fs:[Surface.startSL]
-                shl     di, 2
-                mov     cl, slot
+                mov     cx, slot
                 call    qgl$dctTB[bx].wrAccessEx
                 jmp     short have
 dead:           xor     ax, ax
@@ -351,22 +347,28 @@ endm
 ;; is the one this row wants. bx, es, esi gone; fs kept, which is why
 ;; this does not simply inline DCTROW.
 ZEMSROW         macro   sf, y, slot
-                local   slow, have
-                mov     es, W sf+2
-                mov     bx, y
-                add     bx, es:[Surface.startSL]
-                shl     bx, 2
-                mov     esi, es:[SF_addrTB][bx]
-                cmp     si, qgl_zrow_pg
-                jne     slow
-                mov     dx, qgl_zrow_seg
-                mov     eax, esi
-                shr     eax, 16
+                DCTROW  sf, y, slot
+endm
+
+;; dx:ax = source row through the read-access dispatch.
+RDROW           macro   sf, y
+                local   dead, have
+                push    ds
+                push    gs
+                push    si
+                mov     gs, W sf+2
+                mov     bx, gs:[Surface.typ]
+                CHECKKIND bx, dead
+                mov     si, y
+                call    qgl$dctTB[bx].rdAccess
+                mov     dx, ds
+                mov     ax, si
                 jmp     short have
-slow:           DCTROW  sf, y, slot             ;; si survives it
-                mov     qgl_zrow_pg, si
-                mov     qgl_zrow_seg, dx
-have:
+dead:           xor     ax, ax
+                xor     dx, dx
+have:           pop     si
+                pop     gs
+                pop     ds
 endm
 
 ;; the filler call, its scanline and pixels counted; ds is the texture's
@@ -632,13 +634,8 @@ qgl$SetTex      proc    near private uses bx cx dx si di es,\
                 jne     @@onepage
                 mov     si, ax                  ;; total bytes, saved: the
                                                 ;; page check needs ax free
-                cmp     es:[bx].Surface.pages, 0
-                jne     @@tableofs
-                mov     eax, es:[bx].Surface.viewOfs
+                mov     eax, es:[bx].Surface.baseOfs
                 and     ax, EMS_PAGE_MASK
-                jmp     short @@haveofs
-@@tableofs:     mov     ax, W es:[bx+SF_addrTB+2]
-@@haveofs:
                 add     ax, si
                 cmp     ax, EMS_PAGE_SIZE
                 ja      @@no
@@ -671,7 +668,7 @@ qgl$SetTex      proc    near private uses bx cx dx si di es,\
                 ;; page, so an EMS one maps here and the polygon this call
                 ;; belongs to reads through it before anything else can
                 ;; take the slot back
-                invoke  qglSfRdRow, t, 0
+                RDROW   t, 0
                 mov     qgl$tofs, ax
                 mov     qgl$tseg, dx
 
@@ -1963,7 +1960,6 @@ qgl$drawP       endp
 
 
 
-                
 
                 QGL_ENDS
                 end

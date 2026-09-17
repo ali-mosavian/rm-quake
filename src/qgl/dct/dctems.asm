@@ -2,7 +2,7 @@
 ;; dctEms.asm -- EMS surfaces initilization/allocation/read & write access/...
 ;;
 ;; Transcribed from mgl's dct/dctems.asm. Beyond qgl's standing renames
-;; (DC -> Surface, DC_addrTB -> SF_addrTB, ul$ -> qgl$, em$ -> qgl$,
+;; (DC -> Surface, ul$ -> qgl$, em$ -> qgl$,
 ;; UGL_CODE -> QGL_CODE, ems_* -> qgl_ems_* because UGLV.LIB already
 ;; defines every one of those names and LINK folds case), three things
 ;; differ and each is forced:
@@ -40,9 +40,8 @@ qglGemAlloc     proto   far pascal :dword
 qglGemFree      proto   far pascal :word
 qglGemMap       proto   far pascal :word, :word, :word
 
-;; gem's own per-slot record, packed as an addrTB entry is: logical page
-;; in the high byte, handle in the low, 0FFFFh for a slot holding
-;; nothing. Read and never written here -- see qgl$AccessEx.
+;; gem's own per-slot record: logical page in the high byte, handle in
+;; the low, 0FFFFh for a slot holding nothing.
                 extrn   qgl$gem_key:word
 
 ;; mgl's EMSCTX (inc/ems.inc), minus the frame word: gem.asm owns the page
@@ -59,8 +58,8 @@ EMSCTX          struc
 EMSCTX          ends
 
 ;;::::::::::::::
-;; mgl's EMS_MAP, over gem. si (read) or di (write) holds an addrTB entry's
-;; low word -- logical page in the high byte, handle in the low.
+;; mgl's EMS_MAP, over gem. si (read) or di (write) holds a mapping key:
+;; logical page in the high byte, handle in the low.
 ;;
 ;; destroys: ax
 QGL_MAP         macro   ppage:req
@@ -95,6 +94,13 @@ qgl$emsCtx      EMSCTX  <>
 QGL_CODE
 initialized     dw      FALSE
 
+qgl_ems_AccessUnused proc near private
+                xor     ax, ax
+                xor     dx, dx
+                stc
+                ret
+qgl_ems_AccessUnused endp
+
 ;;::::::::::::::
 ;; out: CF clean if OK
 qgl_ems_Init    proc    near public uses bx
@@ -125,16 +131,16 @@ qgl_ems_Init    proc    near public uses bx
                 SET_DCT save, qgl_ems_Save
                 SET_DCT restore, qgl_ems_Restore
 
-                SET_DCT rdBegin, qgl_ems_RdBegin, TRUE
-                SET_DCT wrBegin, qgl_ems_WrBegin, TRUE
-                SET_DCT rdwrBegin, qgl_ems_RdWrBegin, TRUE
-                SET_DCT rdSwitch, qgl_ems_RdSwitch, TRUE
-                SET_DCT wrSwitch, qgl_ems_WrSwitch, TRUE
-                SET_DCT rdwrSwitch, qgl_ems_RdWrSwitch, TRUE
+                SET_DCT rdBegin, qgl_ems_AccessUnused, TRUE
+                SET_DCT wrBegin, qgl_ems_AccessUnused, TRUE
+                SET_DCT rdwrBegin, qgl_ems_AccessUnused, TRUE
+                SET_DCT rdSwitch, qgl_ems_AccessUnused, TRUE
+                SET_DCT wrSwitch, qgl_ems_AccessUnused, TRUE
+                SET_DCT rdwrSwitch, qgl_ems_AccessUnused, TRUE
                 SET_DCT rdAccess, qgl_ems_RdAccess, TRUE
                 SET_DCT wrAccess, qgl_ems_WrAccess, TRUE
                 SET_DCT rdwrAccess, qgl_ems_RdWrAccess, TRUE
-                SET_DCT fullAccess, qgl_ems_FullAccess, TRUE
+                SET_DCT fullAccess, qgl_ems_AccessUnused, TRUE
 
                 SET_DCT rdAccessEx, qgl_ems_RdAccessEx, TRUE
                 SET_DCT wrAccessEx, qgl_ems_WrAccessEx, TRUE
@@ -169,42 +175,18 @@ qgl_ems_End     endp
 ;;      si= yRes
 ;;
 ;; out: CF clean if OK
-qgl_ems_New     proc    far public uses di
+qgl_ems_New     proc    far public
 
                 LOGBEGIN qgl_ems_New
 
                 cmp     bx, EMS_PGSIZE
                 ja      @@error                 ;; bps > 16K?
 
-                mov     cx, bx                  ;; save
-
                 LOGMSG  alloc
                 invoke  qglGemAlloc, fs:[Surface._size]
                 test    ax, ax
                 jz      @@error
                 mov     fs:[Surface.hnd], ax    ;; save handle
-
-                ;; fill addrTB
-                xor     di, di                  ;; di= addrTB idx
-                mov     dx, ax                  ;; dx= log-page:handle
-                xor     bx, bx                  ;; bx= offset (<16k)
-
-@@loop:         mov     W fs:[SF_addrTB+di+0], dx
-                mov     W fs:[SF_addrTB+di+2], bx
-
-                add     bx, cx                  ;; bx+= bps
-                mov     ax, bx
-                add     ax, not (EMS_PGSIZE-1)
-                adc     dh, 0                   ;; ax>=16k? ++lpage
-                add     bx, not (EMS_PGSIZE-1)
-                sbb     ax, ax
-                not     ax
-                and     ax, EMS_PGSIZE-1
-                and     bx, ax                  ;; bx>=16k? bx= 0
-
-                add     di, T dword             ;; next
-                dec     si
-                jnz     @@loop                  ;; not last scanline?
 
                 clc
 @@exit:         LOGEND
@@ -225,14 +207,15 @@ qgl_ems_New     endp
 ;;
 ;; out: CF clean if OK
 qgl_ems_NewMult proc    far public uses es ds
-                local   bps:word, hnd:word
+                local   hnd:word, sfsize:dword, base:dword
 
                 LOGBEGIN qgl_ems_NewMult
 
                 cmp     bx, EMS_PGSIZE
                 ja      @@error                 ;; bps > 16K?
 
-                mov     bps, bx                 ;; save
+                mov     sfsize, eax
+                mov     D base, 0
 
                 ;; alloc mem for sf's data
                 LOGMSG  alloc
@@ -242,37 +225,14 @@ qgl_ems_NewMult proc    far public uses es ds
                 jz      @@error
                 mov     hnd, ax
 
-                ;; fill addrTB
-                LOGMSG  fill
-                mov     dx, ax                  ;; dx= log-page:handle
-                xor     bx, bx                  ;; bx= offset (<16k)
-
 @@oloop:        mov     ds, es:[di+2]           ;; ds-> sf
 
                 mov     ax, hnd
                 mov     ds:[Surface.hnd], ax
-
-                PS      di, si
-                xor     di, di                  ;; di= addrTB idx
-
-@@loop:         mov     W ds:[SF_addrTB+di+0], dx
-                mov     W ds:[SF_addrTB+di+2], bx
-
-                add     bx, bps                 ;; bx+= bps
-                mov     ax, bx
-                add     ax, not (EMS_PGSIZE-1)
-                adc     dh, 0                   ;; ax>=16k? ++lpage
-                add     bx, not (EMS_PGSIZE-1)
-                sbb     ax, ax
-                not     ax
-                and     ax, EMS_PGSIZE-1
-                and     bx, ax                  ;; bx>=16k? bx= 0
-
-                add     di, T dword             ;; next
-                dec     si
-                jnz     @@loop                  ;; not last scanline?
-
-                PP      si, di
+                mov     eax, base
+                mov     ds:[Surface.baseOfs], eax
+                add     eax, sfsize
+                mov     base, eax
                 add     di, T dword             ;; next sf
                 dec     cx
                 jnz     @@oloop
@@ -341,6 +301,73 @@ qgl_ems_Restore endp
 
 
 QGL_CODE
+;; gs->Surface, si=y, cl=physical EMS slot; dx:ax is the row pointer.
+qgl_ems_MapRow proc near private uses bx cx si di
+                mov     di, cx                  ;; caller's physical slot
+                mov     ax, si
+                add     ax, gs:[Surface.startSL]
+                movzx   eax, ax
+                movzx   ecx, gs:[Surface.bps]
+                imul    eax, ecx
+                add     eax, gs:[Surface.baseOfs]
+                mov     ebx, eax
+                and     bx, EMS_PGSIZE-1
+                shr     eax, 14
+                mov     si, ax
+                mov     ax, gs:[Surface.hnd]
+                mov     cx, di
+                invoke  qglGemMap, ax, si, cx
+                mov     dx, ax
+                mov     ax, bx
+                clc
+                ret
+qgl_ems_MapRow endp
+
+qgl_ems_RdAccess proc near private uses cx
+                mov     cx, EMS_READPAGE
+                call    qgl_ems_MapRow
+                mov     ds, dx
+                mov     si, ax
+                ret
+qgl_ems_RdAccess endp
+
+qgl_ems_WrAccess proc near private uses cx si gs
+                push    fs
+                pop     gs
+                mov     si, di
+                mov     cx, EMS_WRITEPAGE
+                call    qgl_ems_MapRow
+                mov     es, dx
+                mov     di, ax
+                ret
+qgl_ems_WrAccess endp
+
+qgl_ems_RdWrAccess proc near private uses cx si gs
+                push    fs
+                pop     gs
+                mov     si, di
+                mov     cx, EMS_WRITEPAGE
+                call    qgl_ems_MapRow
+                mov     es, dx
+                mov     di, ax
+                mov     ax, dx
+                ret
+qgl_ems_RdWrAccess endp
+
+qgl_ems_RdAccessEx proc near private
+                call    qgl_ems_MapRow
+                ret
+qgl_ems_RdAccessEx endp
+
+qgl_ems_WrAccessEx proc near private uses si gs
+                push    fs
+                pop     gs
+                mov     si, di
+                call    qgl_ems_MapRow
+                ret
+qgl_ems_WrAccessEx endp
+
+if 0
 ;;:::
 ;; The Begin/Switch family is mgl's, verbatim, and it answers on the fixed
 ;; read and write pages the way mgl's does. Nothing in qgl reaches it --
@@ -539,9 +566,11 @@ qgl_ems_WrAccessEx proc near private uses si
                 call    qgl$AccessEx
                 ret
 qgl_ems_WrAccessEx endp
+endif
 QGL_ENDS
 
 QGL_CODE
+if 0
 ;;:::
 ;; mgl maps every page of the surface at once with one INT 67h call
 ;; (EMS_MEM_MMAP over em$mmTb). gem.asm has no multi-map, so this issues
@@ -614,5 +643,6 @@ qgl_ems_FullAccess proc near private uses ax bx ecx dx di bp
 
                 ret
 qgl_ems_FullAccess endp
+endif
 QGL_ENDS
                 end

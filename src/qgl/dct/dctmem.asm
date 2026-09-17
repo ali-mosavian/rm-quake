@@ -2,8 +2,8 @@
 ;; dctMem.asm -- MEM surfaces initilization/allocation/read & write access/...
 ;;
 ;; Transcribed from mgl's dct/dctmem.asm. The renames are qgl's standing
-;; ones -- DC -> Surface, DC_addrTB -> SF_addrTB, ul$ -> qgl$, UGL_CODE ->
-;; QGL_CODE -- plus two forced by this tree:
+;; ones -- DC -> Surface, ul$ -> qgl$, UGL_CODE -> QGL_CODE -- plus two
+;; forced by this tree:
 ;;
 ;;   mem_* -> qgl_mem_*   qrender links UGLV.LIB, whose own dctmem.asm
 ;;                        already defines mem_Init, mem_New, mem_RdAccess
@@ -39,6 +39,13 @@ mm$memCtx       MEMCTX  <>
 QGL_CODE
 initialized     dw      FALSE
 
+qgl_mem_AccessUnused proc near private
+                xor     ax, ax
+                xor     dx, dx
+                stc
+                ret
+qgl_mem_AccessUnused endp
+
 ;;::::::::::::::
 ;; out: CF clean if OK
 qgl_mem_Init    proc    near public uses bx
@@ -62,19 +69,19 @@ qgl_mem_Init    proc    near public uses bx
                 SET_DCT save, qgl_mem_Save
                 SET_DCT restore, qgl_mem_Restore
 
-                SET_DCT rdBegin, qgl_mem_RdBegin, TRUE
-                SET_DCT wrBegin, qgl_mem_WrBegin, TRUE
-                SET_DCT rdwrBegin, qgl_mem_RdWrBegin, TRUE
+                SET_DCT rdBegin, qgl_mem_AccessUnused, TRUE
+                SET_DCT wrBegin, qgl_mem_AccessUnused, TRUE
+                SET_DCT rdwrBegin, qgl_mem_AccessUnused, TRUE
 
-                SET_DCT rdSwitch, qgl_mem_RdSwitch, TRUE
-                SET_DCT wrSwitch, qgl_mem_WrSwitch, TRUE
-                SET_DCT rdwrSwitch, qgl_mem_RdWrSwitch, TRUE
+                SET_DCT rdSwitch, qgl_mem_AccessUnused, TRUE
+                SET_DCT wrSwitch, qgl_mem_AccessUnused, TRUE
+                SET_DCT rdwrSwitch, qgl_mem_AccessUnused, TRUE
 
                 SET_DCT rdAccess, qgl_mem_RdAccess, TRUE
                 SET_DCT wrAccess, qgl_mem_WrAccess, TRUE
 
                 SET_DCT rdwrAccess, qgl_mem_RdWrAccess, TRUE
-                SET_DCT fullAccess, qgl_mem_FullAccess, TRUE
+                SET_DCT fullAccess, qgl_mem_AccessUnused, TRUE
 
                 SET_DCT rdAccessEx, qgl_mem_RdAccessEx, TRUE
                 SET_DCT wrAccessEx, qgl_mem_WrAccessEx, TRUE
@@ -103,7 +110,7 @@ qgl_mem_End     endp
 ;;      si= yRes
 ;;
 ;; out: CF clean if OK
-qgl_mem_New     proc    far public uses di
+qgl_mem_New     proc    far public
 
                 LOGBEGIN qgl_mem_New
 
@@ -114,40 +121,12 @@ qgl_mem_New     proc    far public uses di
 
                 LOGMSG  alloc
                 mov     eax, fs:[Surface._size]
-                add     eax, 16                 ;; + 1 para (for alignment)
                 invoke  qglMemAlloc, eax
-                mov     di, ax
-                or      di, dx
+                mov     cx, ax
+                or      cx, dx
                 jz      @@error
                 mov     W fs:[Surface.fptr+0], ax       ;; save pointer
                 mov     W fs:[Surface.fptr+2], dx       ;; /
-
-                ;; make a zero based offset (i'm not assuming that the
-                ;; offset returned by memAlloc will be always 0 (as it is
-                ;; now) as a better allocator could be used later and...)
-                add     ax, 15                  ;; seg+= (ofs+15) \ 16
-                shr     ax, 4                   ;; /
-                add     dx, ax                  ;; /
-                xor     bx, bx                  ;; ofs= 0
-
-                ;; fill addrTB
-                xor     di, di                  ;; di= addrTB idx
-
-@@loop:         mov     W fs:[SF_addrTB+di+0], dx
-                mov     W fs:[SF_addrTB+di+2], bx
-
-                add     bx, cx                  ;; bx+= bps
-                sbb     ax, ax
-                and     ax, 1000000000000b
-                add     dx, ax                  ;; bx>=64k? seg+=4096
-                add     ax, -1
-                sbb     ax, ax
-                not     ax
-                and     bx, ax                  ;; bx>=64k? bx= 0
-
-                add     di, T dword             ;; next
-                dec     si
-                jnz     @@loop                  ;; not last scanline?
 
                 clc
 @@exit:         LOGEND
@@ -168,65 +147,34 @@ qgl_mem_New     endp
 ;;
 ;; out: CF clean if OK
 qgl_mem_NewMult proc    far public uses es ds
-                local   bps:word, fptr:dword
+                local   fptr:dword, sfsize:dword, base:dword
 
                 LOGBEGIN qgl_mem_NewMult
 
                 test    bx, bx
                 jz      @@error                 ;; bps >= 64K?
 
-                mov     bps, bx                 ;; save
+                mov     sfsize, eax
+                mov     D base, 0
 
                 ;; alloc mem for surfaces' data
                 LOGMSG  alloc
                 imul    eax, ecx
-                add     eax, 16                 ;; + 1 para (for alignment)
                 invoke  qglMemAlloc, eax
                 mov     bx, ax
                 or      bx, dx
                 jz      @@error
                 mov     W fptr, ax              ;; save pointer
-                mov     W fptr, dx              ;; /
-                                                ;; ^ mgl's own line, copied.
-                                                ;; It writes the low word
-                                                ;; twice; fptr+2 stays 0 and
-                                                ;; every surface in the batch
-                                                ;; gets a segment of 0. See
-                                                ;; the report -- nothing here
-                                                ;; calls qglNewMult.
-
-                ;; fill addrTB
-                LOGMSG  fill
-                add     ax, 15                  ;; seg+= (ofs+15) \ 16
-                shr     ax, 4                   ;; /
-                add     dx, ax                  ;; /
-                xor     bx, bx                  ;; ofs= 0
+                mov     W fptr+2, dx            ;; /
 
 @@oloop:        mov     ds, es:[di+2]           ;; ds-> sf
 
                 mov     eax, fptr
                 mov     ds:[Surface.fptr], eax
-
-                PS      di, si
-                xor     di, di                  ;; di= addrTB idx
-
-@@loop:         mov     W ds:[SF_addrTB+di+0], dx
-                mov     W ds:[SF_addrTB+di+2], bx
-
-                add     bx, bps                 ;; bx+= bps
-                sbb     ax, ax
-                and     ax, 1000000000000b
-                add     dx, ax                  ;; bx>=64k? seg+=4096
-                add     ax, -1
-                sbb     ax, ax
-                not     ax
-                and     bx, ax                  ;; bx>=64k? bx= 0
-
-                add     di, T dword             ;; next
-                dec     si
-                jnz     @@loop                  ;; not last scanline?
-
-                PP      si, di
+                mov     eax, base
+                mov     ds:[Surface.baseOfs], eax
+                add     eax, sfsize
+                mov     base, eax
                 add     di, T dword             ;; next sf
                 dec     cx
                 jnz     @@oloop
@@ -285,6 +233,67 @@ qgl_mem_Restore endp
 
 
 QGL_CODE
+;; gs->Surface, si=y, cl=slot (ignored); dx:ax is the row pointer.
+qgl_mem_MapRow proc near private uses bx cx si
+                mov     ax, si
+                add     ax, gs:[Surface.startSL]
+                movzx   eax, ax
+                movzx   ecx, gs:[Surface.bps]
+                imul    eax, ecx
+                add     eax, gs:[Surface.baseOfs]
+                movzx   ecx, W gs:[Surface.fptr+0]
+                add     eax, ecx
+                mov     ecx, eax
+                shr     ecx, 16
+                shl     cx, 12
+                mov     dx, W gs:[Surface.fptr+2]
+                add     dx, cx
+                clc
+                ret
+qgl_mem_MapRow endp
+
+qgl_mem_RdAccess proc near private
+                call    qgl_mem_MapRow
+                mov     ds, dx
+                mov     si, ax
+                ret
+qgl_mem_RdAccess endp
+
+qgl_mem_WrAccess proc near private uses si gs
+                push    fs
+                pop     gs
+                mov     si, di
+                call    qgl_mem_MapRow
+                mov     es, dx
+                mov     di, ax
+                ret
+qgl_mem_WrAccess endp
+
+qgl_mem_RdWrAccess proc near private uses si gs
+                push    fs
+                pop     gs
+                mov     si, di
+                call    qgl_mem_MapRow
+                mov     es, dx
+                mov     di, ax
+                mov     ax, dx
+                ret
+qgl_mem_RdWrAccess endp
+
+qgl_mem_RdAccessEx proc near private
+                call    qgl_mem_MapRow
+                ret
+qgl_mem_RdAccessEx endp
+
+qgl_mem_WrAccessEx proc near private uses si gs
+                push    fs
+                pop     gs
+                mov     si, di
+                call    qgl_mem_MapRow
+                ret
+qgl_mem_WrAccessEx endp
+
+if 0
 ;;:::
 ;; The Begin/Switch family is mgl's, verbatim -- INCLUDING the bare
 ;; gs:[SF_addrTB][si], which reads the header at offset 0 of its segment.
@@ -451,5 +460,6 @@ qgl_mem_WrAccessEx proc near private uses di
                 clc
                 ret
 qgl_mem_WrAccessEx endp
+endif
 QGL_ENDS
                 end

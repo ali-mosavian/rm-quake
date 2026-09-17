@@ -146,8 +146,9 @@ qglNewView      proc    public uses bx cx di si fs gs,\
                 mov     eax, D gs:[Surface.fptr]
                 mov     D fs:[Surface.fptr], eax
 
-                mov     eax, ofs
-                mov     fs:[Surface.viewOfs], eax
+                mov     eax, gs:[Surface.baseOfs]
+                add     eax, ofs
+                mov     fs:[Surface.baseOfs], eax
 
                 pop     dx
                 xor     ax, ax                  ;; return seg:0, CF clean
@@ -176,7 +177,7 @@ qglSetView      proc    public uses bx es,\
                 cmp     es:[bx].Surface.pages, 0
                 jne     @@error
                 mov     eax, ofs
-                mov     es:[bx].Surface.viewOfs, eax
+                mov     es:[bx].Surface.baseOfs, eax
 
                 mov     ax, TRUE
                 LOGEND

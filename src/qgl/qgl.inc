@@ -629,9 +629,8 @@ CLIPRECT        struc                           ;; clipping rectangle
                 yMax            dw      ?
 CLIPRECT        ends
 
-;; mgl's DC layout with qgl's depth state and tableless-view offset added.
-;; Owned surfaces retain mgl's row-address table; views have pages=0 and
-;; derive rows from viewOfs and bps.
+;; A surface is a strided view of one store. Every row is derived from
+;; baseOfs + y*bps; no surface carries a row-address table.
 ;;
 ;; Names are mgl's (xRes, bps) rather than the x_res/stride this carried
 ;; while it was its own thing. MASM's reserved words still bite -- WIDTH
@@ -661,8 +660,7 @@ bps             dw      ?               ;; bytes per scanline
 pages           dw      ?
 startSL         dw      ?               ;; first scanline
 _size           dd      ?               ;; bps * yRes * pages
-viewOfs         dd      ?               ;; byte offset for a tableless view;
-                                        ;; pages=0 distinguishes it
+baseOfs         dd      ?               ;; first pixel in fptr/hnd's store
 
 xMin            dw      ?               ;; the clip rect is PER SURFACE, as
 yMin            dw      ?               ;; mgl's is; qgl kept one global
@@ -690,21 +688,7 @@ zmode           dw      ?               ;; QGL_Z_OFF / _SET / _TEST
 sign            dd      QGL_SIGN
         endif
 
-SF_addrTB       equ     $               ;; scanlines' address table
 Surface         ends
-
-;;::::::::::::::
-;; For an owned surface SF_addrTB is the offset of the scanline address
-;; table, and qglNew allocates SIZEOF Surface + yRes*4 in one block. A view
-;; allocates only SIZEOF Surface and is identified by pages=0.
-;;
-;; AND IT LIVES AT OFFSET 0 OF ITS OWN SEGMENT, which is mgl's rule and
-;; not an accident of the allocator: every accessor reads gs:[Surface.f]
-;; and gs:[SF_addrTB][si] with no base register, exactly as mgl's do.
-;; Anything handing a Surface pointer around must therefore have got it
-;; from qglNew/qglNewEx/qglNewView. It was once also true of an mgl DC,
-;; which shared the layout byte for byte; the depth fields above ended
-;; that, and nothing hands qgl an mgl DC any more.
 
 ;;::::::::::::::
 ;; mgl's CHECKDC. A no-op unless _DEBUG_, which nothing here defines --

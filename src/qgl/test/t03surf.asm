@@ -27,16 +27,17 @@
                 include tfw.inc
 
 qglDrFill     proto   far :dword, :word, :word, :word, :word, :word
+qglNew        proto   far :word, :word, :word, :word
 qglSfViewNew  proto   far :dword, :word, :word, :word
 qglSfViewAim  proto   far :dword, :dword
 
 SMALL_W         equ     64
 SMALL_H         equ     16
 
-;; 320 x 220 = 70,400 bytes: past one segment, so row 205 onwards lives
-;; beyond 64K of the block's base and only the segment arithmetic finds it
+;; Tall enough to cross two 64K windows. With the old non-divisor CMEM
+;; stride, row 327 started at 65264 and its 320 visible bytes wrapped.
 BIG_W           equ     320
-BIG_H           equ     220
+BIG_H           equ     400
 
 ;; 128 x 256 = 32,768 bytes across two 16K EMS pages. 128 divides 16384 so
 ;; no row straddles, which qglSfNew enforces anyway.
@@ -60,9 +61,11 @@ n_small_rt      db      'cmem round trip        $'
 n_big_new       db      'cmem >64K made         $'
 n_big_rt        db      'cmem >64K round trip   $'
 n_big_last      db      'cmem >64K last row     $'
+n_big_fit       db      'cmem row fits window   $'
 n_ems_new       db      'ems surface made       $'
 n_ems_rt        db      'ems round trip         $'
 n_ems_cross     db      'ems across a page      $'
+n_ems_fit       db      'ems row fits one page  $'
 n_view_rt       db      'view sees parent rows  $'
 n_clear         db      'fill lands on every px $'
 n_odd_stride    db      'ems odd stride refused $'
@@ -76,6 +79,7 @@ n_aim1_kept     db      'aim 1 bytes untouched  $'
 small           dd      0
 big             dd      0
 ems             dd      0
+ems_low         dd      0
 vwp             dd      0
 svw             dd      0
 big_bps         dw      0
@@ -187,6 +191,13 @@ tmain           proc    far public uses bx cx dx si di es
                 invoke  qglSfPget, big, 7, BIG_H-1
                 CHK     n_big_last, ax, 0ABh
 
+                invoke  qglSfRow, big, 327
+                cmp     ax, 65536-BIG_W
+                mov     ax, 0
+                seta    al
+                xor     ax, 1
+                CHK     n_big_fit, ax, 1
+
                 ;;
                 ;; 3. EMS, two pages
                 ;;
@@ -216,6 +227,19 @@ tmain           proc    far public uses bx cx dx si di es
                 jmp     @@crossed
 @@:             xor     ax, ax
 @@crossed:      CHK     n_ems_cross, ax, 1
+
+                ;; The low-level constructor is public too. Its mapper
+                ;; returns one physical page pointer, so the complete
+                ;; visible row must fit behind that pointer.
+                invoke  qglNew, SF_EMS, FMT_8BIT, 320, 512
+                SAVEP   ems_low
+                invoke  qglSfRow, ems_low, 245
+                cmp     ax, EMS_PGSIZE-320
+                mov     ax, 1
+                jbe     @F
+                dec     ax
+@@:             CHK     n_ems_fit, ax, 1
+                invoke  qglSfFree, ems_low
 
                 ;;
                 ;; 4. a view onto the big surface, aimed at row 100

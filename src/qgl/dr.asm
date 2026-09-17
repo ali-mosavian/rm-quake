@@ -43,6 +43,40 @@ qglSfWrRow   proto   far pascal :dword, :word
                 externdef qgl$RunFill:near
                 externdef qgl$RunCopy:near
 
+DRRDROW         macro   sf, y, slot
+                local   dead, have
+                push    gs
+                push    si
+                mov     gs, W sf+2
+                mov     bx, gs:[Surface.typ]
+                CHECKKIND bx, dead
+                mov     si, y
+                mov     cx, slot
+                call    qgl$dctTB[bx].rdAccessEx
+                jmp     short have
+dead:           xor     ax, ax
+                xor     dx, dx
+have:           pop     si
+                pop     gs
+endm
+
+DRWRROW         macro   sf, y, slot
+                local   dead, have
+                push    fs
+                push    di
+                mov     fs, W sf+2
+                mov     bx, fs:[Surface.typ]
+                CHECKKIND bx, dead
+                mov     di, y
+                mov     cx, slot
+                call    qgl$dctTB[bx].wrAccessEx
+                jmp     short have
+dead:           xor     ax, ax
+                xor     dx, dx
+have:           pop     di
+                pop     fs
+endm
+
 
 
 
@@ -540,7 +574,7 @@ qglDrBlit     proc    public uses bx cx dx si di ds es,\
 
 @@rowsok:
 
-                ;; both cmem? then walk the address tables. Decided ONCE.
+                ;; both cmem? keep the clipped fast path. Decided ONCE.
                 les     bx, d
                 cmp     es:[bx].Surface.typ, SF_MEM
                 jne     @@generic
@@ -553,12 +587,8 @@ qglDrBlit     proc    public uses bx cx dx si di ds es,\
                 je      @@generic
 
                 ;;
-                ;; The cursor that used to be resolved once and stepped by
-                ;; the stride is now a table read per row -- the address
-                ;; table IS the cursor, and it is the one qgl_mem_New laid
-                ;; down, so a surface crossing 64K needs no arithmetic here
-                ;; to get right. sofss and dofss carry the byte index into
-                ;; each table.
+                ;; sofss and dofss carry y*4 for the existing loop shape;
+                ;; each row goes straight through its backend mapper.
                 ;;
                 mov     ax, sy
                 shl     ax, 2
@@ -572,23 +602,19 @@ qglDrBlit     proc    public uses bx cx dx si di ds es,\
                 mov     cx, nrows
 @@crow:         push    cx
 
-                les     bx, s
-                mov     si, sofss
-                add     bx, si
-                mov     ax, W es:[bx+SF_addrTB+0]
-                mov     dx, W es:[bx+SF_addrTB+2]
-                add     dx, sskip
-                mov     ssegc, ax
-                mov     sofsc, dx
+                mov     ax, sofss
+                shr     ax, 2
+                DRRDROW s, ax, EMS_READPAGE
+                add     ax, sskip
+                mov     ssegc, dx
+                mov     sofsc, ax
 
-                les     bx, d
-                mov     di, dofss
-                add     bx, di
-                mov     ax, W es:[bx+SF_addrTB+0]
-                mov     dx, W es:[bx+SF_addrTB+2]
-                add     dx, dcol
-                mov     dsegc, ax
-                mov     dofsc, dx
+                mov     ax, dofss
+                shr     ax, 2
+                DRWRROW d, ax, EMS_WRITEPAGE
+                add     ax, dcol
+                mov     dsegc, dx
+                mov     dofsc, ax
 
                 mov     ds, ssegc
                 mov     si, sofsc
@@ -786,21 +812,17 @@ qglDrBlitScl proc    public uses bx cx dx si di ds es,\
                 mov     cx, srows2
 @@r2:           push    cx
 
-                les     bx, s
-                mov     si, sofss
-                add     bx, si
-                mov     ax, W es:[bx+SF_addrTB+0]
-                mov     dx, W es:[bx+SF_addrTB+2]
-                mov     ssegc, ax
-                mov     sofsc, dx
+                mov     ax, sofss
+                shr     ax, 2
+                DRRDROW s, ax, EMS_READPAGE
+                mov     ssegc, dx
+                mov     sofsc, ax
 
-                les     bx, d
-                mov     di, dofss
-                add     bx, di
-                mov     ax, W es:[bx+SF_addrTB+0]
-                mov     dx, W es:[bx+SF_addrTB+2]
-                mov     dsegc, ax
-                mov     dofsc, dx
+                mov     ax, dofss
+                shr     ax, 2
+                DRWRROW d, ax, EMS_WRITEPAGE
+                mov     dsegc, dx
+                mov     dofsc, ax
 
                 ;; expand into the first row of the pair, keeping its
                 ;; address for the copy
@@ -819,13 +841,11 @@ qglDrBlitScl proc    public uses bx cx dx si di ds es,\
                 mov     sofs, ax
 
                 add     dofss, T dword          ;; the second row of the pair
-                les     bx, d
-                mov     di, dofss
-                add     bx, di
-                mov     ax, W es:[bx+SF_addrTB+0]
-                mov     dx, W es:[bx+SF_addrTB+2]
-                mov     dsegc, ax
-                mov     dofsc, dx
+                mov     ax, dofss
+                shr     ax, 2
+                DRWRROW d, ax, EMS_WRITEPAGE
+                mov     dsegc, dx
+                mov     dofsc, ax
 
                 ;; the second row is the same bytes; copy, do not expand
                 push    ds
@@ -893,7 +913,6 @@ qglDrBlitScl proc    public uses bx cx dx si di ds es,\
 @@out:          ret
 qglDrBlitScl endp
 
-                
 
                 QGL_ENDS
                 end

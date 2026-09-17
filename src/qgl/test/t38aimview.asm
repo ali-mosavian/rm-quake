@@ -43,13 +43,13 @@ n_pixel         db      'row 0 reads offset A   $'
 n_parent_read   db      'parent reads after view$'
 n_parent_write  db      'parent writes after view$'
 n_slot_read     db      'slot read after view   $'
-n_flat_seg      db      'view rows one segment  $'
 n_flat_ofs      db      'view rows one stride   $'
 n_refuse        db      'no view, no aim        $'
 
 first           dd      0
 par             dd      0
 view            dd      0
+row0            dd      0
 
 .code
 
@@ -99,14 +99,18 @@ aim_case        proc    near private uses bx cx dx si di es fs
                 CHK     n_slot_read, ax, PIX_B
 
                 invoke  qglSfAccessRd, view, 0
-                mov     di, ax
-                mov     si, dx
+                movzx   ebx, ax
+                movzx   eax, dx
+                shl     eax, 4
+                add     eax, ebx
+                mov     row0, eax
                 invoke  qglSfAccessRd, view, VIEW_W-1
-                mov     cx, ax
-                sub     cx, di
-                xor     dx, si
-                CHK     n_flat_seg, dx, 0
-                CHK     n_flat_ofs, cx, VIEW_W*(VIEW_W-1)
+                movzx   ebx, ax
+                movzx   eax, dx
+                shl     eax, 4
+                add     eax, ebx
+                sub     eax, row0
+                CHK     n_flat_ofs, ax, VIEW_W*(VIEW_W-1)
 
                 invoke  qglDelView, view
                 invoke  qglSfFree, par

@@ -78,7 +78,7 @@ qglVgaInit    proc    public
 qglVgaInit    endp
 
 ;;::::::::::::::
-;; qgl$VgaShape -- the screen surface's fields and its address table.
+;; qgl$VgaShape -- the screen surface's fields.
 ;;
 ;; A SUB rather than an initialiser, and called from qglVgaScreen as well
 ;; as from qglVgaInit: a caller that only wants the descriptor -- t01base
@@ -91,7 +91,7 @@ qgl$VgaShape    proc    near private uses ax bx cx dx es
                 cmp     W [qgl$screen+2], 0
                 jne     @@done
 
-                invoke  qglMemAlloc, T Surface + VGA_H * 4
+                invoke  qglMemAlloc, T Surface
                 mov     W [qgl$screen+0], ax
                 mov     W [qgl$screen+2], dx
                 or      ax, dx
@@ -109,6 +109,8 @@ qgl$VgaShape    proc    near private uses ax bx cx dx es
                 mov     es:[Surface.bps], VGA_W
                 mov     es:[Surface.pages], 1
                 mov     es:[Surface.startSL], 0
+                mov     W es:[Surface.baseOfs+0], 0
+                mov     W es:[Surface.baseOfs+2], 0
                 mov     es:[Surface.xMin], 0
                 mov     es:[Surface.yMin], 0
                 mov     es:[Surface.xMax], VGA_W-1
@@ -117,18 +119,6 @@ qgl$VgaShape    proc    near private uses ax bx cx dx es
                 mov     W es:[Surface.fptr+2], VGA_SEG
                 mov     W es:[Surface._size+0], (VGA_W * VGA_H) and 0FFFFh
                 mov     W es:[Surface._size+2], (VGA_W * VGA_H) shr 16
-
-                ;; the address table: 320*200 is 64000, so every row is in
-                ;; the one segment and the offset is all that moves
-                xor     ax, ax
-                mov     bx, SF_addrTB
-                mov     cx, VGA_H
-@@row:          mov     W es:[bx+0], VGA_SEG
-                mov     W es:[bx+2], ax
-                add     ax, VGA_W
-                add     bx, T dword
-                dec     cx
-                jnz     @@row
 
 @@done:         ret
 qgl$VgaShape    endp

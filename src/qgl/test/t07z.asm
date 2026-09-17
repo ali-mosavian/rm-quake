@@ -15,6 +15,9 @@
 ;;              demands a power-of-two stride. 160 pixels of depth is 320
 ;;              bytes and 320 is not one. Unpadded, EMS depth is not
 ;;              merely slow, it cannot be allocated at all.
+;;   seam    -- a CMEM depth row must not straddle a 64K window either.
+;;              At 320 pixels, row 102 of a 640-byte stride crosses it;
+;;              the mapper can return one pointer, not two.
 ;;   word    -- the clear is a WORD fill. A byte fill is right only for 0,
 ;;              and the value that matters after 0 is 0FFFFh: clearing to
 ;;              "nearest" and drawing nothing is how a depth TEST is
@@ -43,6 +46,8 @@ qglZScale     proto   far :dword
 
 DST_W           equ     160
 DST_H           equ     8
+SEAM_W          equ     320
+SEAM_H          equ     103
 
 .data
 n_new           db      'depth buffer made      $'
@@ -52,6 +57,7 @@ n_high          db      'as tall as its target  $'
 n_clear         db      'clear fills WORDS      $'
 n_scale         db      'scale returns the old  $'
 n_emspad        db      'ems stride padded to 2^$'
+n_cmem_seam     db      'cmem seam rows isolated$'
 n_attach        db      'attached to its surface$'
 n_twice         db      'a second one is refused$'
 n_mode_set      db      'mode SET takes         $'
@@ -63,6 +69,8 @@ n_freed         db      'and clears the mode    $'
 dst             dd      0
 zb              dd      0
 ems             dd      0
+seam_dst        dd      0
+seam_z          dd      0
 bad             dw      0
 
 .code
@@ -198,6 +206,26 @@ tmain           proc    far public uses bx cx dx si di es
 
                 invoke  qglSfZFree, dst
                 invoke  qglSfFree, dst
+
+                ;;
+                ;; 8. CMEM: row 102 at stride 640 would begin at 65280
+                ;;    and wrap halfway through. A write to that last row
+                ;;    must not overwrite the start of row zero.
+                ;;
+                invoke  qglSfNew, SEAM_W, SEAM_H, SURF_CMEM
+                SAVEP   seam_dst
+                invoke  qglSfZNew, seam_dst, SURF_CMEM
+                SAVEP   seam_z
+                invoke  qglSfRow, seam_z, 0
+                invoke  tfill, dx, ax, SEAM_W*2, 3
+                invoke  qglSfRow, seam_z, SEAM_H-1
+                invoke  tfill, dx, ax, SEAM_W*2, 99
+                invoke  qglSfRow, seam_z, 0
+                invoke  tvrfy, dx, ax, SEAM_W*2, 3
+                CHK     n_cmem_seam, ax, 0
+
+                invoke  qglSfZFree, seam_dst
+                invoke  qglSfFree, seam_dst
                 ret
 tmain           endp
                 end

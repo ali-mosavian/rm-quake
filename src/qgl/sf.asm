@@ -7,8 +7,8 @@
 ;;
 ;;       EVERYTHING BELOW IS A SHIM. The layer itself is mgl's, transcribed
 ;;       into qglnew.asm / qglview.asm / qgldc.asm / dct/dctmem.asm /
-;;       dct/dctems.asm. Owned surfaces use per-scanline address tables;
-;;       views derive a row from their offset and stride. What is left here is
+;;       dct/dctems.asm. Every backend maps base + y*stride through the
+;;       dispatch table. What is left here is
 ;;       the boundary -- argument order, the public SURF_ enum, the
 ;;       BASIC-only entries -- plus the dispatch table itself, which mgl
 ;;       keeps in uglmain.asm and qgl has nowhere else to put.
@@ -29,9 +29,9 @@
 ;;         64/32/16/8, font 8), and silently padding would waste memory
 ;;         nobody asked to spend. This guard is qgl's, not mgl's.
 ;;       - the header and the PIXELS are two allocations now, which is
-;;         mgl's shape: qglNewEx allocates the struct and its address
-;;         table, and the back-end's `new` allocates the pixels. qglSfFree
-;;         therefore frees both, through the back-end's `del`.
+;;         mgl's shape: qglNewEx allocates the fixed-size struct, and the
+;;         back-end's `new` allocates the pixels. qglSfFree therefore
+;;         frees both, through the back-end's `del`.
 ;;       - qglSfViewNew allocates only a header and aims it at part of
 ;;         another surface's store. The pixels stay the parent's.
 
@@ -159,20 +159,8 @@ qgl$Kind        endp
 ;;
 ;; The common case: one byte a pixel, so the stride is the width.
 ;;
-;; THROUGH qglNew, WHICH MEANS THROUGH calcBPS, and that is load-bearing
-;; rather than tidy. The address table places a row that would straddle
-;; the back-end's window (64K conventional, 16K EMS) at the START of the
-;; next window instead -- the offset it would have had is discarded, which
-;; is mgl's `and bx, ax` in qgl_mem_New. That is only safe if the tail it
-;; skips lies outside the visible part of the row, and calcBPS is what
-;; arranges that: it widens the scanline until the window divides evenly
-;; or leaves at least a whole row spare. Handing the width straight
-;; through as the stride, which this used to do, put the seam in the
-;; middle of a row -- t03surf's 320x220 surface had rows 204 and 205
-;; overlapping by 64 bytes.
-;;
-;; qglSfNewEx keeps the caller's stride and therefore the caller's
-;; problem; nothing that uses it exceeds one window.
+;; THROUGH qglNew, WHICH MEANS THROUGH calcBPS. CMEM keeps a stable segment
+;; inside each 64K window; EMS requires a stride that divides its 16K page.
 ;;::::::::::::::
 qglSfNew      proc    public uses bx cx si di es,\
                         wid:word, hgt:word, whr:word
@@ -288,7 +276,7 @@ qglSfNewEx   endp
 ;; qglSfFree ( s:far ptr )
 ;;
 ;; The back-end's `del` frees the pixels -- the EMS handle, or the
-;; conventional block -- and this frees the struct and its address table.
+;; conventional block -- and this frees the descriptor.
 ;; mgl's uglDel, minus the write-back of NULL to the caller's variable.
 ;;::::::::::::::
 qglSfFree     proc    public uses bx cx es fs,\
@@ -555,6 +543,8 @@ qglSfView     proc    private uses bx cx dx si di es,\
                         v:dword, parent:dword, ofs:dword,\
                         wid:word, hgt:word, bps:word
 
+                local   base:dword
+
                 les     bx, parent
                 mov     ax, es
                 or      ax, bx
@@ -564,6 +554,9 @@ qglSfView     proc    private uses bx cx dx si di es,\
                 mov     di, es:[bx].Surface.fmt
                 mov     cx, W es:[bx].Surface.fptr+0
                 mov     dx, W es:[bx].Surface.fptr+2
+                mov     eax, es:[bx].Surface.baseOfs
+                add     eax, ofs
+                mov     base, eax
 
                 les     bx, v
                 mov     es:[bx].Surface.typ, si
@@ -591,8 +584,8 @@ qglSfView     proc    private uses bx cx dx si di es,\
                 mov     es:[bx].Surface.bps, ax
                 mov     es:[bx].Surface.pages, 0
                 mov     es:[bx].Surface.startSL, 0
-                mov     eax, ofs
-                mov     es:[bx].Surface.viewOfs, eax
+                mov     eax, base
+                mov     es:[bx].Surface.baseOfs, eax
                 mov     D es:[bx].Surface.zsf, 0
                 mov     es:[bx].Surface.zmode, QGL_Z_OFF
 
@@ -672,80 +665,9 @@ qglSfViewAim  proc    public,\
 qglSfViewAim  endp
 
 ;;::::::::::::::
-;; qglSfViewRow ( v, y, slot ) -> dx:ax
-;;
-;; A view has shape, stride and one byte offset into its parent's store.
-;; It has no scanline table: derive the requested row here and map only
-;; the page that contains it.
-;;::::::::::::::
-qglSfViewRow  proc    public uses bx cx si di es,\
-                        v:dword, y:word, slot:word
-
-                les     bx, v
-                mov     ax, es
-                or      ax, bx
-                jz      @@fail
-                cmp     es:[bx].Surface.pages, 0
-                jne     @@fail
-                mov     ax, y
-                cmp     ax, es:[bx].Surface.yRes
-                jae     @@fail
-
-                cmp     es:[bx].Surface.typ, SF_EMS
-                je      @@ems
-                cmp     es:[bx].Surface.typ, SF_MEM
-                jne     @@fail
-
-                ;; Keep one segment while the view fits in 64K, just as
-                ;; an owned CMEM surface's row table does. Normalising each
-                ;; row independently changes the segment every 16 bytes and
-                ;; makes a flat multi-row view appear discontinuous.
-                mov     eax, es:[bx].Surface.viewOfs
-                movzx   ecx, W es:[bx].Surface.fptr+0
-                add     eax, ecx
-                mov     ecx, eax
-                and     cx, 15                  ;; offset of view row 0
-                shr     eax, 4
-                mov     dx, W es:[bx].Surface.fptr+2
-                add     dx, ax                  ;; segment of view row 0
-
-                movzx   eax, y
-                movzx   ebx, es:[bx].Surface.bps
-                imul    eax, ebx
-                movzx   ecx, cx
-                add     eax, ecx
-                mov     ecx, eax
-                shr     ecx, 16
-                shl     cx, 12                  ;; far-offset carry: +1000h
-                add     dx, cx
-                ret
-
-@@ems:         movzx   eax, y
-                movzx   ecx, es:[bx].Surface.bps
-                imul    eax, ecx
-                add     eax, es:[bx].Surface.viewOfs
-                mov     ecx, eax
-                and     cx, EMS_PGSIZE-1
-                shr     eax, 14
-                mov     si, ax
-                mov     ax, es:[bx].Surface.hnd
-                invoke  qglGemMap, ax, si, slot
-                mov     dx, ax
-                mov     ax, cx
-                ret
-
-@@fail:        xor     ax, ax
-                xor     dx, dx
-                ret
-qglSfViewRow  endp
-
-;;::::::::::::::
 ;; qglSfViewResize ( v:far ptr, parent:far ptr, w:word, h:word, bps:word ) -> ax nonzero
 ;;
-;; Reshapes an existing qglSfViewNew view without allocating. The view
-;; must originally have been allocated with at least h rows, because its
-;; address table cannot grow. Screen viewsize allocates the full-height
-;; table once and only shrinks it here.
+;; Reshapes an existing qglSfViewNew view without allocating.
 ;;::::::::::::::
 qglSfViewResize proc public,\
                         v:dword, parent:dword, wid:word, hgt:word, bps:word
@@ -758,11 +680,7 @@ qglSfViewResize endp
 ;; qglSfViewShape ( v:far ptr, wid:word, ofs:dword ) -> ax nonzero
 ;;
 ;; Re-aims a view AND gives it a new width: xRes, the clip's xMax and
-;; the stride, a cached surface being a flat run wid bytes a row. The
-;; address table is the height's whatever the width, so one view a
-;; HEIGHT serves every class of that height -- five for the cache
-;; where a view a class was twenty-two, made at the first face of each
-;; class where the load trace could not see them.
+;; the stride, a cached surface being a flat run wid bytes a row.
 ;;::::::::::::::
 qglSfViewShape proc   public uses bx dx es,\
                         v:dword, wid:word, ofs:dword

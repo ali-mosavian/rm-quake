@@ -54,12 +54,9 @@ qglNew          proc    public uses bx cx di si fs,\
                 cmp     qgl$dctTB[di].state, TRUE
                 jne     @@error
 
-                ;; allocate mem for Surface struct + addrTB
+                ;; allocate the descriptor; rows are derived from its base
                 LOGMSG  Surface
                 mov     eax, T Surface
-                mov     cx, si                  ;; addrTB size= yRes*4
-                shl     cx, 2                   ;; /
-                add     ax, cx
                 invoke  qglMemAlloc, eax
                 mov     cx, ax
                 or      cx, dx
@@ -96,6 +93,7 @@ qglNew          proc    public uses bx cx di si fs,\
 
                 mov     fs:[Surface.pages], 1
                 mov     fs:[Surface.startSL], 0
+                mov     D fs:[Surface.baseOfs], 0
 
                 ;; No depth until qglSfZNew makes one. qglMemAlloc does
                 ;; not zero what it hands back, and a stale pointer here
@@ -109,7 +107,7 @@ qglNew          proc    public uses bx cx di si fs,\
                 mov     W fs:[Surface._size+0], ax
                 mov     W fs:[Surface._size+2], dx
 
-                ;; let the LL New proc allocate the pixels and set addrTB
+                ;; let the LL New proc allocate the pixels
                 LOGMSG  <LL New>
                 call    qgl$dctTB[di].new       ;; dctTB[typ].new()
                 pop     dx
@@ -156,14 +154,19 @@ qglNewEx        proc    public uses bx di si fs es,\
                 cmp     qgl$dctTB[di].state, TRUE
                 jne     @@error
 
+                ;; An explicit stride still has to obey the backend's
+                ;; one-pointer-per-row window. Keep it exact while the
+                ;; whole store fits; otherwise fit it to the window just
+                ;; as qglNew does.
+                push    pages
+                call    fitBPS
+                jc      @@error
+
                 imul    si, pages               ;; scanlines= pages * yRes
 
-                ;; allocate mem for Surface struct + addrTB
+                ;; allocate the descriptor; rows are derived from its base
                 LOGMSG  Surface
                 mov     eax, T Surface
-                mov     cx, si                  ;; addrTB size= scanlines*4
-                shl     cx, 2                   ;; /
-                add     ax, cx
                 invoke  qglMemAlloc, eax
                 mov     cx, ax
                 or      cx, dx
@@ -201,6 +204,7 @@ qglNewEx        proc    public uses bx di si fs es,\
                 mov     ax, pages
                 mov     fs:[Surface.pages], ax
                 mov     fs:[Surface.startSL], 0
+                mov     D fs:[Surface.baseOfs], 0
 
                 ;; No depth until qglSfZNew makes one. qglMemAlloc does
                 ;; not zero what it hands back, and a stale pointer here
@@ -214,7 +218,7 @@ qglNewEx        proc    public uses bx di si fs es,\
                 mov     W fs:[Surface._size+0], ax
                 mov     W fs:[Surface._size+2], dx
 
-                ;; let the LL New proc allocate the pixels and set addrTB
+                ;; let the LL New proc allocate the pixels
                 LOGMSG  <LL New>
                 call    qgl$dctTB[di].new       ;; dctTB[typ].new()
                 pop     dx
@@ -256,33 +260,57 @@ calcBPS         proc    near uses ax cx dx,\
                 add     bx, 7
                 and     bx, not 7
 
+                push    pages
+                call    fitBPS
+
+                LOGEND
+                ret
+calcBPS         endp
+
+;;:::
+;; Keep every row inside one backend window. If the complete store fits,
+;; the caller's stride remains exact. A larger CMEM store needs a stride
+;; that divides 64K, so base+y*stride has the same phase in every window.
+;;
+;; in: di= typ, bx= bps, si= yRes
+;; out: bx= fitted bps, CF set if no word-sized stride can do it
+fitBPS          proc    near uses ax cx dx,\
+                        pages:word
+
                 ;; bps * yRes * pages < winSize?
-                mov     ax, pages
-                mul     si
-                mul     bx
-                cmp     dx, W qgl$dctTB[di].winSize+2
-                jb      @@exit
-                ja      @F
-                cmp     ax, W qgl$dctTB[di].winSize+0
-                jbe     @@exit
+                movzx   eax, si
+                movzx   ecx, pages
+                imul    eax, ecx
+                movzx   ecx, bx
+                imul    eax, ecx
+                cmp     eax, D qgl$dctTB[di].winSize
+                jbe     @@ok
 
 @@:             LOGMSG  <gt 64k>
-                ;; choose a scanline size where when it breaks the
-                ;; winSize, it does that outside the visible area
+                cmp     di, SF_MEM
+                jne     @F
+                add     bx, 7                  ;; explicit strides need
+                jc      @@error                ;; the same search lattice
+                and     bx, not 7              ;; as calculated ones
+@@:
+                ;; The linear mapper returns one pointer into one window,
+                ;; so the stride must divide that window. Then every row
+                ;; starts at the same set of safe offsets on every page.
                 mov     cx, bx                  ;; divisor= bps
 @@loop:         mov     ax, W qgl$dctTB[di].winSize+0
                 mov     dx, W qgl$dctTB[di].winSize+2
                 div     cx                      ;; winSize % divisor
                 test    dx, dx
                 jz      @@done                  ;; rem= 0?
-                cmp     dx, bx
-                jae     @@done                  ;; rem >= bps?
                 add     cx, 8                   ;; divisor+= 8
+                jc      @@error
                 jmp     short @@loop
 
 @@done:         mov     bx, cx                  ;; bps= divisor
 
-@@exit:         LOGEND
+@@ok:           clc
                 ret
-calcBPS         endp
+@@error:        stc
+                ret
+fitBPS          endp
                 end

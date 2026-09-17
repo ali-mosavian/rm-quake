@@ -179,8 +179,6 @@ qglSfGet        endp
 
 QGL_CODE
 
-qglSfViewRow proto far pascal :dword, :word, :word
-
 ;;::::::::::::::
 ;; A KIND THAT IS NOT THERE MUST NOT ANSWER WITH THE CALLER'S OWN es.
 ;;
@@ -205,26 +203,13 @@ qglSfViewRow proto far pascal :dword, :word, :word
 qglSfAccessRd   proc    public uses bx si gs ds,\
                         sf:dword,\
                         y:word
-
-                mov     gs, W sf+2                      ;; gs-> sf
+                mov     gs, W sf+2
                 mov     si, y
-
-                cmp     gs:[Surface.pages], 0
-                jne     @F
-                invoke  qglSfViewRow, sf, y, EMS_READPAGE
-                ret
-@@:
-
                 mov     bx, gs:[Surface.typ]
                 CHECKKIND bx, @@dead
-                add     si, gs:[Surface.startSL]        ;; + page
-
-                shl     si, 2                           ;; * sizeof( addrTB )
                 call    qgl$dctTB[bx].rdAccess
-
-                mov     dx, ds                          ;; return sf->addrTB[y]
-                mov     ax, si                          ;; /
-
+                mov     dx, ds
+                mov     ax, si
                 ret
 @@dead:         xor     ax, ax
                 xor     dx, dx
@@ -236,26 +221,13 @@ qglSfAccessRd   endp
 qglSfAccessWr   proc    public uses bx di fs es,\
                         sf:dword,\
                         y:word
-
-                mov     fs, W sf+2                      ;; fs-> sf
+                mov     fs, W sf+2
                 mov     di, y
-
-                cmp     fs:[Surface.pages], 0
-                jne     @F
-                invoke  qglSfViewRow, sf, y, EMS_WRITEPAGE
-                ret
- @@:
-
                 mov     bx, fs:[Surface.typ]
                 CHECKKIND bx, @@dead
-                add     di, fs:[Surface.startSL]        ;; + page
-
-                shl     di, 2                           ;; * sizeof( addrTB )
                 call    qgl$dctTB[bx].wrAccess
-
-                mov     dx, es                          ;; return sf->addrTB[y]
-                mov     ax, di                          ;; /
-
+                mov     dx, es
+                mov     ax, di
                 ret
 @@dead:         xor     ax, ax
                 xor     dx, dx
@@ -268,35 +240,16 @@ qglSfAccessRdWr proc    public uses bx di fs es,\
                         sf:dword,\
                         y:word,\
                         rdPtr:near ptr dword
-
-                mov     fs, W sf+2                      ;; fs-> sf
+                mov     fs, W sf+2
                 mov     di, y
-
-                cmp     fs:[Surface.pages], 0
-                jne     @F
-                invoke  qglSfViewRow, sf, y, EMS_READPAGE
-                mov     bx, rdPtr
-                mov     [bx+0], ax
-                mov     [bx+2], dx
-                invoke  qglSfViewRow, sf, y, EMS_WRITEPAGE
-                ret
-@@:
-
                 mov     bx, fs:[Surface.typ]
                 CHECKKIND bx, @@dead
-                add     di, fs:[Surface.startSL]        ;; + page
-
-                shl     di, 2                           ;; * sizeof( addrTB )
                 call    qgl$dctTB[bx].rdwrAccess
-
-                ;; save read access ptr
                 mov     bx, rdPtr
                 mov     [bx+0], di
                 mov     [bx+2], ax
-
-                mov     dx, es                          ;; return sf->addrTB[y]
-                mov     ax, di                          ;; /
-
+                mov     dx, es
+                mov     ax, di
                 ret
 @@dead:         xor     ax, ax
                 xor     dx, dx
@@ -316,24 +269,12 @@ qglSfAccessRdEx proc    public uses bx cx si gs,\
                         sf:dword,\
                         y:word,\
                         slot:word
-
-                mov     gs, W sf+2                      ;; gs-> sf
+                mov     gs, W sf+2
                 mov     si, y
-
-                cmp     gs:[Surface.pages], 0
-                jne     @F
-                invoke  qglSfViewRow, sf, y, slot
-                ret
- @@:
-
                 mov     bx, gs:[Surface.typ]
                 CHECKKIND bx, @@dead
-                add     si, gs:[Surface.startSL]        ;; + page
-
-                shl     si, 2                           ;; * sizeof( addrTB )
-                mov     cx, slot                        ;; cl= window slot
+                mov     cx, slot
                 call    qgl$dctTB[bx].rdAccessEx
-
                 ret
 @@dead:         xor     ax, ax
                 xor     dx, dx
@@ -346,24 +287,12 @@ qglSfAccessWrEx proc    public uses bx cx di fs,\
                         sf:dword,\
                         y:word,\
                         slot:word
-
-                mov     fs, W sf+2                      ;; fs-> sf
+                mov     fs, W sf+2
                 mov     di, y
-
-                cmp     fs:[Surface.pages], 0
-                jne     @F
-                invoke  qglSfViewRow, sf, y, slot
-                ret
- @@:
-
                 mov     bx, fs:[Surface.typ]
                 CHECKKIND bx, @@dead
-                add     di, fs:[Surface.startSL]        ;; + page
-
-                shl     di, 2                           ;; * sizeof( addrTB )
-                mov     cx, slot                        ;; cl= window slot
+                mov     cx, slot
                 call    qgl$dctTB[bx].wrAccessEx
-
                 ret
 @@dead:         xor     ax, ax
                 xor     dx, dx

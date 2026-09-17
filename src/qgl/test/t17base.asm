@@ -1,8 +1,8 @@
 ;; t17base -- every Surface qgl hands out sits at offset 0 of its segment.
 ;;
-;; mgl's accessors read a dc as gs:[DC.field] and gs:[DC_addrTB][si],
-;; with no base register, because memAlloc always answers on a paragraph
-;; boundary. qgl's transcriptions do the same, so this is the invariant
+;; mgl's accessors read a dc as gs:[DC.field], with no base register,
+;; because memAlloc always answers on a paragraph boundary. qgl's
+;; transcriptions do the same, so this is the invariant
 ;; the whole layer rests on -- and it is the one an earlier design broke:
 ;; qglSfScratch handed out four headers spaced through one block and
 ;; vga.asm declared its screen as a DGROUP static, which forced a base
@@ -62,7 +62,7 @@ tmain           proc    far public uses bx es
                 invoke  qglSfPget, sfx, 1, 2
                 CHK     n_newex_use, ax, 05Ch
 
-                ;; a view allocates its own header and address table
+                ;; a view allocates only its own fixed-size header
                 invoke  qglSfViewNew, sf, VWW, VWH, VWW
                 SAVEP   vw
                 CHK     n_view, W vw+0, 0
@@ -74,8 +74,8 @@ tmain           proc    far public uses bx es
                 invoke  qglVgaScreen
                 CHK     n_screen, ax, 0
 
-                ;; and the EMS back-end, whose accessors index the same
-                ;; table through the same fixed read and write pages
+                ;; and the EMS back-end, whose accessors dispatch through
+                ;; the same fixed read and write pages
                 invoke  qglSfNew, 64, 8, SURF_EMS
                 SAVEP   ems
                 CHK     n_ems, W ems+0, 0
