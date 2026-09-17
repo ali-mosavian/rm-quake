@@ -949,17 +949,12 @@ static void near host_view_setup( Host *h )
     rdr->no_items  = a->no_items;
     rdr->no_mdl    = a->no_mdl;
     rdr->no_view   = a->no_view;
+    rdr->demo_view_frame = -1;
     rdr->no_ai     = a->no_ai;
     h->hud->portal_wire = a->ptwire;
     /* off unless asked for; -nostats stays accepted for old recipes */
     h->hud->stats = (short) ( a->stats && !a->no_stats ? -1 : 0 );
     h->hud->bench = (short) ( a->bench_ticks > 0 ? -1 : 0 );
-    if ( h->demo.camera ) {
-        rdr->no_ents = rdr->no_items = rdr->no_mdl = rdr->no_view = -1;
-        v_set_viewsize( &h->v, 120 );
-        h->viewsize_applied = 120.0f;
-    }
-
     /* VGA 13h's pixels are not square: the SCALED view size cancels
        against the mode's */
     {
@@ -1248,6 +1243,11 @@ static void near host_console_result( Host *h, CmdKind kind, CmdResult *result )
             h->rdr.no_items = h->args.no_items;
             h->rdr.no_mdl = h->args.no_mdl;
             h->rdr.no_view = h->args.no_view;
+            h->rdr.demo_view_frame = -1;
+            strncpy( h->fight.next_map, h->args.map_name, 8 );
+            h->fight.next_map[8] = 0;
+            if ( strchr( h->fight.next_map, '.' ) ) *strchr( h->fight.next_map, '.' ) = 0;
+            h->fight.state = GS_NEXT;
         }
         h->args.play_name[0] = 0;
         return;
@@ -1328,8 +1328,6 @@ static void near host_apply_cvars( Host *h )
     float skill_value = cvar_value( h->cmd, "skill" );
     float viewsize = cvar_value( h->cmd, "viewsize" );
     short skill = (short) skill_value;
-
-    if ( h->demo.camera ) viewsize = 120.0f;
 
     if ( skill_value != h->skill_cvar_seen ) {
         h->args.skill = h->world.skill = h->fight.skill = skill;
@@ -1528,11 +1526,6 @@ static void near host_present( Host *h )
         if ( v->comp ) qglDrBlit( v->h_video_dc, 0, 0, v->h_comp_dc );
         goto presented;
     }
-    if ( h->demo.camera ) {
-        con_draw( h->console, h->hud, target, v->scr_x_res, v->scr_y_res );
-        if ( v->comp ) qglDrBlit( v->h_video_dc, 0, 0, v->h_comp_dc );
-        goto presented;
-    }
     special = (short) ( h->fight.state == GS_EXIT || h->fight.state == GS_FINALE );
     if ( v->comp ) {
         if ( !special )
@@ -1614,7 +1607,8 @@ void host_frame( Host *h )
         h->console_frames++;
         h->clock.accum = 0.0f;
     } else if ( h->demo.camera ) {
-        if ( !demo_camera( &h->demo, &h->cam, &h->player, frame_dt ) ) {
+        if ( !demo_camera( &h->demo, &h->cam, &h->player, &h->world,
+                           &h->fight, &h->rdr, &h->ls, frame_dt ) ) {
             demo_close( &h->demo, &h->args );
             h->args.play_name[0] = 0;
             if ( h->attract.active ) host_attract_next( h );
@@ -1623,7 +1617,6 @@ void host_frame( Host *h )
         }
         h->rdr.anim_time += frame_dt;
         if ( h->rdr.no_styles ) ls_hold( &h->ls );
-        else ls_animate( &h->ls, h->rdr.anim_time );
         h->clock.accum = 0.0f;
     } else
         dropped = host_advance( h, frame_dt );

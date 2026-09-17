@@ -134,6 +134,7 @@ typedef struct {
     short no_items;       /* -noitems */
     short no_mdl;         /* -nomdl */
     short no_view;        /* -noview: no weapon in hand, for a reference frame */
+    short demo_view_frame;/* recorded QDS1 frame, -1 outside demo playback */
     short no_ai;          /* -noai: the monsters stand where they spawned */
     short mdl_drawn;      /* monster triangles submitted this frame */
     short ents_last;      /* brush entities after the world walk: with depth

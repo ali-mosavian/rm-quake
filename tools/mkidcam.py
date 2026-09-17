@@ -1,7 +1,8 @@
-"""mkidcam.py PAK demos/demo.dem out.qdc -- extract an id demo camera track."""
+"""mkidcam.py PAK demos/demo.dem out.qdc -- extract id demo client snapshots."""
 
 from dataclasses import dataclass, field
 from pathlib import Path
+import re
 import struct
 import sys
 
@@ -29,6 +30,66 @@ SU_VELOCITY1 = 1 << 5
 SU_WEAPONFRAME = 1 << 12
 SU_ARMOR = 1 << 13
 SU_WEAPON = 1 << 14
+
+ENT_BRUSH = 1
+ENT_MONSTER = 2
+ENT_ITEM = 3
+ENT_LIGHT = 4
+
+MONSTERS = {
+    "soldier": (0, "stand,run,death,pain"),
+    "knight": (1, "stand,runb,death,pain,attackb"),
+    "dog": (2, "stand:1,run,death,pain:1"),
+    "ogre": (3, "stand:1,run,death,pain:3,shoot"),
+    "demon": (4, "stand:1,run,death,pain:3,attacka"),
+    "zombie": (5, "stand:1,run:8,death,paina:8,atta"),
+    "wizard": (6, "hover,fly,death,pain,magatt"),
+    "shambler": (7, "stand:1,run,death,pain,magic"),
+}
+
+ITEMS = {
+    "health": 0,
+    "b_bh10": 0,
+    "b_bh25": 0,
+    "b_bh100": 0,
+    "b_shell0": 1,
+    "b_shell1": 1,
+    "armor": 2,
+    "armor1": 3,
+    "g_shot2": 4,
+    "g_shot": 1,
+    "b_nail0": 5,
+    "b_nail1": 5,
+    "g_nail": 6,
+    "quaddama": 7,
+    "suit": 8,
+    "b_explob": 9,
+    "w_s_key": 10,
+    "m_s_key": 10,
+    "w_g_key": 11,
+    "m_g_key": 11,
+    "g_rock": 12,
+    "b_rock0": 13,
+    "b_rock1": 13,
+    "g_nail2": 14,
+    "g_rock2": 15,
+    "invulner": 16,
+    "end1": 17,
+    "armor2": 18,
+    "b_batt0": 19,
+    "b_batt1": 19,
+    "invisibl": 20,
+    "backpack": 1,
+}
+
+
+@dataclass(slots=True)
+class NetEntity:
+    model: int = 0
+    frame: int = 0
+    skin: int = 0
+    origin: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    angles: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
 
 @dataclass(slots=True)
@@ -74,21 +135,38 @@ class DemoState:
     view_entity: int = 0
     view_height: int = 22
     server_time: float | None = None
-    baselines: dict[int, tuple[float, float, float]] = field(default_factory=dict)
-    origins: dict[int, tuple[float, float, float]] = field(default_factory=dict)
+    models: list[str] = field(default_factory=list)
+    baselines: dict[int, NetEntity] = field(default_factory=dict)
+    entities: dict[int, NetEntity] = field(default_factory=dict)
+    seen: set[int] = field(default_factory=set)
+    items: int = 0
+    health: int = 100
+    armor: int = 0
+    weapon: int = 1
+    weapon_frame: int = 0
+    weapon_model: int = 0
+    shells: int = 25
+    nails: int = 0
+    rockets: int = 0
+    cells: int = 0
+    lightstyles: dict[int, str] = field(default_factory=dict)
 
 
 def read_coord(reader: Reader) -> float:
     return reader.short() * 0.125
 
 
-def skip_baseline(reader: Reader) -> tuple[float, float, float]:
-    reader.take(4)
+def read_baseline(reader: Reader) -> NetEntity:
+    model = reader.byte()
+    frame = reader.byte()
+    reader.byte()
+    skin = reader.byte()
     origin = []
+    angles = []
     for _ in range(3):
         origin.append(read_coord(reader))
-        reader.byte()
-    return tuple(origin)
+        angles.append(reader.byte() * 360.0 / 256.0)
+    return NetEntity(model, frame, skin, tuple(origin), tuple(angles))
 
 
 def parse_serverinfo(reader: Reader, state: DemoState) -> None:
@@ -97,17 +175,19 @@ def parse_serverinfo(reader: Reader, state: DemoState) -> None:
         raise ValueError(f"protocol {protocol}, want 15")
     reader.take(2)
     reader.string()
-    models = []
+    models = [""]
     while name := reader.string():
         models.append(name)
     while reader.string():
         pass
-    if not models or not models[0].startswith("maps/") or not models[0].endswith(".bsp"):
+    if len(models) < 2 or not models[1].startswith("maps/") or not models[1].endswith(".bsp"):
         raise ValueError("serverinfo has no world model")
-    state.map_name = Path(models[0]).stem
+    state.map_name = Path(models[1]).stem
+    state.models = models
     state.view_height = 22
     state.baselines.clear()
-    state.origins.clear()
+    state.entities.clear()
+    state.lightstyles.clear()
 
 
 def parse_clientdata(reader: Reader, state: DemoState) -> None:
@@ -120,14 +200,26 @@ def parse_clientdata(reader: Reader, state: DemoState) -> None:
             reader.char()
         if bits & (SU_VELOCITY1 << axis):
             reader.char()
-    reader.long()
+    state.items = reader.long()
     if bits & SU_WEAPONFRAME:
-        reader.byte()
+        state.weapon_frame = reader.byte()
+    else:
+        state.weapon_frame = 0
     if bits & SU_ARMOR:
-        reader.byte()
+        state.armor = reader.byte()
+    else:
+        state.armor = 0
     if bits & SU_WEAPON:
-        reader.byte()
-    reader.take(8)
+        state.weapon_model = reader.byte()
+    else:
+        state.weapon_model = 0
+    state.health = reader.short()
+    reader.byte()
+    state.shells = reader.byte()
+    state.nails = reader.byte()
+    state.rockets = reader.byte()
+    state.cells = reader.byte()
+    state.weapon = reader.byte()
 
 
 def parse_update(reader: Reader, state: DemoState, cmd: int) -> None:
@@ -135,18 +227,24 @@ def parse_update(reader: Reader, state: DemoState, cmd: int) -> None:
     if bits & U_MOREBITS:
         bits |= reader.byte() << 8
     entity = reader.short() if bits & U_LONGENTITY else reader.byte()
-    for flag in (U_MODEL, U_FRAME, U_COLORMAP, U_SKIN, U_EFFECTS):
+    baseline = state.baselines.get(entity, NetEntity())
+    model = reader.byte() if bits & U_MODEL else baseline.model
+    frame = reader.byte() if bits & U_FRAME else baseline.frame
+    if bits & U_COLORMAP:
+        reader.byte()
+    skin = reader.byte() if bits & U_SKIN else baseline.skin
+    for flag in (U_EFFECTS,):
         if bits & flag:
             reader.byte()
-    baseline = state.baselines.get(entity, (0.0, 0.0, 0.0))
     origin = []
+    angles = []
     origin_bits = (U_ORIGIN1, U_ORIGIN2, U_ORIGIN3)
     angle_bits = (U_ANGLE1, U_ANGLE2, U_ANGLE3)
     for axis in range(3):
-        origin.append(read_coord(reader) if bits & origin_bits[axis] else baseline[axis])
-        if bits & angle_bits[axis]:
-            reader.byte()
-    state.origins[entity] = tuple(origin)
+        origin.append(read_coord(reader) if bits & origin_bits[axis] else baseline.origin[axis])
+        angles.append(reader.byte() * 360.0 / 256.0 if bits & angle_bits[axis] else baseline.angles[axis])
+    state.entities[entity] = NetEntity(model, frame, skin, tuple(origin), tuple(angles))
+    state.seen.add(entity)
 
 
 def skip_temp_entity(reader: Reader) -> None:
@@ -164,6 +262,7 @@ def skip_temp_entity(reader: Reader) -> None:
 def parse_packet(data: bytes, state: DemoState) -> bool:
     reader = Reader(data)
     timed = False
+    state.seen.clear()
     while reader.pos < len(data):
         cmd = reader.byte()
         if cmd & 0x80:
@@ -171,7 +270,7 @@ def parse_packet(data: bytes, state: DemoState) -> bool:
             continue
         match cmd:
             case 0:
-                raise ValueError("svc_bad")
+                raise ValueError(f"svc_bad at byte {reader.pos - 1}")
             case 1 | 2 | 27 | 28 | 30 | 33:
                 pass
             case 3:
@@ -192,7 +291,10 @@ def parse_packet(data: bytes, state: DemoState) -> bool:
                 reader.take(3)
             case 11:
                 parse_serverinfo(reader, state)
-            case 12 | 13:
+            case 12:
+                style = reader.byte()
+                state.lightstyles[style] = reader.string()
+            case 13:
                 reader.byte()
                 reader.string()
             case 14:
@@ -208,12 +310,12 @@ def parse_packet(data: bytes, state: DemoState) -> bool:
             case 19:
                 reader.take(8)
             case 20:
-                skip_baseline(reader)
+                read_baseline(reader)
             case 21:
                 raise ValueError("obsolete svc_spawnbinary")
             case 22:
                 entity = reader.short()
-                state.baselines[entity] = skip_baseline(reader)
+                state.baselines[entity] = read_baseline(reader)
             case 23:
                 skip_temp_entity(reader)
             case 24 | 25:
@@ -242,43 +344,187 @@ def packets(data: bytes) -> list[tuple[tuple[float, float, float], bytes]]:
     return result
 
 
-def camera_track(data: bytes) -> tuple[str, list[tuple[float, ...]]]:
+def mdl_frame_names(data: bytes) -> list[str]:
+    _ident, _version = struct.unpack_from("<4si", data)
+    nskins, skin_w, skin_h, nverts, ntris, nframes = struct.unpack_from("<6i", data, 48)
+    pos = 84
+    for _ in range(nskins):
+        group = struct.unpack_from("<i", data, pos)[0]
+        pos += 4
+        count = 1
+        if group:
+            count = struct.unpack_from("<i", data, pos)[0]
+            pos += 4 + count * 4
+        pos += count * skin_w * skin_h
+    pos += nverts * 12 + ntris * 16
+    names = []
+    for _ in range(nframes):
+        grouped = struct.unpack_from("<i", data, pos)[0]
+        pos += 4
+        count = 1
+        if grouped:
+            count = struct.unpack_from("<i", data, pos)[0]
+            pos += 4 + 16 + count * 4
+        for _ in range(count):
+            pos += 8
+            names.append(data[pos : pos + 16].split(b"\0", 1)[0].decode("latin1"))
+            pos += 16 + nverts * 4
+    return names
+
+
+def compact_frame_map(pak: bytes, name: str, spec: str) -> dict[int, int]:
+    names = mdl_frame_names(member(pak, f"progs/{name}.mdl"))
+    chosen = []
+    groups = []
+    for part in spec.split(","):
+        prefix, _, limit = part.partition(":")
+        matches = [i for i, frame in enumerate(names) if re.sub(r"\d+$", "", frame) == prefix]
+        kept = matches[: int(limit)] if limit else matches
+        groups.append(kept)
+        chosen.extend(kept)
+    reverse = {original: compact for compact, original in enumerate(chosen)}
+    for original, frame in enumerate(names):
+        if original in reverse:
+            continue
+        base = re.sub(r"\d+$", "", frame)
+        if "death" in base:
+            group = groups[2]
+        elif "pain" in base:
+            group = groups[3]
+        elif base.startswith(("run", "walk", "fly")):
+            group = groups[1]
+        elif base.startswith(("stand", "idle", "hover")):
+            group = groups[0]
+        else:
+            group = groups[4] if len(groups) > 4 and groups[4] else groups[0]
+        same = [i for i, candidate in enumerate(names) if re.sub(r"\d+$", "", candidate) == base]
+        ordinal = same.index(original)
+        fallback = group[min(ordinal, len(group) - 1)]
+        reverse[original] = reverse[fallback]
+    return reverse
+
+
+def local_items(bits: int) -> int:
+    result = bits & 7
+    if bits & 8:
+        result |= 64
+    if bits & 16:
+        result |= 32
+    if bits & 32:
+        result |= 128
+    if bits & 131072:
+        result |= 8
+    if bits & 262144:
+        result |= 16
+    return result
+
+
+def local_weapon(bit: int) -> int:
+    return {1: 1, 2: 2, 4: 4, 8: 64, 16: 32, 32: 128}.get(bit, 1)
+
+
+def armor_kind(bits: int) -> int:
+    if bits & 32768:
+        return 3
+    if bits & 16384:
+        return 2
+    if bits & 8192:
+        return 1
+    return 0
+
+
+def power_bits(bits: int) -> int:
+    return ((1 if bits & 524288 else 0) | (2 if bits & 1048576 else 0) |
+            (4 if bits & 2097152 else 0) | (8 if bits & 4194304 else 0))
+
+
+def item_kind(stem: str, skin: int) -> int:
+    return (2, 3, 18)[min(skin, 2)] if stem == "armor" else ITEMS[stem]
+
+
+def entity_records(state: DemoState, frame_maps: dict[str, dict[int, int]]) -> list[tuple[float, ...]]:
+    records = []
+    for number in sorted(state.seen):
+        entity = state.entities[number]
+        if entity.model <= 0 or entity.model >= len(state.models):
+            continue
+        model = state.models[entity.model]
+        stem = Path(model).stem.lower()
+        if model.startswith("*"):
+            records.append((number, ENT_BRUSH, int(model[1:]), 0, 0, *entity.origin, entity.angles[1]))
+        elif stem in MONSTERS:
+            kind, _spec = MONSTERS[stem]
+            records.append((number, ENT_MONSTER, kind, 6,
+                            frame_maps[stem].get(entity.frame, 0), *entity.origin, entity.angles[1]))
+        elif stem in ITEMS:
+            records.append((number, ENT_ITEM, item_kind(stem, entity.skin),
+                            1 if stem == "backpack" else 0, 0, *entity.origin, entity.angles[1]))
+    for style, pattern in sorted(state.lightstyles.items()):
+        if pattern:
+            value = (ord(pattern[int((state.server_time or 0.0) * 10) % len(pattern)]) - ord("a")) * 10
+            records.append((style, ENT_LIGHT, style, 0, value, 0.0, 0.0, 0.0, 0.0))
+    return records
+
+
+def camera_track(pak: bytes, data: bytes) -> tuple[str, list[tuple[tuple[float, ...], list[tuple[float, ...]]]]]:
     state = DemoState()
     records = []
     start_time = None
+    frame_maps = {name: compact_frame_map(pak, name, spec) for name, (_kind, spec) in MONSTERS.items()}
     for angles, message in packets(data):
         if not parse_packet(message, state) or state.server_time is None:
             continue
-        origin = state.origins.get(state.view_entity)
-        if origin is None:
+        view = state.entities.get(state.view_entity)
+        if view is None:
             continue
         if start_time is None:
             start_time = state.server_time
         time = state.server_time - start_time
-        if records and time <= records[-1][0]:
+        if records and time <= records[-1][0][0]:
             continue
-        records.append(
+        entities = entity_records(state, frame_maps)
+        records.append((
             (
                 time,
-                origin[0] + 1.0 / 32.0,
-                origin[1] + 1.0 / 32.0,
-                origin[2] + state.view_height + 1.0 / 32.0,
+                view.origin[0] + 1.0 / 32.0,
+                view.origin[1] + 1.0 / 32.0,
+                view.origin[2] + state.view_height + 1.0 / 32.0,
                 angles[0],
                 angles[1],
-            )
-        )
+                local_items(state.items),
+                state.health,
+                state.armor,
+                local_weapon(state.weapon),
+                state.weapon_frame,
+                state.shells,
+                state.nails,
+                state.rockets,
+                state.cells,
+                armor_kind(state.items),
+                power_bits(state.items),
+                state.weapon_model,
+                len(entities),
+            ),
+            entities,
+        ))
     if not state.map_name or len(records) < 2:
         raise ValueError("demo produced no camera track")
     return state.map_name, records
 
 
-def write_track(path: Path, map_name: str, records: list[tuple[float, ...]]) -> None:
+def write_track(
+    path: Path,
+    map_name: str,
+    records: list[tuple[tuple[float, ...], list[tuple[float, ...]]]],
+) -> None:
     encoded_map = map_name.encode("ascii")
     if len(encoded_map) > 8:
         raise ValueError(f"map name {map_name!r} is too long")
-    data = bytearray(b"QDC1" + encoded_map.ljust(9, b"\0"))
-    for record in records:
-        data.extend(struct.pack("<6f", *record))
+    data = bytearray(b"QDS1" + encoded_map.ljust(9, b"\0"))
+    for frame, entities in records:
+        data.extend(struct.pack("<6fl12h", *frame))
+        for entity in entities:
+            data.extend(struct.pack("<5h4f", *entity))
     path.write_bytes(data)
 
 
@@ -287,7 +533,7 @@ def main() -> None:
         raise SystemExit(__doc__)
     pak = Path(sys.argv[1]).read_bytes()
     demo = member(pak, sys.argv[2])
-    map_name, records = camera_track(demo)
+    map_name, records = camera_track(pak, demo)
     write_track(Path(sys.argv[3]), map_name, records)
 
 

@@ -25,6 +25,7 @@
 #define MDL_ST_PAIN    3      /* the flinch a hit that does not kill plays */
 #define MDL_ST_ATTACK  4      /* the knight's sword, charging */
 #define MDL_ST_LEAP    5      /* the dog in the air, on its velocity */
+#define MDL_ST_DEMO    6      /* anim_frame is an absolute recorded frame */
 
 #define MDL_HEALTH      30    /* monster_army's */
 #define MDL_PELLETS     4     /* army_fire: FireBullets(4, '0.1 0.1 0') */

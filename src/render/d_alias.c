@@ -580,6 +580,7 @@ short d_draw_models( World *world, Renderer *rdr, DiskPlane far *frustum,
         case MDL_ST_LEAP:  frame = mdl_set_frame( ms, MDL_SET_RUN, e->anim_frame ); break;
         case MDL_ST_DEAD:  frame = mdl_set_frame( ms, MDL_SET_DEATH, e->anim_frame ); break;
         case MDL_ST_PAIN:  frame = mdl_set_frame( ms, MDL_SET_PAIN, e->anim_frame ); break;
+        case MDL_ST_DEMO:  frame = e->anim_frame; break;
         default:           frame = mdl_set_frame( ms, MDL_SET_ATK, e->anim_frame ); break;
         }
         if ( frame >= ms->nframe ) frame = (short) ( ms->nframe - 1 );
@@ -614,6 +615,7 @@ short d_draw_view( World *world, Renderer *rdr, Camera *cam, Player *player,
     short frame;
 
     if ( rdr->no_mdl || rdr->no_view ) return 0;
+    if ( rdr->demo_view_frame == -2 ) return 0;
     if ( fight->state >= GS_EXIT ) return 0;     /* no gun in an intermission/finale */
     if ( rdr->anim_time < fight->invis_until ) return 0;   /* R_DrawViewModel: none while invisible */
     ms = &world->vmdl[ pl_view_of( fight->weapon ) ];
@@ -632,8 +634,9 @@ short d_draw_view( World *world, Renderer *rdr, Camera *cam, Player *player,
        shot and holds its last frame until the weapon is ready again.
        The nailgun cycles its eight while fire is held, as
        player_nail1/2 do. */
-    frame = 0;
-    if ( rdr->anim_time < fight->next_fire ) {
+    frame = rdr->demo_view_frame;
+    if ( frame < 0 ) frame = 0;
+    if ( rdr->demo_view_frame < 0 && rdr->anim_time < fight->next_fire ) {
         frame = (short) ( 1 + (short) ( ( rdr->anim_time - fight->fire_at ) * 10.0f ) );
         if ( fight->weapon == PL_IT_NAILGUN || fight->weapon == PL_IT_SNG )
             frame = (short) ( 1 + ( (long) ( rdr->anim_time * 10.0f ) % 8 ) );

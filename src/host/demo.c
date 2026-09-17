@@ -8,11 +8,16 @@
 #include <math.h>   /* atan2 -- the recorded yaw */
 #include "dbg.h"
 #include "qgl.h"
+#include "ent.h"
+#include "mdl.h"
+#include "mdl_ai.h"
 #include "demo.h"
 
 static char demo_magic[4] = { 'Q', 'C', 'R', '3' };
 static char demo_magic2[4] = { 'Q', 'C', 'R', '2' };
-static char camera_magic[4] = { 'Q', 'D', 'C', '1' };
+static char snapshot_magic[4] = { 'Q', 'D', 'S', '1' };
+
+static void near demo_short( void ) { sys_error( "short" ); }
 
 static void demo_map_name( const char *name, char *map )
 {
@@ -31,7 +36,7 @@ short demo_map( const char *name, char *map )
     if ( !f ) return 0;
     if ( fread( magic, 1, sizeof(magic), f ) != sizeof(magic) ||
          ( memcmp( magic, demo_magic, sizeof(magic) ) &&
-           memcmp( magic, camera_magic, sizeof(magic) ) ) ||
+           memcmp( magic, snapshot_magic, sizeof(magic) ) ) ||
          fread( map, 1, 9, f ) != 9 ) map[0] = 0;
     map[8] = 0;
     fclose( f );
@@ -57,17 +62,26 @@ void demo_open( Demo *dm, const RunArgs *args )
         dm->rf = fopen( args->play_name, "rb" );
         if ( !dm->rf ) sys_error( "could not open -play file" );
         if ( fread( magic, 1, sizeof(magic), dm->rf ) == sizeof(magic) &&
-             !memcmp( magic, camera_magic, sizeof(magic) ) ) {
+             !memcmp( magic, snapshot_magic, sizeof(magic) ) ) {
             char map[9];
             dm->camera = (short) ( fread( dm->map, 1, sizeof(dm->map), dm->rf ) ==
                                    sizeof(dm->map) );
-            if ( !dm->camera ||
-                 fread( &dm->camera_from, sizeof(dm->camera_from), 1, dm->rf ) != 1 ||
-                 fread( &dm->camera_to, sizeof(dm->camera_to), 1, dm->rf ) != 1 )
-                sys_error( "short QDC1 camera track" );
+            dm->snapshot = -1;
+            if ( !dm->camera ) demo_short();
+            {
+                long first_entities;
+                if ( fread( &dm->camera_from, sizeof(dm->camera_from), 1, dm->rf ) != 1 )
+                    demo_short();
+                first_entities = ftell( dm->rf );
+                fseek( dm->rf, (long) dm->camera_from.ent_count * sizeof(DemoEntity), SEEK_CUR );
+                dm->snapshot_next_pos = ftell( dm->rf );
+                if ( fread( &dm->camera_to, sizeof(dm->camera_to), 1, dm->rf ) != 1 )
+                    demo_short();
+                fseek( dm->rf, first_entities, SEEK_SET );
+            }
             dm->map[8] = 0;
             demo_map_name( args->map_name, map );
-            if ( stricmp( dm->map, map ) ) sys_error( "QDC1 belongs to another map" );
+            if ( stricmp( dm->map, map ) ) sys_error( "QDS1 belongs to another map" );
             dm->camera_time = dm->camera_from.time;
         } else if ( !memcmp( magic, demo_magic, sizeof(magic) ) ) {
             char map[9];
@@ -132,18 +146,111 @@ static float near demo_lerp_angle( float a, float b, float frac )
     return a + d * frac;
 }
 
-short demo_camera( Demo *dm, Camera *cam, Player *player, float frame_dt )
+static void near demo_snapshot_apply( Demo *dm, DemoFrame *frame, World *world,
+                                      Fight *fight, Renderer *rdr, LightStyles *ls )
 {
-    DemoCam *a, *b;
+    DemoEntity e;
+    short i, j, mon = 0, item = 0, item_applied = 0, brush = 0;
+
+    if ( !dm->snapshot_item_base ) dm->snapshot_item_base = world->item_count;
+    world->item_count = world->item_max;
+    for ( i = 0; i < world->mon_count; i++ ) world->mon[i].kind = -1;
+    for ( i = 0; i < world->item_count; i++ ) world->item[i].gone = -1;
+    for ( i = 1; i < world->model_count; i++ ) world->brush[i].draw = 0;
+
+    for ( i = 0; i < frame->ent_count; i++ ) {
+        if ( fread( &e, sizeof(e), 1, dm->rf ) != 1 ) demo_short();
+        if ( e.type == DEMO_ENT_BRUSH && e.kind > 0 && e.kind < world->model_count ) {
+            BrushModel far *b = &world->brush[e.kind];
+            b->draw = -1;
+            b->ofs.x = e.x; b->ofs.y = e.y; b->ofs.z = e.z;
+            b->node = ENT_NODE_DIRTY;
+            brush++;
+        } else if ( e.type == DEMO_ENT_MONSTER && mon < world->mon_count ) {
+            MdlEnt far *m = &world->mon[mon++];
+            m->kind = e.kind; m->order = e.number;
+            m->state = MDL_ST_DEMO; m->anim_frame = e.frame;
+            m->pos.x = e.x; m->pos.y = e.y; m->pos.z = e.z; m->yaw = e.yaw;
+        } else if ( e.type == DEMO_ENT_ITEM ) {
+            ItemEnt far *it = 0;
+            float best = 4096.0f;
+            for ( j = 0; !e.state && j < dm->snapshot_item_base; j++ ) {
+                ItemEnt far *candidate = &world->item[j];
+                float dx, dy, dz, dist, tx = e.x, ty = e.y;
+                if ( !candidate->gone || candidate->kind != e.kind ) continue;
+                if ( candidate->crate >= 0 && candidate->crate < world->crate_count ) {
+                    tx += world->crate[candidate->crate].size.x * 0.5f;
+                    ty += world->crate[candidate->crate].size.y * 0.5f;
+                }
+                dx = candidate->pos.x - tx; dy = candidate->pos.y - ty; dz = candidate->pos.z - e.z;
+                dist = dx*dx + dy*dy + dz*dz;
+                if ( dist < best ) { best = dist; it = candidate; }
+            }
+            if ( best >= 4096.0f ) it = 0;
+            if ( !it && dm->snapshot_item_base + item < world->item_count ) {
+                it = &world->item[dm->snapshot_item_base + item++];
+                it->crate = -1;
+                it->order = e.number;
+            }
+            if ( !it ) continue;
+            it->kind = e.kind; it->gone = 0;
+            it->pos.x = e.x; it->pos.y = e.y; it->pos.z = e.z;
+            if ( it->crate >= 0 && it->crate < world->crate_count ) {
+                it->pos.x += world->crate[it->crate].size.x * 0.5f;
+                it->pos.y += world->crate[it->crate].size.y * 0.5f;
+            }
+            item_applied++;
+        } else if ( e.type == DEMO_ENT_LIGHT && e.kind >= 0 && e.kind <= LS_MAXSTYLE ) {
+            ls->tab[e.kind].value = e.frame;
+        }
+    }
+    fight->items = frame->items;
+    fight->health = frame->health;
+    fight->armor = frame->armor;
+    fight->weapon = frame->weapon;
+    fight->shells = frame->shells;
+    fight->nails = frame->nails;
+    fight->rockets = frame->rockets;
+    fight->cells = frame->cells;
+    if ( frame->armor_kind == 3 ) fight->armor_type = PL_ARMOR3_TYPE;
+    else if ( frame->armor_kind == 2 ) fight->armor_type = PL_ARMOR2_TYPE;
+    else if ( frame->armor_kind == 1 ) fight->armor_type = PL_ARMOR1_TYPE;
+    else fight->armor_type = 0.0f;
+    fight->invis_until = frame->power & 1 ? rdr->anim_time + 1.0f : 0.0f;
+    fight->pent_until = frame->power & 2 ? rdr->anim_time + 1.0f : 0.0f;
+    fight->suit_until = frame->power & 4 ? rdr->anim_time + 1.0f : 0.0f;
+    fight->quad_until = frame->power & 8 ? rdr->anim_time + 1.0f : 0.0f;
+    rdr->demo_view_frame = frame->weapon_model ? frame->weapon_frame : -2;
+    dm->snapshot_monsters = mon;
+    dm->snapshot_brushes = brush;
+    dm->snapshot_items = item_applied;
+    host_view_load( world, fight->weapon );
+    ent_place_models( world );
+}
+
+short demo_camera( Demo *dm, Camera *cam, Player *player, World *world,
+                   Fight *fight, Renderer *rdr, LightStyles *ls, float frame_dt )
+{
+    DemoFrame *a;
+    DemoCam *b;
     float frac, dx, dy, dz, pitch, yaw, cp;
 
     if ( !dm->camera ) return 1;
     if ( dm->camera_eof ) return 0;
+    if ( dm->snapshot && !dm->snapshot_applied ) {
+        demo_snapshot_apply( dm, &dm->camera_from, world, fight, rdr, ls );
+        dm->snapshot_applied = -1;
+    }
     dm->camera_time += frame_dt;
     while ( dm->camera_time > dm->camera_to.time ) {
-        dm->camera_from = dm->camera_to;
-        if ( fread( &dm->camera_to, sizeof(dm->camera_to), 1, dm->rf ) != 1 ) {
-            dm->camera_to = dm->camera_from;
+        fseek( dm->rf, dm->snapshot_next_pos, SEEK_SET );
+        if ( fread( &dm->camera_from, sizeof(dm->camera_from), 1, dm->rf ) != 1 )
+            demo_short();
+        demo_snapshot_apply( dm, &dm->camera_from, world, fight, rdr, ls );
+        dm->snapshot_next_pos = ftell( dm->rf );
+        if ( fread( &dm->camera_to, sizeof(dm->camera_to), 1, dm->rf ) == 1 ) continue;
+        {
+            memcpy( &dm->camera_to, &dm->camera_from, sizeof(DemoCam) );
             dm->camera_time = dm->camera_from.time;
             dm->camera_eof = -1;
             break;
@@ -239,7 +346,7 @@ void demo_close( Demo *dm, const RunArgs *args )
 
     if ( dm->rf ) fclose( dm->rf );
     dm->rf = 0;
-    dm->camera = dm->camera_eof = 0;
+    dm->camera = dm->snapshot = dm->snapshot_applied = dm->camera_eof = 0;
     if ( dm->buf && dm->buf->count != 0 ) {
         wf = fopen( args->record_name, "wb" );
         if ( wf ) {
