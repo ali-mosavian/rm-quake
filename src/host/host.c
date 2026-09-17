@@ -1513,7 +1513,7 @@ void host_frame( Host *h )
 #if QR_PROF
     t_ph = sys_now( &h->sysclk );
 #endif
-    snd_frame( &h->world.snd, &h->world, &h->player, frame_dt );
+    snd_frame( &h->world.snd, &h->world, &h->player, &h->cam, frame_dt );
 #if QR_PROF
     pt_stop( h, t_ph, &h->pt.sound_sum, 0 );
 #endif

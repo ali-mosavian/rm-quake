@@ -7,7 +7,7 @@
 #include "sound.h"
 
 /*
- * snd.h -- the sound layer: Quake's snd_dma.c without the stereo.
+ * snd.h -- the sound layer: Quake's snd_dma.c stereo spatializer.
  *
  * qglDspInit starts a Sound Blaster playing a 4096-byte ring in
  * auto-init DMA; snd.bsc, mksnd.py's concatenation of the game's wavs
@@ -173,7 +173,7 @@ void snd_self( Sound *snd, Player *player, short chan, short id );
  *       frame's real time: it tells one wrap of the ring from two, and
  *       fades the ambients of the leaf the eye is in.
  */
-void snd_frame( Sound *snd, World *world, Player *player, float dt );
+void snd_frame( Sound *snd, World *world, Player *player, Camera *cam, float dt );
 void snd_volume( Sound *snd, float volume );
 
 void snd_shutdown( Sound *snd );

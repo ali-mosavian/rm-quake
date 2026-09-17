@@ -1,5 +1,5 @@
 /*
- * snd_mix.c -- Quake's S_PaintChannels for one 8-bit mono ring.
+ * snd_mix.c -- Quake's S_PaintChannels for one 8-bit stereo ring.
  *
  * Eighteen channels, each a run of samples in the EMS handle snd.bsc
  * was loaded into, mixed into the DMA ring dsp.asm plays, from where the
@@ -80,7 +80,7 @@ short snd_mix_wraps( const SndMix *mix )  { return mix->wraps; }
 
 short snd_mix_leaf_vol( const SndMix *mix, short i )
 {
-    return mix->chan ? mix->chan[i].vol : 0;
+    return mix->chan ? (short) ( ( mix->chan[i].left + mix->chan[i].right ) / 2 ) : 0;
 }
 
 short snd_mix_live( const SndMix *mix, short *ids )
@@ -93,6 +93,21 @@ short snd_mix_live( const SndMix *mix, short *ids )
     return n;
 }
 
+short snd_mix_pan( const SndMix *mix, short *id, short *left, short *right )
+{
+    short i;
+
+    if ( !mix->chan ) return 0;
+    for ( i = SND_VOICE0; i < SND_ALL; i++ ) {
+        if ( !mix->chan[i].end || ( mix->chan[i].left == 0 && mix->chan[i].right == 0 ) ) continue;
+        *id = mix->chan[i].id;
+        *left = mix->chan[i].left;
+        *right = mix->chan[i].right;
+        return 1;
+    }
+    return 0;
+}
+
 /* a loop from sample 0, silent until it is placed */
 static short snd_loop_start( const SndMix *mix, SndChan far *ch, short id )
 {
@@ -100,7 +115,7 @@ static short snd_loop_start( const SndMix *mix, SndChan far *ch, short id )
     ch->pos = mix->tab[id].ofs;
     ch->end = ch->pos + mix->tab[id].len;
     ch->beg = ch->pos + mix->tab[id].loop;
-    ch->vol = ch->master = 0;
+    ch->left = ch->right = ch->master = 0;
     ch->id = id;
     ch->ent = ch->chan = 0;
     return 1;
@@ -113,13 +128,14 @@ short snd_mix_setup( SndMix *mix, short hnd, unsigned char far *ring, void far *
     short i;
 
     if ( count > SND_TAB ||
-         SND_CHUNK * 2 + SND_TAB * (short) sizeof(SndRec) + SND_ALL * (short) sizeof(SndChan) > scratch_bytes )
+         SND_CHUNK * 4 + SND_TAB * (short) sizeof(SndRec) + SND_ALL * (short) sizeof(SndChan) > scratch_bytes )
         return -1;
     mix->hnd   = hnd;
     mix->count = count;
     mix->ring  = ring;
-    mix->paint = (int far *) scratch;
-    mix->tab   = (SndRec far *) ( (char far *) scratch + SND_CHUNK * 2 );
+    mix->paint_l = (int far *) scratch;
+    mix->paint_r = mix->paint_l + SND_CHUNK;
+    mix->tab   = (SndRec far *) ( (char far *) scratch + SND_CHUNK * 4 );
     mix->chan  = (SndChan far *) ( (char far *) mix->tab + SND_TAB * sizeof(SndRec) );
     for ( i = 0; i < count; i++ ) mix->tab[i] = tab[i];
     for ( i = 0; i < SND_DTAB; i++ ) mix->dtab[i] = dec[i];
@@ -136,6 +152,9 @@ short snd_mix_setup( SndMix *mix, short hnd, unsigned char far *ring, void far *
     mix->time = mix->painted = 0;
     mix->lastpos = mix->under = 0;
     mix->master = 255;
+    mix->listener_right.x = 0.0f;
+    mix->listener_right.y = -1.0f;
+    mix->listener_right.z = 0.0f;
     return count;
 }
 
@@ -146,17 +165,25 @@ void snd_mix_volume( SndMix *mix, short volume )
     mix->master = volume;
 }
 
-/* SND_Spatialize, mono: the player's own sounds at full volume */
-static void snd_mix_spatialize( SndChan far *ch, BspVec3 *ear )
+/* id SND_Spatialize: the player's own sounds are centred at full volume. */
+static void snd_mix_spatialize( SndMix *mix, SndChan far *ch, BspVec3 *ear )
 {
-    float dx, dy, dz, scale;
+    float dx, dy, dz, dist, dot, scale;
 
-    if ( ch->ent == SND_ENT_PLAYER || ch->attn == 0 ) { ch->vol = ch->master; return; }
+    if ( ch->ent == SND_ENT_PLAYER ) { ch->left = ch->right = ch->master; return; }
     dx = ch->x - ear->x;
     dy = ch->y - ear->y;
     dz = ch->z - ear->z;
-    scale = 1.0f - (float) sqrt( dx*dx + dy*dy + dz*dz ) * ch->attn / SND_CLIP;
-    ch->vol = scale <= 0.0f ? 0 : (short) ( ch->master * scale );
+    dist = (float) sqrt( dx*dx + dy*dy + dz*dz );
+    if ( dist > 0.0f ) {
+        dx /= dist; dy /= dist; dz /= dist;
+    }
+    dot = dx * mix->listener_right.x + dy * mix->listener_right.y + dz * mix->listener_right.z;
+    scale = 1.0f - dist * ch->attn / SND_CLIP;
+    ch->right = scale <= 0.0f ? 0 : (short) ( ch->master * scale * ( 1.0f + dot ) );
+    ch->left  = scale <= 0.0f ? 0 : (short) ( ch->master * scale * ( 1.0f - dot ) );
+    if ( ch->right < 0 ) ch->right = 0; else if ( ch->right > 255 ) ch->right = 255;
+    if ( ch->left  < 0 ) ch->left  = 0; else if ( ch->left  > 255 ) ch->left  = 255;
 }
 
 short snd_mix_start( SndMix *mix, short id, short vol, short ent, short chan, short attn,
@@ -186,10 +213,10 @@ short snd_mix_start( SndMix *mix, short id, short vol, short ent, short chan, sh
     ch->chan   = chan;
     ch->attn   = attn;
     ch->x = org->x; ch->y = org->y; ch->z = org->z;
-    snd_mix_spatialize( ch, ear );
+    snd_mix_spatialize( mix, ch, ear );
     /* the channel was taken either way: a stop out of earshot still
        ends its entity's loop */
-    if ( ch->vol == 0 ) { ch->end = 0; return -1; }
+    if ( ch->left == 0 && ch->right == 0 ) { ch->end = 0; return -1; }
     return pick;
 }
 
@@ -253,10 +280,11 @@ unsigned long snd_mix_sum( SndMix *mix )
 
 static void snd_mix_chan( SndMix *mix, SndChan far *ch, short n )
 {
-    int  far    *paint = mix->paint;
+    int  far    *paint_l = mix->paint_l;
+    int  far    *paint_r = mix->paint_r;
     signed char *dbuf  = mix->dbuf;
-    long  left;
-    short i = 0, run, k, vol = ch->vol, got;
+    long  remain;
+    short i = 0, run, k, lvol = ch->left, rvol = ch->right, got;
 
     while ( i < n ) {
         if ( ch->pos >= ch->end ) {
@@ -264,14 +292,16 @@ static void snd_mix_chan( SndMix *mix, SndChan far *ch, short n )
             ch->pos = ch->beg;
             if ( ch->ent ) mix->wraps++;
         }
-        left = ch->end - ch->pos;
+        remain = ch->end - ch->pos;
         run = (short) ( n - i );
-        if ( run > left ) run = (short) left;
-        if ( vol == 0 ) { ch->pos += run; i = (short) ( i + run ); continue; }   /* out of earshot: keep time */
+        if ( run > remain ) run = (short) remain;
+        if ( lvol == 0 && rvol == 0 ) { ch->pos += run; i = (short) ( i + run ); continue; }
         got = snd_fetch( mix, ch->pos, run, dbuf );
         if ( got == 0 ) { ch->end = 0; return; }
-        for ( k = 0; k < got; k++ )
-            paint[i + k] += ( dbuf[k] * vol ) >> 3;
+        for ( k = 0; k < got; k++ ) {
+            paint_l[i + k] += ( dbuf[k] * lvol ) >> 3;
+            paint_r[i + k] += ( dbuf[k] * rvol ) >> 3;
+        }
         i = (short) ( i + got );
         ch->pos += got;
     }
@@ -293,13 +323,14 @@ static void snd_mix_leaf( SndMix *mix, unsigned char amb, long adv )
         ch = &mix->chan[i];
         want = (short) ( ( ( i ? amb : amb >> 4 ) & 15 ) * 17 * 3 / 10 );
         if ( want < 8 ) want = 0;
-        if ( ch->vol < want ) {
-            ch->vol = (short) ( ch->vol + step );
-            if ( ch->vol > want ) ch->vol = want;
-        } else if ( ch->vol > want ) {
-            ch->vol = (short) ( ch->vol - step );
-            if ( ch->vol < want ) ch->vol = want;
+        if ( ch->left < want ) {
+            ch->left = (short) ( ch->left + step );
+            if ( ch->left > want ) ch->left = want;
+        } else if ( ch->left > want ) {
+            ch->left = (short) ( ch->left - step );
+            if ( ch->left < want ) ch->left = want;
         }
+        ch->right = ch->left;
     }
 }
 
@@ -307,12 +338,12 @@ static void snd_mix_leaf( SndMix *mix, unsigned char amb, long adv )
    plays at its points' summed volume, 255 at most. */
 static void snd_mix_place( SndMix *mix, BspVec3 *ear )
 {
-    short acc[SND_VOICES];
+    short accl[SND_VOICES], accr[SND_VOICES];
     SndPoint far *p;
-    float dx, dy, dz, d2;
-    short i;
+    float dx, dy, dz, dist, dot, scale;
+    short i, l, r;
 
-    for ( i = 0; i < mix->nvoice; i++ ) acc[i] = 0;
+    for ( i = 0; i < mix->nvoice; i++ ) accl[i] = accr[i] = 0;
     for ( i = 0; i < mix->npts; i++ ) {
         p = &mix->pts[i];
         dx = p->x - ear->x;
@@ -320,25 +351,36 @@ static void snd_mix_place( SndMix *mix, BspVec3 *ear )
         dy = p->y - ear->y;
         if ( dy > SND_REACH || dy < -SND_REACH ) continue;
         dz = p->z - ear->z;
-        d2 = dx*dx + dy*dy + dz*dz;
-        if ( d2 >= SND_REACH * SND_REACH ) continue;
-        acc[p->voice] += (short) ( p->vol * ( 1.0f - (float) sqrt( d2 ) * SND_ATTN_STATIC / SND_CLIP ) );
+        dist = (float) sqrt( dx*dx + dy*dy + dz*dz );
+        if ( dist >= SND_REACH ) continue;
+        if ( dist > 0.0f ) { dx /= dist; dy /= dist; dz /= dist; }
+        dot = dx * mix->listener_right.x + dy * mix->listener_right.y + dz * mix->listener_right.z;
+        scale = 1.0f - dist * SND_ATTN_STATIC / SND_CLIP;
+        l = (short) ( p->vol * scale * ( 1.0f - dot ) );
+        r = (short) ( p->vol * scale * ( 1.0f + dot ) );
+        if ( l > 0 ) accl[p->voice] += l;
+        if ( r > 0 ) accr[p->voice] += r;
     }
-    for ( i = 0; i < mix->nvoice; i++ )
-        mix->chan[SND_VOICE0 + i].vol = acc[i] > 255 ? 255 : acc[i];
+    for ( i = 0; i < mix->nvoice; i++ ) {
+        mix->chan[SND_VOICE0 + i].left  = accl[i] > 255 ? 255 : accl[i];
+        mix->chan[SND_VOICE0 + i].right = accr[i] > 255 ? 255 : accr[i];
+    }
 }
 
-short snd_mix_frame( SndMix *mix, short pos, long adv, BspVec3 *ear, unsigned char amb )
+short snd_mix_frame( SndMix *mix, short pos, long adv, BspVec3 *ear,
+                     BspVec3 *right, unsigned char amb )
 {
     unsigned char far *ring  = mix->ring;
-    int           far *paint = mix->paint;
+    int far *left = mix->paint_l;
+    int far *right_paint = mix->paint_r;
     long  delta = (long) pos - mix->lastpos, endt;
     short n, ringpos, k, c;
-    int   v;
+    int   vl, vr;
 
+    mix->listener_right = *right;
     snd_mix_leaf( mix, amb, adv );
     for ( c = SND_DYN0; c < SND_VOICE0; c++ )
-        if ( mix->chan[c].end ) snd_mix_spatialize( &mix->chan[c], ear );
+        if ( mix->chan[c].end ) snd_mix_spatialize( mix, &mix->chan[c], ear );
     snd_mix_place( mix, ear );
 
     if ( delta < 0 ) delta += SND_RING;
@@ -361,14 +403,19 @@ short snd_mix_frame( SndMix *mix, short pos, long adv, BspVec3 *ear, unsigned ch
         if ( n > SND_CHUNK ) n = SND_CHUNK;
         ringpos = (short) ( mix->painted & (SND_RING - 1) );
         if ( n > (short) (SND_RING - ringpos) ) n = (short) ( SND_RING - ringpos );
-        for ( k = 0; k < n; k++ ) paint[k] = 0;
+        for ( k = 0; k < n; k++ ) left[k] = right_paint[k] = 0;
         for ( c = 0; c < SND_ALL; c++ )
             if ( mix->chan[c].end ) snd_mix_chan( mix, &mix->chan[c], n );
         for ( k = 0; k < n; k++ ) {
-            v = paint[k] >> 5;
-            if ( v > 127 ) v = 127; else if ( v < -128 ) v = -128;
-            if ( mix->master != 255 ) v = (int) ( (long) v * mix->master / 255L );
-            ring[ringpos + k] = (unsigned char) ( v + 128 );
+            vl = left[k] >> 5; vr = right_paint[k] >> 5;
+            if ( vl > 127 ) vl = 127; else if ( vl < -128 ) vl = -128;
+            if ( vr > 127 ) vr = 127; else if ( vr < -128 ) vr = -128;
+            if ( mix->master != 255 ) {
+                vl = (int) ( (long) vl * mix->master / 255L );
+                vr = (int) ( (long) vr * mix->master / 255L );
+            }
+            ring[(ringpos + k) * 2]     = (unsigned char) ( vl + 128 );
+            ring[(ringpos + k) * 2 + 1] = (unsigned char) ( vr + 128 );
         }
         mix->painted += n;
     }

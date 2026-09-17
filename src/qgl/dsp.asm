@@ -1,11 +1,11 @@
-;; dsp.asm -- the Sound Blaster: an 8-bit mono ring the DSP plays by DMA.
+;; dsp.asm -- the Sound Blaster: an 8-bit stereo ring the DSP plays by DMA.
 ;;
 ;; name: qglDspInit / qglDspPos / qglDspBuf / qglDspScratch / qglDspShutdown
 ;; desc: Quake's snd_dos.c on the SB16 path. The DSP at 220h is reset and
-;;       asked its version; a 4096-byte ring is taken from qglMemAlloc and
-;;       aligned to 4096 so it never crosses a 64K DMA page, filled with
+;;       asked its version; an 8192-byte ring is taken from qglMemAlloc and
+;;       aligned to 8192 so it never crosses a 64K DMA page, filled with
 ;;       silence (128), and DMA channel 1 streams it in auto-init mode
-;;       while the DSP plays 8-bit unsigned mono at the rate asked for,
+;;       while the DSP plays interleaved 8-bit unsigned stereo at the rate asked for,
 ;;       half the ring a block. Nobody waits for an interrupt: the mixer
 ;;       asks qglDspPos where the DMA is and writes ahead of it. The IRQ
 ;;       still fires every block, so a stub on IRQ 7 -- DOSBox's default
@@ -49,10 +49,9 @@ SB_IRQ_VEC      equ     0Fh                     ;; IRQ 7
 PIC_CMD         equ     20h
 PIC_EOI         equ     20h
 
-DSP_RING        equ     4096
-DSP_SCRATCH     equ     3440                    ;; the mixer's, after the ring: cport's snd_mix.c
-                                                ;; paint buffer, 176 (offset, length, loop)
-                                                ;; records and 18 channels of 36 bytes. snd_mix_setup
+DSP_RING        equ     8192
+DSP_SCRATCH     equ     4512                    ;; the mixer's, after the ring: cport's snd_mix.c
+                                                ;; two paint buffers, 176 records and 18 channels.
                                                 ;; refuses a layout longer than this rather than
                                                 ;; running off the block, which it once did by
                                                 ;; 304 bytes and hung in the heap compactor.
@@ -62,7 +61,7 @@ DSP_ALLOC       equ     DSP_RING*2 + DSP_SCRATCH
 
 qgl$dsp_on      dw      0
 qgl$dsp_block   dd      0                       ;; what qglMemAlloc gave
-qgl$dsp_ring    dw      0                       ;; its 4096-aligned segment
+qgl$dsp_ring    dw      0                       ;; its 8192-aligned segment
 qgl$dsp_old     dd      0
 
 ;;::::::::::::::
@@ -163,12 +162,11 @@ qglDspInit      proc    public uses bx cx dx si di es,\
                 jz      @@no
                 mov     W cs:qgl$dsp_block, ax
                 mov     W cs:qgl$dsp_block+2, dx
-                ;; the ring starts at the next 4096-byte physical boundary:
-                ;; offset 0 of a segment that is a multiple of 100h paragraphs
+                ;; the ring starts at the next 8192-byte physical boundary.
                 shr     ax, 4
                 add     dx, ax
-                add     dx, 0FFh
-                and     dx, 0FF00h
+                add     dx, 01FFh
+                and     dx, 0FE00h
                 mov     cs:qgl$dsp_ring, dx
 
                 ;; silence, not zero: 128 is the 8-bit unsigned midpoint
@@ -218,7 +216,7 @@ qglDspInit      proc    public uses bx cx dx si di es,\
                 out     DMA_MASK, al
 
                 ;; the DSP: speaker on, the rate high byte first, then 8-bit
-                ;; unsigned mono auto-init with half the ring a block
+                ;; unsigned stereo auto-init with half the byte ring a block
                 mov     al, 0D1h
                 call    qgl$dsp_write
                 mov     al, 41h
@@ -230,7 +228,7 @@ qglDspInit      proc    public uses bx cx dx si di es,\
                 call    qgl$dsp_write
                 mov     al, 0C6h
                 call    qgl$dsp_write
-                xor     al, al
+                mov     al, 20h                 ;; stereo, unsigned
                 call    qgl$dsp_write
                 mov     ax, DSP_RING/2 - 1
                 call    qgl$dsp_write
@@ -246,7 +244,7 @@ qglDspInit      endp
 
 
 ;;::::::::::::::
-;; qglDspPos () -> ax = the sample the DMA is on, 0..4095
+;; qglDspPos () -> ax = the stereo frame the DMA is on, 0..4095
 ;;
 ;; The count register reads bytes-remaining-1; reading DSP_RSTAT first is
 ;; the 8-bit acknowledge, so a block end never goes unacked even with the
@@ -265,8 +263,9 @@ qglDspPos       proc    public uses dx
                 xchg    al, ah
                 sti
                 inc     ax                      ;; remaining
-                neg     ax                      ;; ring - remaining, mod 4096
+                neg     ax                      ;; ring - remaining, modulo byte ring
                 and     ax, DSP_RING - 1
+                shr     ax, 1                   ;; interleaved bytes to stereo frames
                 ret
 @@zero:         xor     ax, ax
                 ret
@@ -274,7 +273,7 @@ qglDspPos       endp
 
 
 ;;::::::::::::::
-;; qglDspBuf () -> dx:ax = the ring, 4096 bytes
+;; qglDspBuf () -> dx:ax = the ring, 8192 bytes
 ;; qglDspScratch () -> dx:ax = DSP_SCRATCH bytes after it, the mixer's own
 ;; qglDspScratchBytes () -> ax = how many, for the mixer to check its layout
 ;;::::::::::::::

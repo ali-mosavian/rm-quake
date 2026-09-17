@@ -24,7 +24,7 @@ RING            equ     4096
 
 .data
 n_init          db      'DSP answered           $'
-n_buf           db      'ring aligned to 4096   $'
+n_buf           db      'ring aligned to 8192   $'
 n_adv           db      '3 ticks move 1219..2419$'
 n_wrap          db      'ten ticks wrap the ring$'
 n_back          db      'vector restored        $'
@@ -61,7 +61,7 @@ tmain           proc    far public uses bx cx dx si di es
                 CHK     n_init, ax, 1
 
                 invoke  qglDspBuf
-                and     dx, 0FFh
+                and     dx, 01FFh
                 or      dx, ax
                 CHK     n_buf, dx, 0
 

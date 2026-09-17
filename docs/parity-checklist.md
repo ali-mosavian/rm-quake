@@ -182,9 +182,10 @@ PAK0 and are left out.
       vertical anchors and two-second real-time expiry; messages share the
       map's NUL string pool; `tools/test-centerprint.sh`,
       `tools/test-centerprint-dos.sh`
-- [ ] Stereo sound
+- [x] Stereo sound
       id: `snd_dma.c` `SND_Spatialize`
-      qcport: mono, `src/sound/snd.h:9`
+      qcport: id's distance and left/right dot-product attenuation into an
+      interleaved 8-bit SB16 ring; `tools/test-stereo.sh`
 - [ ] CD music
       id: `cd_audio.c` `CDAudio_Play`
       qcport: none

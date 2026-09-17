@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #include "snd.h"
 #include "r_bsp.h"
@@ -123,15 +124,21 @@ void snd_start( Sound *snd, Player *player, short ent, short chan, short id, Bsp
     snd->seen[id >> 3] |= (unsigned char) ( 1 << ( id & 7 ) );
 }
 
-void snd_frame( Sound *snd, World *world, Player *player, float dt )
+void snd_frame( Sound *snd, World *world, Player *player, Camera *cam, float dt )
 {
-    BspVec3 eye;
+    BspVec3 eye, right;
+    float fx, fy, len;
 
     if ( !snd->on ) return;
     eye = player->pos;
     eye.z += PL_EYE;
+    fx = cam->look_at.x - cam->pos.x;
+    fy = cam->look_at.z - cam->pos.z;
+    len = (float) sqrt( fx*fx + fy*fy );
+    if ( len > 0.0f ) { fx /= len; fy /= len; }
+    right.x = fy; right.y = -fx; right.z = 0.0f;
     snd->under = snd_mix_frame( &snd->mix, qglDspPos(), (long) ( dt * SND_RATE ), &player->pos,
-                                world->leaves[ r_point_leaf( &eye, world ) ].amb );
+                                &right, world->leaves[ r_point_leaf( &eye, world ) ].amb );
 }
 
 void snd_volume( Sound *snd, float volume )
@@ -160,7 +167,7 @@ void snd_stats( const Sound *snd, short *started, short *loops, short *under )
 
 void snd_report( const Sound *snd, char *buf )
 {
-    short ids[8], i, n = snd_mix_live( &snd->mix, ids );
+    short ids[8], i, n = snd_mix_live( &snd->mix, ids ), id, left, right;
 
     strcpy( buf, "snd seen=" );
     for ( i = 0; i < (short) sizeof(snd->seen); i++ )
@@ -171,4 +178,6 @@ void snd_report( const Sound *snd, char *buf )
     sprintf( buf + strlen( buf ), " wraps=%d water=%d sky=%d voices=%d",
              (int) snd_mix_wraps( &snd->mix ), (int) snd_mix_leaf_vol( &snd->mix, 0 ),
              (int) snd_mix_leaf_vol( &snd->mix, 1 ), (int) snd_mix_voices( &snd->mix ) );
+    if ( snd_mix_pan( &snd->mix, &id, &left, &right ) )
+        sprintf( buf + strlen( buf ), " pan=%d:%d,%d", (int) id, (int) left, (int) right );
 }

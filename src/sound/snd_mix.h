@@ -4,7 +4,7 @@
 #include "bsptypes.h"
 
 /*
- * snd_mix.h -- S_PaintChannels for one 8-bit mono ring. snd.c is the
+ * snd_mix.h -- S_PaintChannels for one 8-bit stereo ring. snd.c is the
  * layer above: this owns the channels and the paint and knows nothing
  * about files, the card or the game.
  */
@@ -25,7 +25,7 @@ typedef struct { long ofs, len; short loop; } SndRec;
 
 typedef struct {
     long  pos, end, beg;            /* end 0: free; beg >= 0 loops */
-    short vol, master;
+    short left, right, master;
     short id, ent, chan, attn;
     float x, y, z;
 } SndChan;
@@ -41,12 +41,14 @@ typedef struct {
     long  painted;                  /* samples written */
     long  fade_acc;
     unsigned char far *ring;
-    int           far *paint;       /* SND_CHUNK ints */
+    int           far *paint_l;     /* SND_CHUNK ints each */
+    int           far *paint_r;
     SndRec        far *tab;
     SndChan       far *chan;
     SndPoint      far *pts;
     short npts, ptmax, nvoice;
     short voice_id[SND_VOICES];
+    BspVec3 listener_right;
     signed char dtab[SND_DTAB];     /* scale row, then code */
     signed char dbuf[SND_CHUNK];    /* one run, decoded */
 } SndMix;
@@ -95,6 +97,9 @@ short snd_mix_wraps( const SndMix *mix );
 /* the sounds on the dynamic channels now, up to 8, and how many */
 short snd_mix_live( const SndMix *mix, short *ids );
 
+/* first placed static voice, for the headless stereo regression */
+short snd_mix_pan( const SndMix *mix, short *id, short *left, short *right );
+
 /* the water (0) or sky (1) ambient's volume now */
 short snd_mix_leaf_vol( const SndMix *mix, short i );
 
@@ -116,7 +121,8 @@ unsigned long snd_mix_sum( SndMix *mix );
  *       loop, and a stretch left unpainted is played again. Returns the
  *       underruns so far.
  */
-short snd_mix_frame( SndMix *mix, short pos, long adv, BspVec3 *ear, unsigned char amb );
+short snd_mix_frame( SndMix *mix, short pos, long adv, BspVec3 *ear,
+                     BspVec3 *right, unsigned char amb );
 void snd_mix_volume( SndMix *mix, short volume );
 
 #endif
