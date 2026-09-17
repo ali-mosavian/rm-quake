@@ -45,6 +45,7 @@ QGL_INC  := $(wildcard $(QGL)/*.inc)
 # BUILD directory:
 #
 #   make BUILD=$PWD/build/cport-noprof CDEFS="-DQR_PROF=0 -DQR_LOG=0"
+#   make BUILD=$PWD/build/cport-capture CDEFS="-DQR_DEBUG_CAPTURE=1"
 CDEFS ?=
 
 export TOOLCHAINS DOSBOX_BIN CDEFS TIMEOUT

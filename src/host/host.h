@@ -1,6 +1,8 @@
 #ifndef __HOST_H__
 #define __HOST_H__
 
+#include "qrcfg.h"
+
 /*
  * host.h -- one session, Quake's host.c. Maps are loaded and released
  * inside it; video, input and the allocator live until host_shutdown.
@@ -84,6 +86,10 @@ typedef struct {
     QSurf          z_dc, h_dst_dc;
     long           map_mem_total, map_mem_largest;
     short          map_ems_pages;
+#if QR_DEBUG_CAPTURE
+    long           debug_capture_last;
+    unsigned short debug_capture_seq;
+#endif
 } Host;
 
 void  host_init( Host *h );

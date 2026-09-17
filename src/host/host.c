@@ -59,6 +59,31 @@ static short near host_save_slot( Host *h, short slot, char *error );
 static short near host_load_slot( Host *h, short slot, char *error );
 static short near host_attract_next( Host *h );
 
+#if QR_DEBUG_CAPTURE
+static void near host_debug_capture( Host *h )
+{
+    char name[13], tick_text[12];
+    unsigned short n;
+    short i;
+    long tick = h->demo.camera ? (long) ( h->demo.camera_time * 60.0f ) : h->clock.ticks;
+
+    if ( tick < h->debug_capture_last ) h->debug_capture_last = 0;
+    if ( tick / 60 <= h->debug_capture_last / 60 ) {
+        h->debug_capture_last = tick;
+        return;
+    }
+    name[0] = 'd'; name[1] = 'b'; name[2] = 'g';
+    n = h->debug_capture_seq++;
+    for ( i = 7; i >= 3; i-- ) { name[i] = (char) ( '0' + n % 10 ); n /= 10; }
+    name[8] = '.'; name[9] = 'b'; name[10] = 'm'; name[11] = 'p'; name[12] = 0;
+    scr_screenshot( name, h->v.h_video_dc, h->v.scr_x_res, h->v.scr_y_res );
+    mark( name );
+    ltoa( tick, tick_text, 10 );
+    mark( tick_text );
+    h->debug_capture_last = tick;
+}
+#endif
+
 static float near host_view_aspect( const Host *h )
 {
     return ( (float) h->v.x_res * h->cfg.scr_y_res * 4.0f )
@@ -1649,6 +1674,9 @@ void host_frame( Host *h )
     qglDrFill( h->h_dst_dc, 0, 0, (short)(h->v.x_res - 1), (short)(h->v.y_res - 1), 0 );
     host_render( h );
     host_present( h );
+#if QR_DEBUG_CAPTURE
+    host_debug_capture( h );
+#endif
     in_screenshot_key( &h->input, h->v.h_video_dc,
                        h->v.scr_x_res, h->v.scr_y_res );
 

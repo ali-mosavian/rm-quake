@@ -32,4 +32,11 @@
 #define QR_LOG  1
 #endif
 
+/* Visual diagnostics: save the presented framebuffer whenever the run
+   crosses another 60-tick boundary. Off unless the build asks for it;
+   file I/O changes frame timing, so these frames are never benchmarks. */
+#ifndef QR_DEBUG_CAPTURE
+#define QR_DEBUG_CAPTURE 0
+#endif
+
 #endif
