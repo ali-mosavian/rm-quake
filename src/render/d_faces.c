@@ -462,15 +462,12 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
                     lm_dc = (long) (void far *) sc_alloc( sc, i, lm_mip, lm_sw, lm_sh, lm_fw, lm_fh,
                                                            lm_stag, world->face_count, &aim_ofs );
                     if ( lm_dc != 0 ) {
-                        /* Build the DC's WHOLE padded extent, not just
-                           sw by sh: the face's far edge lands exactly
-                           on texel sw, one past the last one a sw-wide
-                           fill writes, so a narrower build leaves a
-                           black seam of recycled DC along two sides. */
+                        /* Build Quake's exact logical rectangle. The
+                           builder duplicates its far row and column into
+                           the power-of-two cache class as a sampling guard. */
                         tex_dc = (long) (void far *) mod_tex_raw( world, tex_id, lm_mip );
                         sb_build( sc, world, rdr, ls, (QSurf) lm_dc, (QSurf) tex_dc, i, lm_mip,
-                                  (short)( 1 << SC_SHIFT( lm_sw ) ),
-                                  (short)( 1 << SC_SHIFT( lm_sh ) ), gv, dl_bits );
+                                  lm_sw, lm_sh, gv, dl_bits );
                     }
 #if QR_PROF
                     if ( dp->prof ) {
@@ -552,9 +549,14 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
                    is the convention the perspective filler wants; the
                    other mode hands it plain u and v. Nothing is
                    converted here -- only the mode differs. */
-                qglRsPoly( dp->h_dst_dc, (QVert far *) pvtx, cnt,
-                           dp->rend_mode == 0 ? QGL_M_PTEX : QGL_M_TEX,
-                           src_dc );
+                if ( lm_on && dp->rend_mode == 0 ) {
+                    qglRsPolyBound( dp->h_dst_dc, (QVert far *) pvtx, cnt,
+                                    QGL_M_PTEX, src_dc, lm_sw, lm_sh );
+                } else {
+                    qglRsPoly( dp->h_dst_dc, (QVert far *) pvtx, cnt,
+                               dp->rend_mode == 0 ? QGL_M_PTEX : QGL_M_TEX,
+                               src_dc );
+                }
             }
             dp->tris = (short)( dp->tris + cnt - 2 );
 
