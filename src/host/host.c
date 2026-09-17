@@ -57,8 +57,8 @@ static void near host_console_result( Host *h, CmdKind kind, CmdResult *result )
 
 static float near host_view_aspect( const Host *h )
 {
-    return ( (float) h->cfg.view_w * h->cfg.scr_y_res * 4.0f )
-           / ( (float) h->cfg.view_h * h->cfg.scr_x_res * 3.0f );
+    return ( (float) h->v.x_res * h->cfg.scr_y_res * 4.0f )
+           / ( (float) h->v.y_res * h->cfg.scr_x_res * 3.0f );
 }
 
 static short near host_file_exists( const char *name )
@@ -516,12 +516,8 @@ static void near host_render_overlay( Host *h )
     float t0 = sys_now( &h->sysclk );
 #endif
     if ( !h->v.comp ) {
-        scr_sbar_draw( &h->fight, h->h_dst_dc, h->v.x_res, h->v.y_res );
         scr_draw_hud( &h->world, &h->rdr, &h->cam, &h->player, h->sc, h->hud,
                       h->h_dst_dc, h->v.x_res, h->v.y_res );
-        scr_draw_msg( h->hud, &h->world, &h->fight, &h->rdr, h->h_dst_dc,
-                      h->v.x_res, h->v.y_res );
-        con_draw( h->console, h->hud, h->h_dst_dc, h->v.x_res, h->v.y_res );
     }
 #if QR_PROF
     pt_stop( h, t0, &h->pt.hud_sum, &h->pt.hud_max );
@@ -838,6 +834,7 @@ static void near host_spawn( Host *h )
                  h->fight.armor, h->fight.items, h->fight.weapon );
         mark( buf );
     }
+    pl_weapon_flash( &h->fight, h->rdr.anim_time );
     /* The camera reads its angle from the mouse, so aiming is moving the
        mouse. v_update_camera reads phi as PI*(mouse.y+2)/y_res; y 110 is
        100.8 degrees, a little below the horizon, what every headless
@@ -975,9 +972,12 @@ void host_init( Host *h )
     sprintf( value, "%d", (int) initial_skill );
     cvar_register( h->cmd, "skill", value, CVAR_ARCHIVE, 0.0f, 3.0f );
     h->skill_cvar_seen = initial_skill;
-    aspect = host_view_aspect( h );
+    aspect = ( (float) h->cfg.view_w * h->cfg.scr_y_res * 4.0f )
+             / ( (float) h->cfg.view_h * h->cfg.scr_x_res * 3.0f );
     sprintf( value, "%.3f", fov_horizontal( h->cfg.cam_fov, aspect ) );
     cvar_register( h->cmd, "fov", value, CVAR_ARCHIVE, 10.0f, 170.0f );
+    cvar_register( h->cmd, "viewsize", "100", CVAR_ARCHIVE, 30.0f, 120.0f );
+    h->viewsize_applied = 100.0f;
     con_init( h->console );
     commands[0] = 0;
     if ( host_file_exists( "default.cfg" ) &&
@@ -1071,7 +1071,9 @@ static void near host_console_result( Host *h, CmdKind kind, CmdResult *result )
     }
     if ( kind == CMD_CLEAR ) { con_clear( h->console ); return; }
     if ( kind == CMD_CMDLIST ) {
-        con_print( h->console, "bind clear cmdlist cvarlist echo exec impulse map quit set unbind unbindall wait writeconfig" );
+        con_print( h->console,
+                   "bind clear cmdlist cvarlist echo exec impulse map quit set sizedown sizeup "
+                   "unbind unbindall wait writeconfig" );
         return;
     }
     if ( kind == CMD_CVARLIST ) {
@@ -1124,6 +1126,16 @@ static void near host_console_result( Host *h, CmdKind kind, CmdResult *result )
         pl_select_weapon( &h->fight, (short) atoi( result->text ) );
         return;
     }
+    if ( !strcmp( result->name, "sizeup" ) || !strcmp( result->name, "sizedown" ) ) {
+        char error[CMD_TEXT];
+        short value = (short) cvar_value( h->cmd, "viewsize" );
+        value = (short) ( value + ( result->name[4] == 'u' ? 10 : -10 ) );
+        if ( value < 30 ) value = 30;
+        if ( value > 120 ) value = 120;
+        itoa( value, line, 10 );
+        if ( !cvar_set( h->cmd, "viewsize", line, error ) ) con_print( h->console, error );
+        return;
+    }
     if ( result->name[0] == '+' && keybind_command( h->keys, result->name, -1 ) ) return;
     if ( result->name[0] == '-' && keybind_command( h->keys, result->name, 0 ) ) return;
     if ( !strcmp( result->name, "toggleconsole" ) ) {
@@ -1170,6 +1182,7 @@ static void near host_apply_cvars( Host *h )
 {
     float fov = cvar_value( h->cmd, "fov" );
     float skill_value = cvar_value( h->cmd, "skill" );
+    float viewsize = cvar_value( h->cmd, "viewsize" );
     short skill = (short) skill_value;
 
     if ( skill_value != h->skill_cvar_seen ) {
@@ -1183,6 +1196,11 @@ static void near host_apply_cvars( Host *h )
         cvar_set( h->cmd, "skill", value, error );
         h->args.skill = h->fight.skill;
         h->skill_cvar_seen = h->fight.skill;
+    }
+    if ( viewsize != h->viewsize_applied ) {
+        v_set_viewsize( &h->v, (short) viewsize );
+        h->viewsize_applied = viewsize;
+        h->fov_applied = -1.0f;
     }
     if ( fov != h->fov_applied ) {
         float aspect = host_view_aspect( h );
@@ -1268,26 +1286,29 @@ static void near host_legacy_input( Host *h )
 static void near host_present( Host *h )
 {
     Video *v = &h->v;
+    QSurf target;
 #if QR_PROF
     float t0 = sys_now( &h->sysclk );
 #endif
 
     v_present( v, h->h_dst_dc, 0 );
+    target = v->comp ? v->h_comp_dc : v->h_video_dc;
     if ( v->comp ) {
-        scr_sbar_draw( &h->fight, v->h_comp_dc, v->scr_x_res, v->scr_y_res );
         scr_draw_hud( &h->world, &h->rdr, &h->cam, &h->player, h->sc, h->hud,
-                      v->h_comp_dc, v->scr_x_res, v->scr_y_res );
-        scr_draw_center( h->hud, &h->fight, v->h_comp_dc,
-                         v->scr_x_res, v->scr_y_res,
-                         (short) !con_open( h->console ) );
-        scr_draw_msg( h->hud, &h->world, &h->fight, &h->rdr, v->h_comp_dc,
-                      v->scr_x_res, v->scr_y_res );
-        con_draw( h->console, h->hud, v->h_comp_dc, v->scr_x_res, v->scr_y_res );
+                      target, v->scr_x_res, v->scr_y_res );
+    }
+    scr_draw_center( h->hud, &h->fight, target,
+                     v->scr_x_res, v->scr_y_res,
+                     (short) !con_open( h->console ) );
+    scr_draw_msg( h->hud, &h->world, &h->fight, &h->rdr, target,
+                  v->scr_x_res, v->scr_y_res );
+    scr_sbar_draw( &h->world, &h->fight, h->rdr.anim_time,
+                   keybind_action( h->keys, KA_SHOWSCORES ), v->sbar_lines, target,
+                   v->scr_x_res, v->scr_y_res );
+    con_draw( h->console, h->hud, target, v->scr_x_res, v->scr_y_res );
+    if ( v->comp ) {
         qglDrBlit( v->h_video_dc, 0, 0, v->h_comp_dc );
-    } else
-        scr_draw_center( h->hud, &h->fight, v->h_video_dc,
-                         v->scr_x_res, v->scr_y_res,
-                         (short) !con_open( h->console ) );
+    }
 #if QR_PROF
     pt_stop( h, t0, &h->pt.present_sum, 0 );
 #endif
@@ -1523,8 +1544,7 @@ void host_shutdown( Host *h )
     h->console = 0;
     h->keys = 0;
     h->cmd = 0;
-    if ( v->h_back_bdc ) qglSfFree( v->h_back_bdc );
-    if ( v->h_comp_dc ) qglSfFree( v->h_comp_dc );
+    v_shutdown( v );
     /* The ISRs out FIRST: INT 8 and INT 9 point into this program, and
        DOS does not restore a vector at exit. A changelevel's second run
        once chained its timer to a dead handler and hung in

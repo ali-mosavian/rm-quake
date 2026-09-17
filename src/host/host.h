@@ -63,6 +63,7 @@ typedef struct {
     long           console_frames;
     float          fov_applied;
     float          skill_cvar_seen;
+    float          viewsize_applied;
     Hud far       *hud;
     SurfCache far *sc;
     Mat4           mtx_prj;

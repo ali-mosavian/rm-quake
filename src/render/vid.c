@@ -74,6 +74,12 @@ void v_init( Video *v, long pal )
                 sys_error( "0x0003, Could not create the composite buffer" );
             }
         }
+        v->base_x_res = v->x_res;
+        v->base_y_res = v->y_res;
+        v->h_view = qglSfViewNew( v->h_back_bdc, v->base_x_res,
+                                  v->base_y_res, v->base_x_res );
+        if ( !v->h_view ) sys_error( "0x0004, Could not create the display view" );
+        v_set_viewsize( v, 100 );
     }
 
     qglDrFill( v->h_video_dc, 0, 0, v->scr_x_res - 1, v->scr_y_res - 1, 0L );
@@ -84,6 +90,49 @@ void v_init( Video *v, long pal )
        way every DC handle is, so both just need the matching cast. */
     pal_install( (PalRgb far *) pal );
     qglMemFree( (long) pal );
+}
+
+void v_set_viewsize( Video *v, short viewsize )
+{
+    short display_w, display_h, available_h;
+    short x_res, y_res;
+    float size;
+
+    v->sbar_lines = viewsize >= 120 ? 0 : ( viewsize >= 110 ? 24 : 48 );
+    size = (float) ( viewsize > 100 ? 100 : viewsize ) / 100.0f;
+    display_w = (short) ( v->scr_x_res * size );
+    if ( display_w < 96 ) display_w = 96;
+    display_w &= ~7;
+    if ( display_w > v->base_x_res * v->view_scale )
+        display_w = (short) ( v->base_x_res * v->view_scale );
+
+    display_h = (short) ( v->scr_y_res * size ) & ~1;
+    available_h = (short) ( v->scr_y_res - v->sbar_lines );
+    if ( display_h > available_h ) display_h = available_h;
+    if ( display_h > v->base_y_res * v->view_scale )
+        display_h = (short) ( v->base_y_res * v->view_scale );
+    if ( display_h < v->view_scale ) display_h = v->view_scale;
+
+    x_res = (short) ( display_w / v->view_scale );
+    y_res = (short) ( display_h / v->view_scale );
+    if ( x_res < 1 ) x_res = 1;
+    if ( y_res < 1 ) y_res = 1;
+
+    if ( !qglSfViewResize( v->h_view, v->h_back_bdc,
+                           x_res, y_res, v->base_x_res ) )
+        sys_error( "0x0004, Could not resize the display view" );
+    v->x_res = x_res;
+    v->y_res = y_res;
+    v->view_x = (short) ( ( v->scr_x_res - x_res * v->view_scale ) / 2 );
+    v->view_y = (short) ( ( available_h - y_res * v->view_scale ) / 2 );
+}
+
+void v_shutdown( Video *v )
+{
+    if ( v->h_view ) qglDelView( v->h_view );
+    if ( v->h_back_bdc ) qglSfFree( v->h_back_bdc );
+    if ( v->h_comp_dc ) qglSfFree( v->h_comp_dc );
+    v->h_view = v->h_back_bdc = v->h_comp_dc = 0;
 }
 
 /*
@@ -116,11 +165,12 @@ short v_present( Video *v, QSurf h_dst_dc, short page )
        up. qglDrBlitScl takes the destination SIZE where uglPutScl took
        a scale factor -- same rectangle, stated the other way round. */
     QSurf target = v->comp ? v->h_comp_dc : v->h_video_dc;
+    QSurf source = v->h_view;
 
     v_clear_border( v, target );
     qglDrBlitScl( target, v->view_x, v->view_y,
                   (short) ( v->x_res * v->view_scale ),
                   (short) ( v->y_res * v->view_scale ),
-                  v->h_back_bdc );
+                  source );
     return page;
 }

@@ -740,6 +740,7 @@ void ent_load_world( World *world )
     ent_load_crates( world, buf, &ofs, h.ncrate );
     ent_load_lights( world, buf, &ofs, h.nlight );
     ent_load_msgs( world, buf, &ofs, h.msg_size, n );
+    world->title = ent_msg( world, h.title );
     ent_settle( world );
 
     qglMemFree( (long) buf );

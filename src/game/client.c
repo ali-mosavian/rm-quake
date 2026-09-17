@@ -8,6 +8,16 @@
 #include "qgl.h"
 #include <stdio.h>
 
+void pl_weapon_flash( Fight *fight, float now )
+{
+    static short bits[6] = { PL_IT_SHOTGUN, PL_IT_SSG, PL_IT_NAILGUN,
+                              PL_IT_SNG, PL_IT_GL, PL_IT_RL };
+    short i;
+
+    for ( i = 0; i < 6; i++ )
+        fight->weapon_at[i] = fight->items & bits[i] ? now : -1.0f;
+}
+
 void pl_reset_player( Player *player, Fight *fight, Renderer *rdr )
 {
     fight->health     = PL_HEALTH;
@@ -17,6 +27,8 @@ void pl_reset_player( Player *player, Fight *fight, Renderer *rdr )
     fight->secrets    = 0;
     fight->items      = PL_IT_SHOTGUN;
     fight->weapon     = PL_IT_SHOTGUN;
+    pl_weapon_flash( fight, rdr->anim_time );
+    fight->face_until = 0.0f;
     fight->nails      = 0;
     fight->rockets    = 0;
     fight->cells      = 0;
@@ -28,8 +40,6 @@ void pl_reset_player( Player *player, Fight *fight, Renderer *rdr )
     fight->next_fire  = 0.0f;
     fight->show_hostile = 0.0f;
     fight->rot_at     = 0.0f;
-    (void) rdr;
-
     player->pos = fight->spawn;
     player->vel.x = player->vel.y = player->vel.z = 0.0f;
     player->fall_vz = 0.0f;

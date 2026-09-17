@@ -138,6 +138,7 @@ long pascal far qglSfRow( long s, short y );
 short pascal far qglSfSize( long s, short sel );
 short pascal far qglSfViewAim( long v, long ofs );
 long pascal far qglSfViewNew( long parent, short wid, short hgt, short bps );
+short pascal far qglSfViewResize( long v, long parent, short wid, short hgt, short bps );
 short pascal far qglSfViewShape( long v, short wid, long ofs );
 short pascal far qglSfWindows( long s );
 long pascal far qglSfWrRow( long s, short y );

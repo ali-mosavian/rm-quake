@@ -135,6 +135,7 @@ typedef struct {
        16-bit byte offsets into it; zero names the empty first byte. */
     short       msg_size;
     char        far *msgs;
+    char        far *title;       /* worldspawn message in the same pool */
 
     /* Which submodel owns a face is Face.side >> 1, written by
        ent_load_brushes -- see its own note. There is no array. */

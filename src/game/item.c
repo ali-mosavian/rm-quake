@@ -92,8 +92,17 @@ static short near item_take_cells( Fight *fight, Renderer *rdr, ItemEnt far *it,
 static short near item_take_weapon( Fight *fight, Renderer *rdr, ItemEnt far *it, const ItemInfo far *inf )
 {
     short *v = FIGHT_SHORT( fight, inf->ofs );
+    short slot = -1;
 
-    (void) rdr;
+    switch ( inf->bit ) {
+    case PL_IT_SHOTGUN: slot = 0; break;
+    case PL_IT_SSG: slot = 1; break;
+    case PL_IT_NAILGUN: slot = 2; break;
+    case PL_IT_SNG: slot = 3; break;
+    case PL_IT_GL: slot = 4; break;
+    case PL_IT_RL: slot = 5; break;
+    }
+    if ( slot >= 0 && !( fight->items & inf->bit ) ) fight->weapon_at[slot] = rdr->anim_time;
     fight->items |= inf->bit;
     fight->weapon = inf->bit;
     *v = (short) ( *v + it->amount );

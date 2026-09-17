@@ -84,7 +84,8 @@ short keybind_keynum( const char *name )
 static short action_for( const char KB_FAR *command )
 {
     static char *names[KA_COUNT] = {
-        "+forward", "+back", "+moveleft", "+moveright", "+jump", "+attack"
+        "+forward", "+back", "+moveleft", "+moveright", "+jump", "+attack",
+        "+showscores"
     };
     short i;
     for ( i = 0; i < KA_COUNT; i++ ) if ( text_eq( command, names[i] ) ) return i;

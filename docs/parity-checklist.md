@@ -58,9 +58,10 @@ PAK0 and are left out.
       id: `boss.qc` `monster_boss`, `boss_missile`, `lightning_use`
       qcport (partial): an unseen trigger that counts bolts and fires the
       exit, `tools/mkassets.py:1003`
-- [ ] Runtime view size and fov
+- [x] Runtime view size and fov
       id: `screen.c` `scr_viewsize`, `SCR_SizeUp_f`, `scr_fov`
-      qcport: fixed at startup, `src/host/config.c:47`
+      qcport: archived `viewsize`/`fov` cvars and `sizeup`/`sizedown`, with
+      id's centered 30..120 layouts; `src/render/vid.c`, `src/host/host.c`
 
 ## Gameplay
 
@@ -86,7 +87,7 @@ PAK0 and are left out.
       `CheckPowerups`; `ai.qc` `FindTarget`; `player.qc` `player_pain`;
       `r_main.c` `R_DrawViewModel`
       qcport: `ENT_ITEM_INVIS`; `tools/test-items.sh` on e1m3. Not ported:
-      the whisper's half volume, the eyes model, the status bar icon
+      the whisper's half volume and the eyes model
 - [x] T_RadiusDamage as id runs it
       id: `combat.qc` `T_RadiusDamage`, `CanDamage`; `pr_cmds.c` `PF_findradius`
       qcport: source-edict order, damage + 40 cutoff, hull-0 `CanDamage`,
@@ -103,15 +104,14 @@ PAK0 and are left out.
 - [x] Red armor: `item_armorInv` (1, start, deathmatch only: spawnflags 1792)
       id: `items.qc` `item_armorInv`
       qcport: `ENT_ITEM_ARMOR3`, 200 at 0.8; dm3ish's arms in
-      `tools/test-items.sh`. Not ported: the status bar's red icon, since
-      the cell band is full, so it shows yellow
+      `tools/test-items.sh`; red status-bar icon in `tools/test-sbar.sh`
 - [x] Rune carried back to start
       id: `items.qc` `sigil_touch` sets `serverflags`; the engine keeps them
       across maps, `sv_main.c` `svs.serverflags`; `misc.qc`
       `func_episodegate`, `func_bossgate` read them
       qcport: `Fight.serverflags` in `CARRY.BIN`, `-sflags`; the gates are
       `EntsGate` records and start2 rides the header;
-      `tools/test-serverflags.sh`. Not ported: the status bar's rune icons
+      `tools/test-serverflags.sh`; rune icons in `tools/test-sbar.sh`
 - [x] `trigger_monsterjump` (1, e1m6)
       id: `triggers.qc` `trigger_monsterjump_touch`
       qcport: `ent_monster_jump`, `tools/test-monsterjump.sh`. A thrown
@@ -165,11 +165,12 @@ PAK0 and are left out.
       qcport: Quake key names and logical `+button` bindings, streamed nested
       `exec`, default/config/autoexec startup order and archived config writes;
       `tools/test-keybind.sh`, `tools/test-keybind-dos.sh`
-- [ ] Full status bar: weapons row, all ammo, keys, runes, powerups,
+- [x] Full status bar: weapons row, all ammo, keys, runes, powerups,
       armor type
       id: `sbar.c` `Sbar_Draw`
-      qcport (partial): health, armor, face and the ammo in hand,
-      `src/ui/sbar.c:95`
+      qcport: id's WAD art in one EMS atlas, 48/24/0-line layouts,
+      pickup and pain faces, solo score hold and death scorebar;
+      `tools/test-sbar.sh`
 - [ ] Intermission screen
       id: `sbar.c` `Sbar_IntermissionOverlay`
       qcport (partial): one line of text, `src/ui/screen.c:364`

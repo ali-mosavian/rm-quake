@@ -138,6 +138,8 @@ typedef struct {
     short armor;
     float armor_type;         /* armortype: the share of a hit it takes, 0 none */
     short weapon;             /* the one in hand, a PL_IT_* bit */
+    float weapon_at[6];       /* newly acquired weapon icon flash, status order */
+    float face_until;         /* damage face, separate from pain sound throttling */
     short shells, nails, rockets, cells;
     float rot_at;             /* megahealth: the next point over 100 rots then */
     float quad_until;         /* super_damage_finished */

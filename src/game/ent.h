@@ -59,6 +59,7 @@ typedef struct {
     short   ncrate;
     float   gravity;
     short   msg_size;
+    short   title;            /* byte offset in the message pool */
     short   nlight;
     BspVec3 spawn2;         /* info_player_start2, or the start where a map has none */
     float   angle2;
@@ -142,7 +143,7 @@ typedef struct {
 
 /* ents.bin's own records, checked the same way bsptypes.h checks the
    map's -- see the note there. */
-#define REC_ENTSHEAD 88
+#define REC_ENTSHEAD 90
 #define REC_ENTSMON  24
 #define REC_ENTSTELE 22
 #define REC_ENTSPLAT 12

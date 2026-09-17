@@ -21,6 +21,7 @@ typedef enum {
     KA_MOVERIGHT,
     KA_JUMP,
     KA_ATTACK,
+    KA_SHOWSCORES,
     KA_COUNT
 } KeyAction;
 

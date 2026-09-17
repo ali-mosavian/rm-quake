@@ -112,7 +112,7 @@ BOSS_MDL = ('boss', 'rise,walk,death,attack,shocka,shockb,shockc')
 
 
 def build_sbar(pak: str, tmp: str) -> dict[str, bytes]:
-    """sbar.raw and sbnum.raw out of gfx.wad, as container members."""
+    """The packed single-player status-bar atlas from gfx.wad."""
     import subprocess
 
     if not pak or not os.path.exists(pak):
@@ -125,7 +125,7 @@ def build_sbar(pak: str, tmp: str) -> dict[str, bytes]:
                        capture_output=True, text=True)
     if r.returncode != 0:
         raise SystemExit(f"mkgfx: {r.stderr.strip() or r.stdout.strip()}")
-    return {n: open(os.path.join(tmp, n), "rb").read() for n in ("sbar.raw", "sbnum.raw")}
+    return {"sbar.raw": open(os.path.join(tmp, "sbar.raw"), "rb").read()}
 
 
 def build_sounds(pak: str, tmp: str) -> dict[str, bytes]:
@@ -178,10 +178,10 @@ def build_models(pak: str, kinds: set[int], boss: bool, tmp: str) -> dict[str, b
 
 
 SKILLS     = 4   # easy, normal, hard, nightmare: an ents<N>.bin each
-ENTS_HEAD  = '<4f3fff13hfhh3ffh'   # ent.h's EntsHead; the monsters follow it
+ENTS_HEAD  = '<4f3fff13hfhhh3ffh'  # ent.h's EntsHead; the monsters follow it
 ENTS_MON   = '<hh3ffhh'          # ent.h's EntsMon
 
-QMAP_VER   = 3
+QMAP_VER   = 4
 QMAP_HEAD  = 64
 QMAP_NAME  = 16
 QMAP_ENT   = 24
@@ -1339,11 +1339,13 @@ def pack_entities(e: Ents, nmodels: int, gravity: float, crates: CrateSet) -> by
         messages.append(u[10])
         if u[1] == TRIG_EXIT:
             messages.append(u[5])
+    title = message_bytes(e.title)
+    messages.append(title)
     msg_offsets, msg_pool = message_pool(messages)
     buf = bytearray(struct.pack(ENTS_HEAD, *spawn, angle, *inter[0], inter[1], inter[2], nmodels,
                                 len(teles), len(plats), len(hides), len(items), len(doors), len(uses), len(mons),
                                 len(ambs), len(trains), len(corners), worldtype, len(crates.used), gravity,
-                                len(msg_pool), len(lights), *spawn2, angle2, len(e.gates)))
+                                len(msg_pool), msg_id(title), len(lights), *spawn2, angle2, len(e.gates)))
     for kind, order, org, yaw, target, cruc in mons:
         buf += struct.pack(ENTS_MON, kind, order, *org, yaw, corner_at.get(target, -1), cruc)
     for m, org, yaw, name, only in teles:

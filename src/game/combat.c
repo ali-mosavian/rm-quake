@@ -83,6 +83,8 @@ void combat_damage_player( Player *player, World *world, Fight *fight, Renderer 
     Sound *snd = &world->snd;
     short save, take;
 
+    fight->face_until = rdr->anim_time + 0.2f;
+
     /* T_Damage: the armor takes ceil(type * damage), and its last point
        takes the type with it. QuakeC stores the product as a float32 --
        0.8 * 10 is 8.00000012 at 80 bits, 8.0 stored -- and a cast chops

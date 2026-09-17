@@ -682,6 +682,21 @@ qglSfViewAim  proc    public,\
 qglSfViewAim  endp
 
 ;;::::::::::::::
+;; qglSfViewResize ( v:far ptr, parent:far ptr, w:word, h:word, bps:word ) -> ax nonzero
+;;
+;; Reshapes an existing qglSfViewNew view without allocating. The view
+;; must originally have been allocated with at least h rows, because its
+;; address table cannot grow. Screen viewsize allocates the full-height
+;; table once and only shrinks it here.
+;;::::::::::::::
+qglSfViewResize proc public,\
+                        v:dword, parent:dword, wid:word, hgt:word, bps:word
+
+                invoke  qglSfView, v, parent, 0, wid, hgt, bps
+                ret
+qglSfViewResize endp
+
+;;::::::::::::::
 ;; qglSfViewShape ( v:far ptr, wid:word, ofs:dword ) -> ax nonzero
 ;;
 ;; Re-aims a view AND gives it a new width: xRes, the clip's xMax and

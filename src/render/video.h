@@ -17,15 +17,21 @@ typedef struct {
     QSurf   h_video_dc;
     QSurf   h_comp_dc;
     QSurf   h_back_bdc;
+    QSurf   h_view;
     short x_res, y_res;
+    short base_x_res;
+    short base_y_res;
     short scr_x_res, scr_y_res;
     short view_x, view_y, view_scale;
+    short sbar_lines;
     short c_fmt;
     short comp;
 } Video;
 
 void  v_init_ugl( void );
 void  v_init( Video *v, long pal );
+void  v_set_viewsize( Video *v, short viewsize );
+void  v_shutdown( Video *v );
 short v_present( Video *v, QSurf h_dst_dc, short page );
 
 #endif

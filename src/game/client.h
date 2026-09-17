@@ -14,6 +14,7 @@
 
 /* the kit a level starts with, and the player back at the spawn */
 void pl_reset_player( Player *player, Fight *fight, Renderer *rdr );
+void pl_weapon_flash( Fight *fight, float now );
 
 /* one death counted, then the kit again; the world keeps whatever the
    player did to it -- Quake's own respawn */
