@@ -27,6 +27,7 @@
 #include "mod_tex.h"
 #include "qgl.h"
 #include "view.h"
+#include "viewfx.h"
 #include "screen.h"
 #include "sbar.h"
 #include "client.h"
@@ -480,16 +481,15 @@ typedef struct {
 } RenderView;
 
 /* the view, the frustum and the BSP walk that fills the draw order */
-static void near host_render_walk( Host *h, RenderView *rv )
+static void near host_render_walk( Host *h, RenderView *rv, Camera *cam, Vec3 *up )
 {
-    Camera *cam = &h->cam;
     Mat4 mtx_mdl;
     Vec3 cam_pos_b;
 #if QR_PROF
     float tw;
 #endif
 
-    qglM4LookAt( &mtx_mdl, &cam->pos, &cam->look_at, &h->cam_up );
+    qglM4LookAt( &mtx_mdl, &cam->pos, &cam->look_at, up );
     qglM4Conc( &rv->mtx_fin, &mtx_mdl, &h->mtx_prj );
     r_set_frustum( rv->frustum, &rv->mtx_fin );
 
@@ -511,7 +511,7 @@ static void near host_render_walk( Host *h, RenderView *rv )
         cam_pos_b = cam->pos;
     }
 
-    qglM4LookAt( &mtx_mdl, &cam_pos_b, &cam->look_at, &h->cam_up );
+    qglM4LookAt( &mtx_mdl, &cam_pos_b, &cam->look_at, up );
     qglM4Conc( &rv->mtx_fin, &mtx_mdl, &h->mtx_prj );
 
 #if QR_PROF
@@ -525,7 +525,7 @@ static void near host_render_walk( Host *h, RenderView *rv )
 #endif
 }
 
-static void near host_render_faces( Host *h, RenderView *rv )
+static void near host_render_faces( Host *h, RenderView *rv, Camera *cam )
 {
     World    *world = &h->world;
     Renderer *rdr   = &h->rdr;
@@ -559,7 +559,7 @@ static void near host_render_faces( Host *h, RenderView *rv )
 #else
     dp.prof        = 0;
 #endif
-    d_draw_faces( world, rdr, h->sc, &h->ls, &dp, &rv->mtx_fin, &h->cam.pos, &h->sysclk );
+    d_draw_faces( world, rdr, h->sc, &h->ls, &dp, &rv->mtx_fin, &cam->pos, &h->sysclk );
 
     rdr->polys = (short) ( rdr->polys + dp.polys );
     rdr->tris  = (short) ( rdr->tris + dp.tris );
@@ -575,7 +575,7 @@ static void near host_render_faces( Host *h, RenderView *rv )
 
 /* the pickups, the models, the missiles and the weapon in hand, depth
    tested against the world already drawn */
-static void near host_render_models( Host *h, RenderView *rv )
+static void near host_render_models( Host *h, RenderView *rv, Camera *cam )
 {
     World    *world = &h->world;
     Renderer *rdr   = &h->rdr;
@@ -593,7 +593,7 @@ static void near host_render_models( Host *h, RenderView *rv )
     /* the weapon in hand LAST, with depth off inside d_draw_view: it is
        not in the world and nothing may hide it */
     rdr->mdl_drawn = (short) ( rdr->mdl_drawn +
-        d_draw_view( world, rdr, &h->cam, &h->player, &h->fight, &rv->mtx_fin,
+        d_draw_view( world, rdr, cam, &h->player, &h->fight, &rv->mtx_fin,
                       rv->xresh, rv->yresh, z_near, dst ) );
 
     /* Portal outlines while the depth test is still on, so a portal
@@ -609,13 +609,16 @@ static void near host_render_models( Host *h, RenderView *rv )
 static void near host_render( Host *h )
 {
     RenderView rv;
+    Camera view;
+    Vec3 up;
 #if QR_PROF
     float t0 = sys_now( &h->sysclk );
 #endif
 
     rv.xresh = (float) h->v.x_res / 2.0f;
     rv.yresh = (float) h->v.y_res / 2.0f;
-    host_render_walk( h, &rv );
+    v_render_effects( &view, &up, &h->cam, &h->player, h->rdr.anim_time );
+    host_render_walk( h, &rv, &view, &up );
 #if QR_PROF
     pt_stop( h, t0, &h->pt.cull_sum, &h->pt.cull_max );
 #endif
@@ -629,8 +632,8 @@ static void near host_render( Host *h )
     /* -nodraw stops here: the walk has run and filled the draw order */
     if ( h->args.no_draw ) return;
 
-    host_render_faces( h, &rv );
-    host_render_models( h, &rv );
+    host_render_faces( h, &rv, &view );
+    host_render_models( h, &rv, &view );
 
     /* Leave the completed 3D target with depth writes disabled. */
     if ( h->z_dc != 0 ) qglSfZMode( h->h_dst_dc, QGL_Z_OFF );
