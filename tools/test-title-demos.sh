@@ -29,7 +29,8 @@ while offset < len(source):
     offset += size
 struct.pack_into("<f", records[0], 0, 0.0)
 struct.pack_into("<f", records[11], 0, 0.02)
-data = source[:13] + records[0] + records[11]
+struct.pack_into("<f", records[28], 0, 0.04)
+data = source[:13] + records[0] + records[11] + records[28]
 Path(sys.argv[2]).write_bytes(data)
 Path(sys.argv[3]).write_bytes(data)
 PY
@@ -41,8 +42,9 @@ demos=$(tr -d '\r' < "$LOG" | sed -n 's/^attract demo \([^ ]*\) map .*/\1/p' | h
 [[ "$demos" == "titlea.qdc titleb.qdc" ]] || { echo "FAIL: demo order ${demos:-none}" >&2; exit 1; }
 ! grep -q 'DIVERGED' "$LOG" || { grep 'DIVERGED' "$LOG" >&2; exit 1; }
 ! grep '^frames=' "$LOG" | grep -qv ' ticks=0 ' || { echo "FAIL: camera playback ran game simulation" >&2; exit 1; }
-grep -q '^frames=.* ticks=0 pos=-733,110,-1603$' "$LOG" || { echo "FAIL: camera did not reach recorded endpoint" >&2; exit 1; }
+grep -q '^frames=.* ticks=0 pos=-677,126,-1891$' "$LOG" || { echo "FAIL: camera did not reach recorded endpoint" >&2; exit 1; }
 grep -Eq '^frames=.* mdl=[1-9][0-9]* ticks=0 ' "$LOG" || { echo "FAIL: snapshot monsters or view weapon were not drawn" >&2; exit 1; }
+grep -Eq '^snd started=[1-9][0-9]* ' "$LOG" || { echo "FAIL: snapshot sound event did not start" >&2; exit 1; }
 releases=$(grep -c '^map_release ok ' "$LOG")
 [[ "$releases" -ge 3 ]] || { echo "FAIL: $releases map releases, want at least 3" >&2; exit 1; }
 

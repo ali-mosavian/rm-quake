@@ -116,6 +116,7 @@
 #define SND_INV         169   /* the ring taken, fading, its whisper */
 #define SND_INV_END     170
 #define SND_INV_IDLE    171
+#define SND_DEMON_LAND  172
 
 /* sound()'s attenuations and entity channels, id's numbers */
 #define ATTN_NONE   0
@@ -162,6 +163,9 @@ void snd_ambient( Sound *snd, short id, short vol, BspVec3 *org );
  *       how a mover's stop ends its looping move.
  */
 void snd_start( Sound *snd, Player *player, short ent, short chan, short id, BspVec3 *org, short attn );
+void snd_start_volume( Sound *snd, Player *player, short ent, short chan, short id,
+                       BspVec3 *org, short attn, short volume );
+void snd_stop( Sound *snd, short ent, short chan );
 
 void snd_play( Sound *snd, Player *player, short id, BspVec3 *org );
 void snd_self( Sound *snd, Player *player, short chan, short id );

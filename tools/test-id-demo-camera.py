@@ -44,6 +44,7 @@ def main() -> None:
     assert mkidcam.armor_kind(8192 | 16384 | 32768) == 3, "red armor was not retained"
     assert mkidcam.item_kind("armor", 2) == 18, "red armor pickup became another item"
     assert mkidcam.power_bits(524288 | 1048576 | 2097152 | 4194304) == 15, "powerups were not retained"
+    assert mkidcam.local_sound("demon/dland2.wav") == 172, "demon landing sound was dropped"
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp)
         for demo, expected_map in EXPECTED.items():
@@ -62,7 +63,12 @@ def main() -> None:
             assert travel > 1000, f"{demo}: camera only travelled {travel:g} units"
             assert turn > 180, f"{demo}: camera only turned {turn:g} degrees"
             types = {entity[1] for _frame, entities in records for entity in entities}
-            assert {1, 2, 3, 4} <= types, f"{demo}: missing brush, monster, pickup, or light snapshots: {types}"
+            assert {1, 2, 3, 4, 5, 6, 7, 8, 9} <= types, (
+                f"{demo}: missing world, event, or projectile records: {types}"
+            )
+            assert any(entity[0] < 0 and entity[1] == 5 for _frame, entities in records for entity in entities), (
+                f"{demo}: temporary effects were attached to the player sound channel"
+            )
             item_kinds = {entity[2] for _frame, entities in records for entity in entities if entity[1] == 3}
             assert 0 in item_kinds, f"{demo}: health packs disappeared"
             if demo == "demo3":

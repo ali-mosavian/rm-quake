@@ -11,6 +11,8 @@
 #include "ent.h"
 #include "mdl.h"
 #include "mdl_ai.h"
+#include "dl.h"
+#include "snd.h"
 #include "demo.h"
 
 static char demo_magic[4] = { 'Q', 'C', 'R', '3' };
@@ -146,17 +148,67 @@ static float near demo_lerp_angle( float a, float b, float frac )
     return a + d * frac;
 }
 
+static void near demo_pose( const DemoCam *frame, Player *player, Camera *cam )
+{
+    float pitch, yaw, cp;
+
+    player->pos.x = frame->x;
+    player->pos.y = frame->y;
+    player->pos.z = frame->z - 22.0f;
+    cam->pos.x = player->pos.x;
+    cam->pos.y = player->pos.z + 22.0f;
+    cam->pos.z = player->pos.y;
+    pitch = frame->pitch * 0.017453292f;
+    yaw = frame->yaw * 0.017453292f;
+    cp = (float) cos( pitch );
+    cam->look_at.x = cam->pos.x + cp * (float) cos( yaw );
+    cam->look_at.y = cam->pos.y - (float) sin( pitch );
+    cam->look_at.z = cam->pos.z + cp * (float) sin( yaw );
+}
+
+static void near demo_muzzle( DemoEntity *e, World *world, Player *player,
+                              Fight *fight, Renderer *rdr, Camera *cam )
+{
+    BspVec3 org, fwd;
+    short i, key = DL_KEY_PLAYER;
+
+    org.x = e->x; org.y = e->y; org.z = e->z;
+    if ( e->number == 0 ) {
+        float len;
+        fwd.x = cam->look_at.x - cam->pos.x;
+        fwd.y = cam->look_at.z - cam->pos.z;
+        fwd.z = cam->look_at.y - cam->pos.y;
+        len = (float) sqrt( fwd.x*fwd.x + fwd.y*fwd.y + fwd.z*fwd.z );
+        if ( len > 0.001f ) { fwd.x /= len; fwd.y /= len; fwd.z /= len; }
+        fight->flash_until = rdr->anim_time + 0.1f;
+        org = player->pos;
+    } else {
+        fwd.x = (float) cos( e->yaw * 0.017453292f );
+        fwd.y = (float) sin( e->yaw * 0.017453292f );
+        fwd.z = 0.0f;
+        for ( i = 0; i < world->mon_count; i++ )
+            if ( world->mon[i].kind >= 0 && world->mon[i].order == e->number ) {
+                world->mon[i].flash_until = rdr->anim_time + MDL_FLASH;
+                key = (short) ( DL_KEY_MON + i );
+                break;
+            }
+    }
+    dl_muzzle( rdr, key, &org, &fwd );
+}
+
 static void near demo_snapshot_apply( Demo *dm, DemoFrame *frame, World *world,
-                                      Fight *fight, Renderer *rdr, LightStyles *ls )
+                                      Fight *fight, Renderer *rdr, LightStyles *ls,
+                                      Player *player, Camera *cam )
 {
     DemoEntity e;
-    short i, j, mon = 0, item = 0, item_applied = 0, brush = 0;
+    short i, j, mon = 0, item = 0, item_applied = 0, brush = 0, projectile = 0;
 
     if ( !dm->snapshot_item_base ) dm->snapshot_item_base = world->item_count;
     world->item_count = world->item_max;
     for ( i = 0; i < world->mon_count; i++ ) world->mon[i].kind = -1;
     for ( i = 0; i < world->item_count; i++ ) world->item[i].gone = -1;
     for ( i = 1; i < world->model_count; i++ ) world->brush[i].draw = 0;
+    for ( i = 0; i < PL_NAILS_MAX; i++ ) fight->nail[i].alive = 0;
 
     for ( i = 0; i < frame->ent_count; i++ ) {
         if ( fread( &e, sizeof(e), 1, dm->rf ) != 1 ) demo_short();
@@ -202,6 +254,30 @@ static void near demo_snapshot_apply( Demo *dm, DemoFrame *frame, World *world,
             item_applied++;
         } else if ( e.type == DEMO_ENT_LIGHT && e.kind >= 0 && e.kind <= LS_MAXSTYLE ) {
             ls->tab[e.kind].value = e.frame;
+        } else if ( e.type == DEMO_ENT_SOUND ) {
+            BspVec3 org;
+            short ent = e.number == 0 ? SND_ENT_PLAYER :
+                        ( e.number < 0 ? 0 : (short) ( e.number + 16 ) );
+            org.x = e.x; org.y = e.y; org.z = e.z;
+            snd_start_volume( &world->snd, player, ent, (short) ( e.state & 7 ),
+                              e.kind, &org, (short) ( ( e.state >> 3 ) & 3 ), e.frame );
+        } else if ( e.type == DEMO_ENT_STOPSND ) {
+            short ent = e.number == 0 ? SND_ENT_PLAYER : (short) ( e.number + 16 );
+            snd_stop( &world->snd, ent, (short) ( e.state & 7 ) );
+        } else if ( e.type == DEMO_ENT_DAMAGE ) {
+            fight->face_until = rdr->anim_time + 0.2f;
+        } else if ( e.type == DEMO_ENT_MUZZLE ) {
+            demo_muzzle( &e, world, player, fight, rdr, cam );
+        } else if ( e.type == DEMO_ENT_PROJECTILE && projectile < PL_NAILS_MAX ) {
+            Spike *s = &fight->nail[projectile++];
+            memset( s, 0, sizeof(*s) );
+            s->alive = -1;
+            s->pos.x = e.x; s->pos.y = e.y; s->pos.z = e.z;
+            s->grenade = (short) ( e.kind == 1 || e.kind == 5 );
+            s->toss = (short) ( e.kind == 2 );
+            s->wiz = (short) ( e.kind == 3 );
+            s->rocket = (short) ( e.kind == 4 );
+            s->gib = (short) ( e.kind == 5 );
         }
     }
     fight->items = frame->items;
@@ -238,7 +314,8 @@ short demo_camera( Demo *dm, Camera *cam, Player *player, World *world,
     if ( !dm->camera ) return 1;
     if ( dm->camera_eof ) return 0;
     if ( dm->snapshot && !dm->snapshot_applied ) {
-        demo_snapshot_apply( dm, &dm->camera_from, world, fight, rdr, ls );
+        demo_pose( (DemoCam *) &dm->camera_from, player, cam );
+        demo_snapshot_apply( dm, &dm->camera_from, world, fight, rdr, ls, player, cam );
         dm->snapshot_applied = -1;
     }
     dm->camera_time += frame_dt;
@@ -246,7 +323,8 @@ short demo_camera( Demo *dm, Camera *cam, Player *player, World *world,
         fseek( dm->rf, dm->snapshot_next_pos, SEEK_SET );
         if ( fread( &dm->camera_from, sizeof(dm->camera_from), 1, dm->rf ) != 1 )
             demo_short();
-        demo_snapshot_apply( dm, &dm->camera_from, world, fight, rdr, ls );
+        demo_pose( (DemoCam *) &dm->camera_from, player, cam );
+        demo_snapshot_apply( dm, &dm->camera_from, world, fight, rdr, ls, player, cam );
         dm->snapshot_next_pos = ftell( dm->rf );
         if ( fread( &dm->camera_to, sizeof(dm->camera_to), 1, dm->rf ) == 1 ) continue;
         {

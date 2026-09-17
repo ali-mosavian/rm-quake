@@ -7,6 +7,7 @@ import struct
 import sys
 
 from pakget import member
+from mksnd import SOUNDS
 
 
 U_MOREBITS = 1 << 0
@@ -35,6 +36,19 @@ ENT_BRUSH = 1
 ENT_MONSTER = 2
 ENT_ITEM = 3
 ENT_LIGHT = 4
+ENT_SOUND = 5
+ENT_DAMAGE = 6
+ENT_MUZZLE = 7
+ENT_STOP_SOUND = 8
+ENT_PROJECTILE = 9
+
+EF_MUZZLEFLASH = 2
+LOCAL_SOUNDS = {name.lower(): index for index, name in enumerate(SOUNDS)}
+PROJECTILES = {
+    "spike": 0, "s_spike": 0, "w_spike": 3,
+    "grenade": 1, "missile": 4, "lavaball": 2,
+    "h_zombie": 5, "zom_gib": 5, "gib1": 5, "gib2": 5, "gib3": 5,
+}
 
 MONSTERS = {
     "soldier": (0, "stand,run,death,pain"),
@@ -88,6 +102,7 @@ class NetEntity:
     model: int = 0
     frame: int = 0
     skin: int = 0
+    effects: int = 0
     origin: tuple[float, float, float] = (0.0, 0.0, 0.0)
     angles: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
@@ -136,6 +151,7 @@ class DemoState:
     view_height: int = 22
     server_time: float | None = None
     models: list[str] = field(default_factory=list)
+    sounds: list[str] = field(default_factory=list)
     baselines: dict[int, NetEntity] = field(default_factory=dict)
     entities: dict[int, NetEntity] = field(default_factory=dict)
     seen: set[int] = field(default_factory=set)
@@ -150,6 +166,7 @@ class DemoState:
     rockets: int = 0
     cells: int = 0
     lightstyles: dict[int, str] = field(default_factory=dict)
+    events: list[tuple[float, ...]] = field(default_factory=list)
 
 
 def read_coord(reader: Reader) -> float:
@@ -166,7 +183,7 @@ def read_baseline(reader: Reader) -> NetEntity:
     for _ in range(3):
         origin.append(read_coord(reader))
         angles.append(reader.byte() * 360.0 / 256.0)
-    return NetEntity(model, frame, skin, tuple(origin), tuple(angles))
+    return NetEntity(model, frame, skin, 0, tuple(origin), tuple(angles))
 
 
 def parse_serverinfo(reader: Reader, state: DemoState) -> None:
@@ -178,16 +195,19 @@ def parse_serverinfo(reader: Reader, state: DemoState) -> None:
     models = [""]
     while name := reader.string():
         models.append(name)
-    while reader.string():
-        pass
+    sounds = [""]
+    while name := reader.string():
+        sounds.append(name)
     if len(models) < 2 or not models[1].startswith("maps/") or not models[1].endswith(".bsp"):
         raise ValueError("serverinfo has no world model")
     state.map_name = Path(models[1]).stem
     state.models = models
+    state.sounds = sounds
     state.view_height = 22
     state.baselines.clear()
     state.entities.clear()
     state.lightstyles.clear()
+    state.events.clear()
 
 
 def parse_clientdata(reader: Reader, state: DemoState) -> None:
@@ -233,9 +253,7 @@ def parse_update(reader: Reader, state: DemoState, cmd: int) -> None:
     if bits & U_COLORMAP:
         reader.byte()
     skin = reader.byte() if bits & U_SKIN else baseline.skin
-    for flag in (U_EFFECTS,):
-        if bits & flag:
-            reader.byte()
+    effects = reader.byte() if bits & U_EFFECTS else baseline.effects
     origin = []
     angles = []
     origin_bits = (U_ORIGIN1, U_ORIGIN2, U_ORIGIN3)
@@ -243,20 +261,59 @@ def parse_update(reader: Reader, state: DemoState, cmd: int) -> None:
     for axis in range(3):
         origin.append(read_coord(reader) if bits & origin_bits[axis] else baseline.origin[axis])
         angles.append(reader.byte() * 360.0 / 256.0 if bits & angle_bits[axis] else baseline.angles[axis])
-    state.entities[entity] = NetEntity(model, frame, skin, tuple(origin), tuple(angles))
+    state.entities[entity] = NetEntity(model, frame, skin, effects, tuple(origin), tuple(angles))
     state.seen.add(entity)
+    if effects & EF_MUZZLEFLASH:
+        number = 0 if entity == state.view_entity else entity
+        state.events.append((number, ENT_MUZZLE, 0, 0, 0, *origin, angles[1]))
 
 
-def skip_temp_entity(reader: Reader) -> None:
+def local_sound(name: str) -> int | None:
+    stem = name.lower().removesuffix(".wav")
+    return LOCAL_SOUNDS.get(stem)
+
+
+def parse_sound(reader: Reader, state: DemoState) -> None:
+    mask = reader.byte()
+    volume = reader.byte() if mask & 1 else 255
+    attenuation = reader.byte() if mask & 2 else 64
+    packed = reader.short() & 0xFFFF
+    sound = reader.byte()
+    origin = tuple(read_coord(reader) for _ in range(3))
+    if sound >= len(state.sounds):
+        return
+    entity = packed >> 3
+    channel = packed & 7
+    number = 0 if entity == state.view_entity else entity
+    if state.sounds[sound].lower().removesuffix(".wav") == "misc/null":
+        state.events.append((number, ENT_STOP_SOUND, 0, channel, 0,
+                             0.0, 0.0, 0.0, 0.0))
+        return
+    if (sound_id := local_sound(state.sounds[sound])) is None:
+        return
+    attn = max(0, min(3, (attenuation + 32) // 64))
+    state.events.append((number, ENT_SOUND, sound_id, channel | attn << 3,
+                         volume, *origin, 0.0))
+
+
+def parse_damage(reader: Reader, state: DemoState) -> None:
+    armor = reader.byte()
+    blood = reader.byte()
+    origin = tuple(read_coord(reader) for _ in range(3))
+    state.events.append((armor, ENT_DAMAGE, blood, 0, 0, *origin, 0.0))
+
+
+def parse_temp_entity(reader: Reader, state: DemoState) -> None:
     kind = reader.byte()
     if kind in (5, 6, 9, 13):
         reader.take(14)
-    elif kind == 12:
-        reader.take(8)
-    elif 0 <= kind <= 11:
-        reader.take(6)
-    else:
-        raise ValueError(f"unknown temp entity {kind}")
+        return
+    origin = tuple(read_coord(reader) for _ in range(3))
+    if kind == 12:
+        reader.take(2)
+    sound_id = {0: 141, 1: 141, 3: 3, 4: 3, 7: 160, 8: 29, 12: 3}.get(kind)
+    if sound_id is not None:
+        state.events.append((-1, ENT_SOUND, sound_id, 1 << 3, 255, *origin, 0.0))
 
 
 def parse_packet(data: bytes, state: DemoState) -> bool:
@@ -280,8 +337,7 @@ def parse_packet(data: bytes, state: DemoState) -> bool:
             case 5:
                 state.view_entity = reader.short()
             case 6:
-                mask = reader.byte()
-                reader.take((1 if mask & 1 else 0) + (1 if mask & 2 else 0) + 9)
+                parse_sound(reader, state)
             case 7:
                 state.server_time = reader.float()
                 timed = True
@@ -302,13 +358,17 @@ def parse_packet(data: bytes, state: DemoState) -> bool:
             case 15:
                 parse_clientdata(reader, state)
             case 16:
-                reader.short()
+                packed = reader.short() & 0xFFFF
+                entity = packed >> 3
+                state.events.append((0 if entity == state.view_entity else entity,
+                                     ENT_STOP_SOUND, 0, packed & 7, 0,
+                                     0.0, 0.0, 0.0, 0.0))
             case 17:
                 reader.take(2)
             case 18:
                 reader.take(11)
             case 19:
-                reader.take(8)
+                parse_damage(reader, state)
             case 20:
                 read_baseline(reader)
             case 21:
@@ -317,7 +377,7 @@ def parse_packet(data: bytes, state: DemoState) -> bool:
                 entity = reader.short()
                 state.baselines[entity] = read_baseline(reader)
             case 23:
-                skip_temp_entity(reader)
+                parse_temp_entity(reader, state)
             case 24 | 25:
                 reader.byte()
             case 29:
@@ -459,10 +519,15 @@ def entity_records(state: DemoState, frame_maps: dict[str, dict[int, int]]) -> l
         elif stem in ITEMS:
             records.append((number, ENT_ITEM, item_kind(stem, entity.skin),
                             1 if stem == "backpack" else 0, 0, *entity.origin, entity.angles[1]))
+        elif stem in PROJECTILES:
+            records.append((number, ENT_PROJECTILE, PROJECTILES[stem], 0,
+                            entity.frame, *entity.origin, entity.angles[1]))
     for style, pattern in sorted(state.lightstyles.items()):
         if pattern:
             value = (ord(pattern[int((state.server_time or 0.0) * 10) % len(pattern)]) - ord("a")) * 10
             records.append((style, ENT_LIGHT, style, 0, value, 0.0, 0.0, 0.0, 0.0))
+    records.extend(state.events)
+    state.events.clear()
     return records
 
 

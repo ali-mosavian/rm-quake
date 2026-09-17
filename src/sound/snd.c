@@ -117,11 +117,22 @@ void snd_self( Sound *snd, Player *player, short chan, short id )
 
 void snd_start( Sound *snd, Player *player, short ent, short chan, short id, BspVec3 *org, short attn )
 {
+    snd_start_volume( snd, player, ent, chan, id, org, attn, 255 );
+}
+
+void snd_start_volume( Sound *snd, Player *player, short ent, short chan, short id,
+                       BspVec3 *org, short attn, short volume )
+{
     snd->hash = snd->hash * 31UL + (unsigned long) ( id * 8 + chan );
     if ( !snd->on ) return;
-    if ( snd_mix_start( &snd->mix, id, 255, ent, chan, attn, org, &player->pos ) < 0 ) return;
+    if ( snd_mix_start( &snd->mix, id, volume, ent, chan, attn, org, &player->pos ) < 0 ) return;
     snd->started++;
     snd->seen[id >> 3] |= (unsigned char) ( 1 << ( id & 7 ) );
+}
+
+void snd_stop( Sound *snd, short ent, short chan )
+{
+    if ( snd->on ) snd_mix_stop( &snd->mix, ent, chan );
 }
 
 void snd_frame( Sound *snd, World *world, Player *player, Camera *cam, float dt )

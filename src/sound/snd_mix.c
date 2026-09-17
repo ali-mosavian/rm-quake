@@ -220,6 +220,16 @@ short snd_mix_start( SndMix *mix, short id, short vol, short ent, short chan, sh
     return pick;
 }
 
+void snd_mix_stop( SndMix *mix, short ent, short chan )
+{
+    short i;
+    for ( i = SND_DYN0; i < SND_VOICE0; i++ )
+        if ( mix->chan[i].end && mix->chan[i].ent == ent && mix->chan[i].chan == chan ) {
+            mix->chan[i].end = 0;
+            return;
+        }
+}
+
 /*
  * name: snd_fetch
  * desc: n samples from pos, decoded into out. bsc4/32n: the block's

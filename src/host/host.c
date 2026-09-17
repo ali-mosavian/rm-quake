@@ -1608,6 +1608,8 @@ void host_frame( Host *h )
         h->console_frames++;
         h->clock.accum = 0.0f;
     } else if ( h->demo.camera ) {
+        dl_decay( &h->rdr, frame_dt );
+        h->rdr.anim_time += frame_dt;
         if ( !demo_camera( &h->demo, &h->cam, &h->player, &h->world,
                            &h->fight, &h->rdr, &h->ls, frame_dt ) ) {
             demo_close( &h->demo, &h->args );
@@ -1616,7 +1618,7 @@ void host_frame( Host *h )
             else h->quit = -1;
             return;
         }
-        h->rdr.anim_time += frame_dt;
+        dl_relink( &h->rdr, &h->player, &h->fight );
         if ( h->rdr.no_styles ) ls_hold( &h->ls );
         h->clock.accum = 0.0f;
     } else

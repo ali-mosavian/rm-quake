@@ -95,7 +95,7 @@ TITLE_DEMO_OUT := $(addprefix $(BUILD)/,$(TITLE_DEMOS))
 title: build $(TITLE_MAP_OUT) $(TITLE_DEMO_OUT) ## build the no-argument title-demo setup
 
 $(foreach m,$(TITLE_MAPS),$(eval $(BUILD)/$(m).qmp: data/maps/$(m)/$(m).qmp | $(BUILD); cp $$< $$@))
-$(BUILD)/demo%.qdc: $(PAK) tools/mkidcam.py tools/pakget.py | $(BUILD)
+$(BUILD)/demo%.qdc: $(PAK) tools/mkidcam.py tools/mksnd.py tools/pakget.py | $(BUILD)
 	@python3 tools/mkidcam.py $(PAK) demo$*.dem $@
 
 # Named one by one, not a `$(BUILD)/%:` pattern -- that pattern also

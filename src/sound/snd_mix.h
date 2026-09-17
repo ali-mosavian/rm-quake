@@ -77,6 +77,7 @@ short snd_mix_setup( SndMix *mix, short hnd, unsigned char far *ring, void far *
    listener. A sound silent from there takes nothing. The channel, or -1. */
 short snd_mix_start( SndMix *mix, short id, short vol, short ent, short chan, short attn,
                       BspVec3 *org, BspVec3 *ear );
+void snd_mix_stop( SndMix *mix, short ent, short chan );
 
 /* room for n static points, before any snd_mix_ambient */
 short snd_mix_statics( SndMix *mix, short n );

@@ -8,7 +8,7 @@
 
 #include "snd_mix.h"
 
-#define SND_COUNT 172   /* tools/mksnd.py's SOUNDS; snd.h's SND_* index them */
+#define SND_COUNT 173   /* tools/mksnd.py's SOUNDS; snd.h's SND_* index them */
 
 typedef struct {
     short  on;          /* the card is up and the samples are in */
