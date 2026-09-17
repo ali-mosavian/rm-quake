@@ -64,9 +64,9 @@ short pl_view_of( short weapon );
 
 /*
  * name: host_view_load
- * desc: The view weapon in hand, loaded the first time it is held and
- *       never before -- a pickup, a key, the carry. Six at init is six
- *       EMS handles and six skins for the one that draws.
+ * desc: The view weapon in hand, replacing the previous model. One
+ *       resident model leaves enough EMS for weapon switches after the
+ *       renderer has filled its surface cache.
  */
 void host_view_load( World *world, short weapon );
 
