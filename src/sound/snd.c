@@ -16,6 +16,27 @@
 #define SND_PAGE       16384L
 #define PAGE_SLOT      2
 
+typedef void (far *SndDspCallback)( unsigned char far *, unsigned short );
+
+static SndMix *snd_irq_mix;
+
+static void far cdecl snd_dsp_callback( unsigned char far *dst, unsigned short bytes )
+{
+    if ( snd_irq_mix ) snd_mix_paint( snd_irq_mix, dst, (short) ( bytes >> 1 ) );
+}
+
+static void snd_dsp_attach( SndMix *mix )
+{
+    snd_irq_mix = mix;
+    qglDspCallback( (long) (SndDspCallback) snd_dsp_callback );
+}
+
+static void snd_dsp_detach( void )
+{
+    qglDspCallback( 0L );
+    snd_irq_mix = 0;
+}
+
 void snd_init( Sound *snd, Pak *pak, short off )
 {
     SndRec far *tab;
@@ -70,8 +91,7 @@ void snd_init( Sound *snd, Pak *pak, short off )
     }
     qglGemRestoreMap( saved_map, PAGE_SLOT );
 
-    if ( snd_mix_setup( &snd->mix, snd->hnd, (unsigned char far *) qglDspBuf(),
-                        (void far *) qglDspScratch(), tab, count,
+    if ( snd_mix_setup( &snd->mix, snd->hnd, (void far *) qglDspScratch(), tab, count,
                         qglDspScratchBytes(), (signed char far *) dec,
                         SND_WATER, SND_WIND ) < 0 ) {
         fprintf( stderr, "dsp.asm's scratch is short of the mixer's table and channels\n" );
@@ -84,6 +104,7 @@ void snd_init( Sound *snd, Pak *pak, short off )
     }
     qglMemFree( (long) dec );
     qglMemFree( (long) raw );
+    snd_dsp_attach( &snd->mix );
     snd->on = -1;
 }
 
@@ -91,7 +112,13 @@ void snd_init( Sound *snd, Pak *pak, short off )
    put in the container -- 0 with the card or the flag off. */
 unsigned long snd_sum( Sound *snd )
 {
-    return snd->on ? snd_mix_sum( &snd->mix ) : 0L;
+    unsigned long sum;
+
+    if ( !snd->on ) return 0L;
+    snd_dsp_detach();
+    sum = snd_mix_sum( &snd->mix );
+    snd_dsp_attach( &snd->mix );
+    return sum;
 }
 
 short snd_sum_slot_test( Sound *snd, unsigned long *sum )
@@ -102,6 +129,7 @@ short snd_sum_slot_test( Sound *snd, unsigned long *sum )
 
     *sum = 0L;
     if ( !snd->on ) return 0;
+    snd_dsp_detach();
     memset( &zero, 0, sizeof(zero) );
     right = zero;
     outer = qglGemSaveMap( PAGE_SLOT );
@@ -109,6 +137,7 @@ short snd_sum_slot_test( Sound *snd, unsigned long *sum )
     if ( !sentinel || !qglGemMap( sentinel, 0, PAGE_SLOT ) ) {
         if ( sentinel ) qglGemFree( sentinel );
         qglGemRestoreMap( outer, PAGE_SLOT );
+        snd_dsp_attach( &snd->mix );
         return 0;
     }
     expected = qglGemSaveMap( PAGE_SLOT );
@@ -117,11 +146,13 @@ short snd_sum_slot_test( Sound *snd, unsigned long *sum )
     sum_ok = actual == expected;
     snd_mix_start( &snd->mix, SND_SHOTGUN, 255, SND_ENT_PLAYER,
                    CHAN_AUTO, ATTN_NORM, &zero, &zero );
-    snd_mix_frame( &snd->mix, qglDspPos(), 0L, &zero, &right, 0 );
+    snd_mix_update( &snd->mix, 0L, &zero, &right, 0 );
+    snd_mix_paint( &snd->mix, (unsigned char far *) qglDspBuf(), 32 );
     actual = qglGemSaveMap( PAGE_SLOT );
     frame_ok = actual == expected;
     restored = qglGemRestoreMap( outer, PAGE_SLOT );
     qglGemFree( sentinel );
+    snd_dsp_attach( &snd->mix );
     return restored && sum_ok && frame_ok;
 }
 
@@ -156,22 +187,33 @@ void snd_start( Sound *snd, Player *player, short ent, short chan, short id, Bsp
 void snd_start_volume( Sound *snd, Player *player, short ent, short chan, short id,
                        BspVec3 *org, short attn, short volume )
 {
+    short lock;
+
     snd->hash = snd->hash * 31UL + (unsigned long) ( id * 8 + chan );
     if ( !snd->on ) return;
-    if ( snd_mix_start( &snd->mix, id, volume, ent, chan, attn, org, &player->pos ) < 0 ) return;
-    snd->started++;
-    snd->seen[id >> 3] |= (unsigned char) ( 1 << ( id & 7 ) );
+    lock = qglDspLock();
+    if ( snd_mix_start( &snd->mix, id, volume, ent, chan, attn, org, &player->pos ) >= 0 ) {
+        snd->started++;
+        snd->seen[id >> 3] |= (unsigned char) ( 1 << ( id & 7 ) );
+    }
+    qglDspUnlock( lock );
 }
 
 void snd_stop( Sound *snd, short ent, short chan )
 {
-    if ( snd->on ) snd_mix_stop( &snd->mix, ent, chan );
+    short lock;
+
+    if ( !snd->on ) return;
+    lock = qglDspLock();
+    snd_mix_stop( &snd->mix, ent, chan );
+    qglDspUnlock( lock );
 }
 
 void snd_frame( Sound *snd, World *world, Player *player, Camera *cam, float dt )
 {
     BspVec3 eye, right;
     float fx, fy, len;
+    short lock;
 
     if ( !snd->on ) return;
     eye = player->pos;
@@ -181,20 +223,30 @@ void snd_frame( Sound *snd, World *world, Player *player, Camera *cam, float dt 
     len = (float) sqrt( fx*fx + fy*fy );
     if ( len > 0.0f ) { fx /= len; fy /= len; }
     right.x = fy; right.y = -fx; right.z = 0.0f;
-    snd->under = snd_mix_frame( &snd->mix, qglDspPos(), (long) ( dt * SND_RATE ), &player->pos,
-                                &right, world->leaves[ r_point_leaf( &eye, world ) ].amb );
+    lock = qglDspLock();
+    snd_mix_update( &snd->mix, (long) ( dt * SND_RATE ), &player->pos,
+                    &right, world->leaves[ r_point_leaf( &eye, world ) ].amb );
+    qglDspUnlock( lock );
 }
 
 void snd_volume( Sound *snd, float volume )
 {
+    short lock;
+
     if ( volume < 0.0f ) volume = 0.0f;
     if ( volume > 1.0f ) volume = 1.0f;
+    if ( !snd->on ) return;
+    lock = qglDspLock();
     snd_mix_volume( &snd->mix, (short) ( volume * 255.0f ) );
+    qglDspUnlock( lock );
 }
 
 void snd_shutdown( Sound *snd )
 {
-    if ( snd->on ) qglDspShutdown();
+    if ( snd->on ) {
+        snd_dsp_detach();
+        qglDspShutdown();
+    }
     if ( snd->hnd ) qglGemFree( snd->hnd );
     if ( snd->mix.pts ) qglMemFree( (long) (void far *) snd->mix.pts );
     snd->on = snd->hnd = 0;
@@ -204,14 +256,20 @@ void snd_shutdown( Sound *snd )
 
 void snd_stats( const Sound *snd, short *started, short *loops, short *under )
 {
+    short lock = snd->on ? qglDspLock() : 0;
+
     *started = snd->started;
     *loops   = snd_mix_loops( &snd->mix );
     *under   = snd->under;
+    if ( snd->on ) qglDspUnlock( lock );
 }
 
 void snd_report( const Sound *snd, char *buf )
 {
-    short ids[8], i, n = snd_mix_live( &snd->mix, ids ), id, left, right;
+    short ids[8], i, n, id, left, right;
+    short lock = snd->on ? qglDspLock() : 0;
+
+    n = snd_mix_live( &snd->mix, ids );
 
     strcpy( buf, "snd seen=" );
     for ( i = 0; i < (short) sizeof(snd->seen); i++ )
@@ -221,7 +279,9 @@ void snd_report( const Sound *snd, char *buf )
         sprintf( buf + strlen( buf ), i ? ",%d" : "%d", (int) ids[i] );
     sprintf( buf + strlen( buf ), " wraps=%d water=%d sky=%d voices=%d",
              (int) snd_mix_wraps( &snd->mix ), (int) snd_mix_leaf_vol( &snd->mix, 0 ),
-             (int) snd_mix_leaf_vol( &snd->mix, 1 ), (int) snd_mix_voices( &snd->mix ) );
+             (int) snd_mix_leaf_vol( &snd->mix, 1 ),
+             (int) snd_mix_voices( &snd->mix ) );
     if ( snd_mix_pan( &snd->mix, &id, &left, &right ) )
         sprintf( buf + strlen( buf ), " pan=%d:%d,%d", (int) id, (int) left, (int) right );
+    if ( snd->on ) qglDspUnlock( lock );
 }

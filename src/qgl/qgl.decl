@@ -31,11 +31,14 @@ declare sub qglDrRect ( byval d as long, byval x0 as integer, byval y0 as intege
 declare sub qglDrShade ( byval d as long, byval x0 as integer, byval y0 as integer, byval x1 as integer, byval y1 as integer, byval lut as long, byval row as integer )
 declare sub qglDrVline ( byval d as long, byval x as integer, byval y0 as integer, byval y1 as integer, byval col as integer )
 declare function qglDspBuf ( ) as long
+declare sub qglDspCallback ( byval callback as long )
 declare function qglDspInit ( byval rate as integer ) as integer
+declare function qglDspLock ( ) as integer
 declare function qglDspPos ( ) as integer
 declare function qglDspScratch ( ) as long
 declare function qglDspScratchBytes ( ) as integer
 declare sub qglDspShutdown ( )
+declare sub qglDspUnlock ( byval state as integer )
 declare function qglFaceAll () as integer
 declare function qglFaceCnt () as integer
 declare sub qglFaceFetch ( seg dst as any )

@@ -9,14 +9,12 @@
 /*
  * snd.h -- the sound layer: Quake's snd_dma.c stereo spatializer.
  *
- * qglDspInit starts a Sound Blaster playing a 4096-byte ring in
+ * qglDspInit starts a Sound Blaster playing an 8192-byte ring in
  * auto-init DMA; snd.bsc, mksnd.py's concatenation of the game's wavs
  * as bsc4/32n, goes into one EMS handle a page at a time and
- * snddec.raw is the table it is decoded through; snd_mix.c paints its
- * channels into the ring ahead of where the DMA is, once a frame. The
- * card never stops: a frame with nothing playing still paints, silence
- * being 128 and not zero, because the ring is a loop and what is not
- * repainted is played again.
+ * snddec.raw is the table it is decoded through. The SB ISR gives each
+ * completed 4096-byte half to snd_mix.c, which refills it before the DSP
+ * acknowledges the interrupt.
  */
 
 /* the sounds, in tools/mksnd.py's SOUNDS order -- q_pl.bi's own
@@ -172,10 +170,9 @@ void snd_self( Sound *snd, Player *player, short chan, short id );
 
 /*
  * name: snd_frame
- * desc: Once a frame, between the tick and the render -- nothing holds
- *       an EMS window then and the mixer takes PAGE_SLOT. dt is the
- *       frame's real time: it tells one wrap of the ring from two, and
- *       fades the ambients of the leaf the eye is in.
+ * desc: Once a frame, update spatialisation and leaf ambient gains. The
+ *       ISR callback owns decoding and painting; dt only drives the
+ *       ambient fade.
  */
 void snd_frame( Sound *snd, World *world, Player *player, Camera *cam, float dt );
 void snd_volume( Sound *snd, float volume );
@@ -186,12 +183,13 @@ void snd_shutdown( Sound *snd );
    summed. See snd_mix.h. */
 unsigned long snd_sum( Sound *snd );
 
-/* -sndsum regression: run both mixer entry points while another mapping
+/* -sndsum regression: run decode and IRQ paint while another mapping
    owns the sample slot, then verify both put that mapping back. */
 short snd_sum_slot_test( Sound *snd, unsigned long *sum );
 
-/* for bench.txt: sounds started, ambients looping, and the frames that
-   found the DMA past what had been painted */
+/* for bench.txt: sounds started, ambients looping, and the legacy
+   underrun field. IRQ refill has no foreground polling window, so the
+   latter remains zero. */
 void snd_stats( const Sound *snd, short *started, short *loops, short *under );
 
 /* the run's sound record, one line: every id started as a bitmap in hex,

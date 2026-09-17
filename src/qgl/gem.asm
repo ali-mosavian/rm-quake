@@ -76,6 +76,12 @@ qgl$gem_key     dw      EMS_SLOTS dup (0FFFFh)
 ;; `uses bx cx di si es` for the same reason.
 qglGemInit    proc    public uses bx cx si di es
 
+                ;; Sound's live IRQ callback also maps EMS. Repeated init
+                ;; (sc_init after snd_init) must not tear down the frame and
+                ;; cache it is using.
+                cmp     [qgl$emsok], 0
+                jne     @@yes
+
                 mov     [qgl$emsok], 0
                 mov     [qgl$pgframe], 0
                 call    qgl$GemForget
@@ -102,6 +108,7 @@ qglGemInit    proc    public uses bx cx si di es
                 mov     [qgl$pgframe], bx
 
                 mov     [qgl$emsok], 1
+@@yes:
                 mov     ax, 1
                 ret
 
@@ -123,6 +130,8 @@ qglGemFrame   endp
 ;; qglGemAvail () -> ax = free EMS pages, -1 if EMS is unavailable
 ;;::::::::::::::
 qglGemAvail   proc    public uses bx dx
+                pushf
+                cli
                 cmp     [qgl$emsok], 0
                 je      @@fail
                 mov     ah, 42h                 ;; free and total pages
@@ -130,8 +139,10 @@ qglGemAvail   proc    public uses bx dx
                 test    ah, ah
                 jnz     @@fail
                 mov     ax, bx
+                popf
                 ret
 @@fail:         mov     ax, -1
+                popf
                 ret
 qglGemAvail   endp
 
@@ -142,6 +153,8 @@ qglGemAvail   endp
 qglGemAlloc   proc    public uses bx cx dx,\
                         nbytes:dword
 
+                pushf
+                cli
                 cmp     [qgl$emsok], 0
                 je      @@fail
 
@@ -170,9 +183,11 @@ qglGemAlloc   proc    public uses bx cx dx,\
                 jnz     @@fail
 
                 mov     ax, dx                  ;; handle
+                popf
                 ret
 
 @@fail:         xor     ax, ax
+                popf
                 ret
 qglGemAlloc   endp
 
@@ -183,6 +198,8 @@ qglGemAlloc   endp
 qglGemFree    proc    public uses bx cx dx,\
                         hnd:word
 
+                pushf
+                cli
                 mov     dx, hnd
                 test    dx, dx
                 jz      @@done
@@ -201,7 +218,8 @@ qglGemFree    proc    public uses bx cx dx,\
                 mov     [qgl$gem_key+bx], 0FFFFh  ;; dctems compares the key, not gem_hnd
 @@next:         add     bx, 2
                 loop    @@slot
-@@done:         ret
+@@done:         popf
+                ret
 qglGemFree    endp
 
 
@@ -230,6 +248,8 @@ qgl$GemForget   endp
 qglGemMap     proc    public uses bx cx dx,\
                         hnd:word, logpage:word, slot:word
 
+                pushf
+                cli
                 mov     bx, slot
                 cmp     bx, EMS_SLOTS
                 jae     @@fail                  ;; four physical pages, no more
@@ -265,6 +285,7 @@ qglGemMap     proc    public uses bx cx dx,\
                 mov     cl, 10
                 shl     ax, cl
                 add     ax, [qgl$pgframe]
+                popf
                 ret
 
 @@lost:         ;; the driver refused, and what the slot holds now is
@@ -274,6 +295,7 @@ qglGemMap     proc    public uses bx cx dx,\
                 mov     [qgl$gem_hnd+bx], 0
                 mov     [qgl$gem_key+bx], 0FFFFh
 @@fail:         xor     ax, ax
+                popf
                 ret
 qglGemMap     endp
 
@@ -287,6 +309,8 @@ qglGemMap     endp
 qglGemSaveMap proc    public uses bx,\
                         slot:word
 
+                pushf
+                cli
                 mov     bx, slot
                 cmp     bx, EMS_SLOTS
                 jae     @@empty
@@ -295,16 +319,20 @@ qglGemSaveMap proc    public uses bx,\
                 test    ax, ax
                 jz      @@empty
                 mov     dx, [qgl$gem_pg+bx]
+                popf
                 ret
 
 @@empty:        mov     ax, -1
                 mov     dx, -1
+                popf
                 ret
 qglGemSaveMap endp
 
 qglGemRestoreMap proc public uses bx dx,\
                         state:dword, slot:word
 
+                pushf
+                cli
                 mov     bx, slot
                 cmp     bx, EMS_SLOTS
                 jae     @@fail
@@ -324,15 +352,18 @@ qglGemRestoreMap proc public uses bx dx,\
                 mov     [qgl$gem_pg+bx], 0
                 mov     [qgl$gem_key+bx], 0FFFFh
                 mov     ax, 1
+                popf
                 ret
 
 @@map:          invoke  qglGemMap, ax, dx, slot
                 test    ax, ax
                 jz      @@fail
                 mov     ax, 1
+                popf
                 ret
 
  @@fail:         xor     ax, ax
+                popf
                 ret
 qglGemRestoreMap endp
 

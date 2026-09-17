@@ -1,16 +1,15 @@
 ;; dsp.asm -- the Sound Blaster: an 8-bit stereo ring the DSP plays by DMA.
 ;;
-;; name: qglDspInit / qglDspPos / qglDspBuf / qglDspScratch / qglDspShutdown
+;; name: qglDspInit / qglDspCallback / qglDspLock / qglDspUnlock /
+;;       qglDspPos / qglDspBuf / qglDspScratch / qglDspShutdown
 ;; desc: Quake's snd_dos.c on the SB16 path. The DSP at 220h is reset and
 ;;       asked its version; an 8192-byte ring is taken from qglMemAlloc and
 ;;       aligned to 8192 so it never crosses a 64K DMA page, filled with
 ;;       silence (128), and DMA channel 1 streams it in auto-init mode
 ;;       while the DSP plays interleaved 8-bit unsigned stereo at the rate asked for,
-;;       half the ring a block. Nobody waits for an interrupt: the mixer
-;;       asks qglDspPos where the DMA is and writes ahead of it. The IRQ
-;;       still fires every block, so a stub on IRQ 7 -- DOSBox's default
-;;       for the card -- acknowledges it, or the BIOS's iret would leave
-;;       the PIC's in-service bit set for the rest of the run.
+;;       half the ring a block. IRQ 7 calls a registered far cdecl callback
+;;       with the completed half and its byte count, then acknowledges the
+;;       DSP and PIC -- the same contract as mgl's sbdrv/modplayer.
 ;;
 ;; obs.: - the DMA count is the whole ring less one, the DSP's block half
 ;;         the ring less one; both are n-1 and they are not the same n.
@@ -47,6 +46,7 @@ DMA_MODE_BYTE   equ     58h + DMA_CHAN          ;; single, auto-init, read from 
 
 SB_IRQ_VEC      equ     0Fh                     ;; IRQ 7
 PIC_CMD         equ     20h
+PIC_MASK        equ     21h
 PIC_EOI         equ     20h
 
 DSP_RING        equ     8192
@@ -63,19 +63,43 @@ qgl$dsp_on      dw      0
 qgl$dsp_block   dd      0                       ;; what qglMemAlloc gave
 qgl$dsp_ring    dw      0                       ;; its 8192-aligned segment
 qgl$dsp_old     dd      0
+qgl$dsp_callback dd     0                       ;; cdecl far (dst, byte count)
+qgl$dsp_half    dw      0                       ;; half completing at the next IRQ
+qgl$dsp_picmask db      0                       ;; IRQ 7's mask before init
 
 ;;::::::::::::::
-;; the IRQ 7 handler: ack the DSP, ack the PIC
+;; the IRQ 7 handler: refill the completed half, then ack the DSP and PIC
 ;;::::::::::::::
 qgl$DspIsr      proc    far private
+                push    ds
+                push    es
+                push    fs
+                push    gs
+                pushad
+                cld
+
+                cmp     dword ptr cs:qgl$dsp_callback, 0
+                je      @@flip
+                mov     ax, cs:qgl$dsp_half
+                shl     ax, 12                  ;; byte offset 0 or 4096
+                push    DSP_RING/2              ;; cdecl: rightmost first
+                push    cs:qgl$dsp_ring
                 push    ax
-                push    dx
+                mov     ax, @data               ;; C callback's DGROUP
+                mov     ds, ax
+                call    dword ptr cs:qgl$dsp_callback
+                add     sp, 6
+
+@@flip:         xor     cs:qgl$dsp_half, 1
                 mov     dx, DSP_RSTAT
                 in      al, dx
                 mov     al, PIC_EOI
                 out     PIC_CMD, al
-                pop     dx
-                pop     ax
+                popad
+                pop     gs
+                pop     fs
+                pop     es
+                pop     ds
                 iret
 qgl$DspIsr      endp
 
@@ -168,6 +192,8 @@ qglDspInit      proc    public uses bx cx dx si di es,\
                 add     dx, 01FFh
                 and     dx, 0FE00h
                 mov     cs:qgl$dsp_ring, dx
+                mov     cs:qgl$dsp_half, 0
+                mov     dword ptr cs:qgl$dsp_callback, 0
 
                 ;; silence, not zero: 128 is the 8-bit unsigned midpoint
                 mov     es, dx
@@ -189,6 +215,17 @@ qglDspInit      proc    public uses bx cx dx si di es,\
                 mov     ax, 2500h + SB_IRQ_VEC
                 int     21h
                 pop     ds
+
+                ;; DOS commonly leaves IRQ 7 masked. The old foreground
+                ;; painter could consume the DSP acknowledge itself; a real
+                ;; callback needs the PIC line live, then restored on exit.
+                pushf
+                cli
+                in      al, PIC_MASK
+                mov     cs:qgl$dsp_picmask, al
+                and     al, 7Fh
+                out     PIC_MASK, al
+                popf
 
                 ;; the DMA controller: channel 1 masked while it is programmed;
                 ;; address = segment * 16, whose low 16 bits are (seg shl 4)
@@ -244,24 +281,77 @@ qglDspInit      endp
 
 
 ;;::::::::::::::
+;; qglDspCallback ( callback:dword )
+;;
+;; callback is a far cdecl void callback(unsigned char far *dst,
+;; unsigned short bytes). A null pointer detaches it. IRQs stay disabled
+;; only across the two-word pointer store, preserving the caller's IF.
+;;::::::::::::::
+qglDspCallback  proc    public uses eax,\
+                        callback:dword
+                pushf
+                cli
+                mov     eax, callback
+                mov     dword ptr cs:qgl$dsp_callback, eax
+                popf
+                ret
+qglDspCallback  endp
+
+
+;;::::::::::::::
+;; qglDspLock () -> ax = prior IRQ 7 mask state (0 unmasked, 1 masked)
+;; qglDspUnlock ( state:word ) restores that state
+;;
+;; Foreground code uses this around channel state shared with the callback.
+;; Other hardware IRQs remain enabled while the mixer state is locked.
+;;::::::::::::::
+qglDspLock      proc    public uses dx
+                pushf
+                cli
+                in      al, PIC_MASK
+                mov     dl, al
+                or      al, 80h
+                out     PIC_MASK, al
+                xor     ax, ax
+                test    dl, 80h
+                jz      @@done
+                inc     ax
+@@done:         popf
+                ret
+qglDspLock      endp
+
+qglDspUnlock    proc    public uses dx,\
+                        state:word
+                pushf
+                cli
+                in      al, PIC_MASK
+                and     al, 7Fh
+                cmp     state, 0
+                je      @@write
+                or      al, 80h
+@@write:        out     PIC_MASK, al
+                popf
+                ret
+qglDspUnlock    endp
+
+
+;;::::::::::::::
 ;; qglDspPos () -> ax = the stereo frame the DMA is on, 0..4095
 ;;
-;; The count register reads bytes-remaining-1; reading DSP_RSTAT first is
-;; the 8-bit acknowledge, so a block end never goes unacked even with the
-;; IRQ masked.
+;; The count register reads bytes-remaining-1. The IRQ handler alone owns
+;; the DSP acknowledge; this diagnostic must not consume it.
 ;;::::::::::::::
 qglDspPos       proc    public uses dx
                 cmp     cs:qgl$dsp_on, 0
                 je      @@zero
-                mov     dx, DSP_RSTAT
-                in      al, dx
+                pushf
                 cli
                 out     DMA_FLIP, al
                 in      al, DMA_COUNT
                 mov     ah, al
                 in      al, DMA_COUNT
                 xchg    al, ah
-                sti
+                popf
                 inc     ax                      ;; remaining
                 neg     ax                      ;; ring - remaining, modulo byte ring
                 and     ax, DSP_RING - 1
@@ -302,6 +392,13 @@ qglDspScratchBytes endp
 qglDspShutdown  proc    public uses eax dx ds
                 cmp     cs:qgl$dsp_on, 0
                 je      @@done
+                invoke  qglDspCallback, 0
+                pushf
+                cli
+                in      al, PIC_MASK
+                or      al, 80h
+                out     PIC_MASK, al
+                popf
                 mov     cs:qgl$dsp_on, 0
 
                 mov     al, 0D3h                ;; speaker off
@@ -314,6 +411,16 @@ qglDspShutdown  proc    public uses eax dx ds
                 mov     ds, W cs:qgl$dsp_old+2
                 mov     ax, 2500h + SB_IRQ_VEC
                 int     21h
+
+                pushf
+                cli
+                in      al, PIC_MASK
+                and     al, 7Fh
+                test    cs:qgl$dsp_picmask, 80h
+                jz      @@pic
+                or      al, 80h
+@@pic:          out     PIC_MASK, al
+                popf
 
                 mov     eax, cs:qgl$dsp_block
                 invoke  qglMemFree, eax

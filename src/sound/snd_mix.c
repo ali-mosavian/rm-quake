@@ -2,8 +2,8 @@
  * snd_mix.c -- Quake's S_PaintChannels for one 8-bit stereo ring.
  *
  * Eighteen channels, each a run of samples in the EMS handle snd.bsc
- * was loaded into, mixed into the DMA ring dsp.asm plays, from where the
- * mixer last stopped to a quarter second past where the DMA is. Two are
+ * was loaded into, mixed into the completed half of dsp.asm's DMA ring
+ * from its IRQ callback. Two are
  * S_UpdateAmbientSounds' water and sky, faded to the listener's leaf;
  * eight are S_StartSound's, re-placed from where each began every frame;
  * eight are the map's statics, one a sound however many points play it.
@@ -12,10 +12,9 @@
  * dsp.asm took from DOS, beyond its ring -- conventional memory this
  * program is short of, and the one place already sized for it.
  *
- * A sample is read through PAGE_SLOT, mapped fresh for every run and
- * held across nothing, the same way every other reader of that slot
- * behaves; the call sits between the tick and the render, where no one
- * else has a window open.
+ * A sample is read through PAGE_SLOT, mapped fresh for every run. The
+ * callback saves the interrupted owner's mapping and restores it before
+ * returning, like mgl's MOD-player callback.
  *
  * It is not a byte on the way in. mksnd.py ships bsc4/32n -- 32 samples
  * a block, a scale byte and sixteen of 4-bit codes -- so snd_fetch
@@ -30,14 +29,12 @@
 #include "qgl.h"
 
 #define PAGE_SLOT   2
-#define SND_RING    4096L
 #define SND_DYN0    SND_LEAF
 #define SND_VOICE0  (SND_LEAF + SND_CHANS)
 #define SND_BLK     32              /* samples a block, bsc4/32n */
 #define SND_BLK_B   17              /* its bytes: the scale, then sixteen of codes */
 #define SND_NSCALE  32              /* and the scale byte selects one, so it is masked */
 #define SND_TAB     176             /* records */
-#define SND_AHEAD   2756L           /* a quarter second at 11025 */
 #define SND_RATE    11025L
 #define EMS_PAGE    16384
 #define SND_BLK_PG  (EMS_PAGE / SND_BLK_B)  /* 963; the page's last 13 bytes are padding */
@@ -121,7 +118,7 @@ static short snd_loop_start( const SndMix *mix, SndChan far *ch, short id )
     return 1;
 }
 
-short snd_mix_setup( SndMix *mix, short hnd, unsigned char far *ring, void far *scratch,
+short snd_mix_setup( SndMix *mix, short hnd, void far *scratch,
                       SndRec far *tab, short count, short scratch_bytes,
                       signed char far *dec, short water, short sky )
 {
@@ -132,7 +129,6 @@ short snd_mix_setup( SndMix *mix, short hnd, unsigned char far *ring, void far *
         return -1;
     mix->hnd   = hnd;
     mix->count = count;
-    mix->ring  = ring;
     mix->paint_l = (int far *) scratch;
     mix->paint_r = mix->paint_l + SND_CHUNK;
     mix->tab   = (SndRec far *) ( (char far *) scratch + SND_CHUNK * 4 );
@@ -149,8 +145,6 @@ short snd_mix_setup( SndMix *mix, short hnd, unsigned char far *ring, void far *
     for ( i = 0; i < mix->npts; i++ )
         if ( mix->chan[SND_VOICE0 + mix->pts[i].voice].end ) mix->loops++;
 
-    mix->time = mix->painted = 0;
-    mix->lastpos = mix->under = 0;
     mix->master = 255;
     mix->listener_right.x = 0.0f;
     mix->listener_right.y = -1.0f;
@@ -382,43 +376,29 @@ static void snd_mix_place( SndMix *mix, BspVec3 *ear )
     }
 }
 
-short snd_mix_frame( SndMix *mix, short pos, long adv, BspVec3 *ear,
+void snd_mix_update( SndMix *mix, long adv, BspVec3 *ear,
                      BspVec3 *right, unsigned char amb )
 {
-    unsigned char far *ring  = mix->ring;
-    int far *left = mix->paint_l;
-    int far *right_paint = mix->paint_r;
-    long  delta = (long) pos - mix->lastpos, endt;
-    short n, ringpos, k, c;
-    int   vl, vr;
-    long  saved = qglGemSaveMap( PAGE_SLOT );
+    short c;
 
     mix->listener_right = *right;
     snd_mix_leaf( mix, amb, adv );
     for ( c = SND_DYN0; c < SND_VOICE0; c++ )
         if ( mix->chan[c].end ) snd_mix_spatialize( mix, &mix->chan[c], ear );
     snd_mix_place( mix, ear );
+}
 
-    if ( delta < 0 ) delta += SND_RING;
-    while ( adv - delta > SND_RING / 2 ) { delta += SND_RING; adv -= SND_RING; }
-    mix->lastpos = pos;
-    mix->time += delta;
-    if ( mix->painted < mix->time ) {
-        if ( mix->painted ) mix->under++;
-        mix->painted = mix->time;
-    }
+void snd_mix_paint( SndMix *mix, unsigned char far *dst, short frames )
+{
+    int far *left = mix->paint_l;
+    int far *right_paint = mix->paint_r;
+    long saved = qglGemSaveMap( PAGE_SLOT );
+    short n, done = 0, k, c;
+    int vl, vr;
 
-    /* and the paint, which runs whether or not anything is playing: an
-       idle channel contributes zeros and the ring gets 128, silence.
-       Skipping the write while every channel is idle would leave the
-       last quarter second in the buffer, and the card plays it round
-       and round -- the DMA never stops, so the mixer never does. */
-    endt = mix->time + SND_AHEAD;
-    while ( mix->painted < endt ) {
-        n = (short) ( endt - mix->painted );
+    while ( done < frames ) {
+        n = (short) ( frames - done );
         if ( n > SND_CHUNK ) n = SND_CHUNK;
-        ringpos = (short) ( mix->painted & (SND_RING - 1) );
-        if ( n > (short) (SND_RING - ringpos) ) n = (short) ( SND_RING - ringpos );
         for ( k = 0; k < n; k++ ) left[k] = right_paint[k] = 0;
         for ( c = 0; c < SND_ALL; c++ )
             if ( mix->chan[c].end ) snd_mix_chan( mix, &mix->chan[c], n );
@@ -430,11 +410,10 @@ short snd_mix_frame( SndMix *mix, short pos, long adv, BspVec3 *ear,
                 vl = (int) ( (long) vl * mix->master / 255L );
                 vr = (int) ( (long) vr * mix->master / 255L );
             }
-            ring[(ringpos + k) * 2]     = (unsigned char) ( vl + 128 );
-            ring[(ringpos + k) * 2 + 1] = (unsigned char) ( vr + 128 );
+            dst[(done + k) * 2]     = (unsigned char) ( vl + 128 );
+            dst[(done + k) * 2 + 1] = (unsigned char) ( vr + 128 );
         }
-        mix->painted += n;
+        done = (short) ( done + n );
     }
     qglGemRestoreMap( saved, PAGE_SLOT );
-    return mix->under;
 }

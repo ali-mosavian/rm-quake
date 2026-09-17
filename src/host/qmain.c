@@ -14,7 +14,7 @@
    startup aborts before main to a stderr DOS does not redirect; 32768
    was 22 bytes over. tools/dgroup-check.sh fails the link instead. */
 extern unsigned _stklen;
-unsigned _stklen = 23808U;
+unsigned _stklen = 23800U;
 
 int main( void )
 {

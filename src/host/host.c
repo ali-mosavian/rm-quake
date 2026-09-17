@@ -1659,9 +1659,8 @@ void host_frame( Host *h )
         if ( h->demo.rec.dt < 0.0f ) h->demo.rec.dt = 0.0f;
     }
 
-    /* Between the tick and the render, where nothing holds an EMS window:
-       the mixer takes PAGE_SLOT. Every frame: the DMA never stops, and
-       what is not repainted is played again. */
+    /* Publish spatial gains between the tick and render. IRQ 7 owns the
+       EMS-backed decode and completed-half paint. */
 #if QR_PROF
     t_ph = sys_now( &h->sysclk );
 #endif

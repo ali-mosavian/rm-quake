@@ -63,11 +63,14 @@ void pascal far qglDrRect( long d, short x0, short y0, short x1, short y1, short
 void pascal far qglDrShade( long d, short x0, short y0, short x1, short y1, long lut, short row );
 void pascal far qglDrVline( long d, short x, short y0, short y1, short col );
 long pascal far qglDspBuf( void );
+void pascal far qglDspCallback( long callback );
 short pascal far qglDspInit( short rate );
+short pascal far qglDspLock( void );
 short pascal far qglDspPos( void );
 long pascal far qglDspScratch( void );
 short pascal far qglDspScratchBytes( void );
 void pascal far qglDspShutdown( void );
+void pascal far qglDspUnlock( short state );
 void pascal far qglFileClose( short h );
 short pascal far qglFileDrivers( void );
 short pascal far qglFileNameBas( short s, long dst, short cap );

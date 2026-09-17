@@ -36,11 +36,8 @@ typedef struct { unsigned char voice, vol; short x, y, z; } SndPoint;
 /* The mixer. The table and the channels live in dsp.asm's scratch block,
    beyond its ring; the codec table and one decoded run live here. */
 typedef struct {
-    short hnd, count, lastpos, under, loops, wraps, master;
-    long  time;                     /* samples the DMA has played */
-    long  painted;                  /* samples written */
+    short hnd, count, loops, wraps, master;
     long  fade_acc;
-    unsigned char far *ring;
     int           far *paint_l;     /* SND_CHUNK ints each */
     int           far *paint_r;
     SndRec        far *tab;
@@ -59,15 +56,15 @@ typedef struct {
 
 /*
  * name: snd_mix_setup
- * desc: hnd is the samples' EMS handle, ring dsp.asm's DMA buffer,
- *       scratch its spare block and scratch_bytes how much of it there
+ * desc: hnd is the samples' EMS handle, scratch dsp.asm's spare block
+ *       and scratch_bytes how much of it there
  *       is -- -1 when that is short, which is a real failure and not a
  *       rounding: the channels once ran 304 bytes past dsp.asm's 1792
  *       and the map hung in the allocator instead. dec is snddec.raw,
  *       512 bytes of it, the codec's whole contract. water and sky are
  *       the leaves' two ambient loops. Starts every recorded static.
  */
-short snd_mix_setup( SndMix *mix, short hnd, unsigned char far *ring, void far *scratch,
+short snd_mix_setup( SndMix *mix, short hnd, void far *scratch,
                       SndRec far *tab, short count, short scratch_bytes,
                       signed char far *dec, short water, short sky );
 
@@ -112,18 +109,15 @@ short snd_mix_leaf_vol( const SndMix *mix, short i );
 unsigned long snd_mix_sum( SndMix *mix );
 
 /*
- * name: snd_mix_frame
- * desc: pos is qglDspPos now, adv the samples the frame's wall time is
- *       worth (which tells one wrap of the ring from two), ear the
- *       listener and amb the ambient levels of the leaf it is in, water
- *       in the high nibble and sky in the low. Re-places every channel,
- *       then paints from where it stopped to a quarter second past the
- *       DMA -- ALWAYS, whether or not a channel is playing: the ring is a
- *       loop, and a stretch left unpainted is played again. Returns the
- *       underruns so far.
+ * name: snd_mix_update / snd_mix_paint
+ * desc: Update runs from the foreground and owns floating-point
+ *       spatialisation. Paint is the bounded, integer-only SB callback:
+ *       it fills exactly frames stereo samples at dst, advances voices,
+ *       and restores the EMS slot it borrows before returning.
  */
-short snd_mix_frame( SndMix *mix, short pos, long adv, BspVec3 *ear,
+void snd_mix_update( SndMix *mix, long adv, BspVec3 *ear,
                      BspVec3 *right, unsigned char amb );
+void snd_mix_paint( SndMix *mix, unsigned char far *dst, short frames );
 void snd_mix_volume( SndMix *mix, short volume );
 
 #endif
