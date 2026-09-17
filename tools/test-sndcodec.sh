@@ -31,11 +31,13 @@ RUN="${RUN_SH:-$HERE/run.sh}"
 
 log="$OUT/cstep.txt"
 TIMEOUT="${TIMEOUT:-600}" "$RUN" "$OUT" "$MAP.qmp -nostats -sndsum -ticks 1" >/dev/null 2>&1
-got=$(tr -d '\r' < "$log" 2>/dev/null | grep -m1 '^snd_sum=' | sed 's/.*=//')
+sum_line=$(tr -d '\r' < "$log" 2>/dev/null | grep -m1 '^snd_sum=' | sed 's/.*=//')
+got=${sum_line%/*}
+restored=${sum_line#*/}
 
-python3 - "$ROOT" "$OUT/$MAP.qmp" "${got:-}" <<'PY'
+python3 - "$ROOT" "$OUT/$MAP.qmp" "${got:-}" "${restored:-}" <<'PY'
 import struct, sys
-root, qmp, got = sys.argv[1:4]
+root, qmp, got, restored = sys.argv[1:5]
 sys.path.insert(0, f'{root}/tools')
 import numpy as np
 import qmapread
@@ -80,6 +82,8 @@ if not got:
     bad.append('the run printed no snd_sum -- did it reach snd_init?')
 elif int(got, 16) != want:
     bad.append(f'the mixer decoded to {got}, mksnd.py to {want:08X}')
+if restored != '1':
+    bad.append('the mixer did not restore PAGE_SLOT after decoding or painting')
 
 for b in bad:
     print('FAIL:', b, file=sys.stderr)

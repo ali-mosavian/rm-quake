@@ -21,7 +21,7 @@ void snd_init( Sound *snd, Pak *pak, short off )
     SndRec far *tab;
     unsigned char far *raw;
     unsigned char far *dec;
-    long  remain, want, n;
+    long  remain, want, n, saved_map;
     short fh, pg, pgseg, count;
 
     snd->on = 0;
@@ -58,6 +58,7 @@ void snd_init( Sound *snd, Pak *pak, short off )
         qglDspShutdown();
         return;
     }
+    saved_map = qglGemSaveMap( PAGE_SLOT );
     for ( pg = 0; remain > 0; pg++ ) {
         pgseg = qglGemMap( snd->hnd, pg, PAGE_SLOT );
         if ( !pgseg ) sys_error( "snd.bsc: a page would not map" );
@@ -67,6 +68,7 @@ void snd_init( Sound *snd, Pak *pak, short off )
         }
         remain -= want;
     }
+    qglGemRestoreMap( saved_map, PAGE_SLOT );
 
     if ( snd_mix_setup( &snd->mix, snd->hnd, (unsigned char far *) qglDspBuf(),
                         (void far *) qglDspScratch(), tab, count,
@@ -90,6 +92,37 @@ void snd_init( Sound *snd, Pak *pak, short off )
 unsigned long snd_sum( Sound *snd )
 {
     return snd->on ? snd_mix_sum( &snd->mix ) : 0L;
+}
+
+short snd_sum_slot_test( Sound *snd, unsigned long *sum )
+{
+    BspVec3 zero, right;
+    long outer, expected, actual;
+    short sentinel, restored, sum_ok, frame_ok;
+
+    *sum = 0L;
+    if ( !snd->on ) return 0;
+    memset( &zero, 0, sizeof(zero) );
+    right = zero;
+    outer = qglGemSaveMap( PAGE_SLOT );
+    sentinel = qglGemAlloc( SND_PAGE );
+    if ( !sentinel || !qglGemMap( sentinel, 0, PAGE_SLOT ) ) {
+        if ( sentinel ) qglGemFree( sentinel );
+        qglGemRestoreMap( outer, PAGE_SLOT );
+        return 0;
+    }
+    expected = qglGemSaveMap( PAGE_SLOT );
+    *sum = snd_mix_sum( &snd->mix );
+    actual = qglGemSaveMap( PAGE_SLOT );
+    sum_ok = actual == expected;
+    snd_mix_start( &snd->mix, SND_SHOTGUN, 255, SND_ENT_PLAYER,
+                   CHAN_AUTO, ATTN_NORM, &zero, &zero );
+    snd_mix_frame( &snd->mix, qglDspPos(), 0L, &zero, &right, 0 );
+    actual = qglGemSaveMap( PAGE_SLOT );
+    frame_ok = actual == expected;
+    restored = qglGemRestoreMap( outer, PAGE_SLOT );
+    qglGemFree( sentinel );
+    return restored && sum_ok && frame_ok;
 }
 
 /* Recorded whatever the card does, and unguarded on purpose: this runs

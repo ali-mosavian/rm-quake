@@ -270,6 +270,7 @@ static short snd_fetch( const SndMix *mix, long pos, short n, signed char *out )
 unsigned long snd_mix_sum( SndMix *mix )
 {
     unsigned long sum = 0;
+    long saved = qglGemSaveMap( PAGE_SLOT );
     long  pos, end;
     short i, k, n, got;
 
@@ -279,12 +280,16 @@ unsigned long snd_mix_sum( SndMix *mix )
         while ( pos < end ) {
             n = end - pos > SND_CHUNK ? SND_CHUNK : (short) ( end - pos );
             got = snd_fetch( mix, pos, n, mix->dbuf );
-            if ( got == 0 ) return 0;
+            if ( got == 0 ) {
+                qglGemRestoreMap( saved, PAGE_SLOT );
+                return 0;
+            }
             for ( k = 0; k < got; k++ )
                 sum = sum * 31 + (unsigned char) ( mix->dbuf[k] + 128 );
             pos += got;
         }
     }
+    qglGemRestoreMap( saved, PAGE_SLOT );
     return sum;
 }
 
@@ -386,6 +391,7 @@ short snd_mix_frame( SndMix *mix, short pos, long adv, BspVec3 *ear,
     long  delta = (long) pos - mix->lastpos, endt;
     short n, ringpos, k, c;
     int   vl, vr;
+    long  saved = qglGemSaveMap( PAGE_SLOT );
 
     mix->listener_right = *right;
     snd_mix_leaf( mix, amb, adv );
@@ -429,5 +435,6 @@ short snd_mix_frame( SndMix *mix, short pos, long adv, BspVec3 *ear,
         }
         mix->painted += n;
     }
+    qglGemRestoreMap( saved, PAGE_SLOT );
     return mix->under;
 }

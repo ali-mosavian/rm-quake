@@ -50,6 +50,8 @@ declare function qglGemAvail () as integer
 declare function qglGemFrame () as integer
 declare sub qglGemFree ( byval h as integer )
 declare function qglGemMap ( byval h as integer, byval pg as integer, byval slot as integer ) as integer
+declare function qglGemRestoreMap ( byval state as long, byval slot as integer ) as integer
+declare function qglGemSaveMap ( byval slot as integer ) as long
 declare sub qglKbdInit ( seg keys as Keys )
 declare sub qglKbdShutdown ()
 declare sub qglM4Conc ( seg m as Mat4, seg a as Mat4, seg b as Mat4 )

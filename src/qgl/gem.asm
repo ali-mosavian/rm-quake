@@ -1,6 +1,7 @@
 ;; ems.asm -- expanded memory: the four physical pages, and nothing else.
 ;;
-;; name: qglGemInit / qglGemFrame / qglGemAvail / qglGemAlloc / qglGemFree / qglGemMap
+;; name: qglGemInit / qglGemFrame / qglGemAvail / qglGemAlloc / qglGemFree / qglGemMap /
+;;       qglGemSaveMap / qglGemRestoreMap
 ;; desc: raw EMS 3.2. Who owns which physical page is the caller's
 ;;       business and never this module's -- the same contract mgl's own
 ;;       emsMapEx offers, and for the same stated reason: its plain
@@ -275,6 +276,65 @@ qglGemMap     proc    public uses bx cx dx,\
 @@fail:         xor     ax, ax
                 ret
 qglGemMap     endp
+
+;;::::::::::::::
+;; qglGemSaveMap ( slot:word ) -> dx:ax = page:handle, -1 if empty
+;; qglGemRestoreMap ( state:dword, slot:word ) -> ax nonzero on success
+;;
+;; A borrower of a physical page must put back what its caller was using.
+;; The state comes from gem's authoritative record, not a caller's copy.
+;;::::::::::::::
+qglGemSaveMap proc    public uses bx,\
+                        slot:word
+
+                mov     bx, slot
+                cmp     bx, EMS_SLOTS
+                jae     @@empty
+                shl     bx, 1
+                mov     ax, [qgl$gem_hnd+bx]
+                test    ax, ax
+                jz      @@empty
+                mov     dx, [qgl$gem_pg+bx]
+                ret
+
+@@empty:        mov     ax, -1
+                mov     dx, -1
+                ret
+qglGemSaveMap endp
+
+qglGemRestoreMap proc public uses bx dx,\
+                        state:dword, slot:word
+
+                mov     bx, slot
+                cmp     bx, EMS_SLOTS
+                jae     @@fail
+
+                mov     ax, word ptr state+0
+                mov     dx, word ptr state+2
+                cmp     ax, -1
+                jne     @@map
+                cmp     dx, -1
+                jne     @@map
+
+                ;; EMS 3.2 has no unmap operation. An empty saved slot has
+                ;; no live pointer to preserve, so forget the borrower's map;
+                ;; the next owner will necessarily map its own page.
+                shl     bx, 1
+                mov     [qgl$gem_hnd+bx], 0
+                mov     [qgl$gem_pg+bx], 0
+                mov     [qgl$gem_key+bx], 0FFFFh
+                mov     ax, 1
+                ret
+
+@@map:          invoke  qglGemMap, ax, dx, slot
+                test    ax, ax
+                jz      @@fail
+                mov     ax, 1
+                ret
+
+ @@fail:         xor     ax, ax
+                ret
+qglGemRestoreMap endp
 
 
 .data

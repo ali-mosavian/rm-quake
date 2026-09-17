@@ -815,7 +815,9 @@ static void near host_load_rest( Host *h, LoadScreen *ldr )
         mark( buf );
     }
     if ( h->args.sndsum ) {
-        sprintf( buf, "snd_sum=%08lX", snd_sum( &h->world.snd ) );
+        unsigned long sum;
+        short restored = snd_sum_slot_test( &h->world.snd, &sum );
+        sprintf( buf, "snd_sum=%08lX/%d", sum, restored );
         mark( buf );
     }
     ld_step( ldr, vdc, h->hud );

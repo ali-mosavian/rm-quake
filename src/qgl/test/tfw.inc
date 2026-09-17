@@ -16,6 +16,8 @@ qglGemFrame   proto   far
 qglGemAlloc   proto   far :dword
 qglGemFree    proto   far :word
 qglGemMap     proto   far :word, :word, :word
+qglGemSaveMap proto   far :word
+qglGemRestoreMap proto far :dword, :word
 qglSfInit     proto   far
 qglSfNew      proto   far :word, :word, :word
 qglSfFree     proto   far :dword

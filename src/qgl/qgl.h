@@ -86,6 +86,8 @@ short pascal far qglGemFrame( void );
 void pascal far qglGemFree( short hnd );
 short pascal far qglGemInit( void );
 short pascal far qglGemMap( short hnd, short logpage, short slot );
+short pascal far qglGemRestoreMap( long state, short slot );
+long pascal far qglGemSaveMap( short slot );
 void pascal far qglGetClipRect( long sf, void far * cr );
 void pascal far qglGetSetClipRect( long sf, void far * inCr, void far * outCr );
 void pascal far qglKbdInit( Keys far * keys );

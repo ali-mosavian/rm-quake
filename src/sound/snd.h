@@ -186,6 +186,10 @@ void snd_shutdown( Sound *snd );
    summed. See snd_mix.h. */
 unsigned long snd_sum( Sound *snd );
 
+/* -sndsum regression: run both mixer entry points while another mapping
+   owns the sample slot, then verify both put that mapping back. */
+short snd_sum_slot_test( Sound *snd, unsigned long *sum );
+
 /* for bench.txt: sounds started, ambients looping, and the frames that
    found the DMA past what had been painted */
 void snd_stats( const Sound *snd, short *started, short *loops, short *under );
