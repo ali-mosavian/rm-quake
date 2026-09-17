@@ -86,16 +86,17 @@ DATA_OUT := $(addprefix $(BUILD)/,$(DATA) $(ROOT_DATA))
 all: build                      ## build QCPORT.EXE (default)
 build: $(EXE) $(DATA_OUT)
 
-# The no-argument id-style attract loop. These map containers are generated
-# by `make maps`; the recordings are small checked-in input streams.
-TITLE_MAPS := start e1m1 e1m2 e1m3
-TITLE_DEMOS := demo1.qcr demo2.qcr demo3.qcr
+# The no-argument id-style attract loop. The camera tracks are extracted
+# from id's protocol-15 demos in the shareware PAK.
+TITLE_MAPS := start e1m3 e1m4 e1m6
+TITLE_DEMOS := demo1.qdc demo2.qdc demo3.qdc
 TITLE_MAP_OUT := $(foreach m,$(TITLE_MAPS),$(BUILD)/$(m).qmp)
 TITLE_DEMO_OUT := $(addprefix $(BUILD)/,$(TITLE_DEMOS))
 title: build $(TITLE_MAP_OUT) $(TITLE_DEMO_OUT) ## build the no-argument title-demo setup
 
 $(foreach m,$(TITLE_MAPS),$(eval $(BUILD)/$(m).qmp: data/maps/$(m)/$(m).qmp | $(BUILD); cp $$< $$@))
-$(foreach f,$(TITLE_DEMOS),$(eval $(BUILD)/$(f): data/demos/$(f) | $(BUILD); cp $$< $$@))
+$(BUILD)/demo%.qdc: $(PAK) tools/mkidcam.py tools/pakget.py | $(BUILD)
+	@python3 tools/mkidcam.py $(PAK) demo$*.dem $@
 
 # Named one by one, not a `$(BUILD)/%:` pattern -- that pattern also
 # matches $(BUILD)/<anything>.obj and would compete with the compile
@@ -176,6 +177,7 @@ test:                           ## header deps, far-to-near pointers, then qgl's
 	@tools/test-console.sh
 	@tools/test-keybind.sh
 	@tools/test-centerprint.sh
+	@python3 tools/test-id-demo-camera.py $(PAK)
 	@python3 tools/farnear.py
 	@tools/test-x87cmp.sh
 	@tools/test-bufcheck.sh

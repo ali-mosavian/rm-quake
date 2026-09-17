@@ -136,7 +136,7 @@ static void near host_startdemos( Host *h, char *text )
             h->attract.demo[h->attract.count][n] = 0;
             if ( !strchr( h->attract.demo[h->attract.count], '.' ) ) {
                 if ( n > 8 ) { p += n; continue; }
-                strcpy( h->attract.demo[h->attract.count] + n, ".qcr" );
+                strcpy( h->attract.demo[h->attract.count] + n, ".qdc" );
             }
             h->attract.count++;
         }
@@ -587,7 +587,7 @@ static void near host_render_overlay( Host *h )
 #if QR_PROF
     float t0 = sys_now( &h->sysclk );
 #endif
-    if ( !h->v.comp && !menu_is_open( h->menu ) &&
+    if ( !h->demo.camera && !h->v.comp && !menu_is_open( h->menu ) &&
          h->fight.state != GS_EXIT && h->fight.state != GS_FINALE ) {
         scr_draw_hud( &h->world, &h->rdr, &h->cam, &h->player, h->sc, h->hud,
                       h->h_dst_dc, h->v.x_res, h->v.y_res );
@@ -954,6 +954,11 @@ static void near host_view_setup( Host *h )
     /* off unless asked for; -nostats stays accepted for old recipes */
     h->hud->stats = (short) ( a->stats && !a->no_stats ? -1 : 0 );
     h->hud->bench = (short) ( a->bench_ticks > 0 ? -1 : 0 );
+    if ( h->demo.camera ) {
+        rdr->no_ents = rdr->no_items = rdr->no_mdl = rdr->no_view = -1;
+        v_set_viewsize( &h->v, 120 );
+        h->viewsize_applied = 120.0f;
+    }
 
     /* VGA 13h's pixels are not square: the SCALED view size cancels
        against the mode's */
@@ -1235,8 +1240,15 @@ static void near host_console_result( Host *h, CmdKind kind, CmdResult *result )
         return;
     }
     if ( !strcmp( result->name, "stopdemo" ) ) {
+        short camera = h->demo.camera;
         h->attract.active = h->attract.waiting = 0;
         if ( h->demo.rf ) demo_close( &h->demo, &h->args );
+        if ( camera ) {
+            h->rdr.no_ents = h->args.no_ents;
+            h->rdr.no_items = h->args.no_items;
+            h->rdr.no_mdl = h->args.no_mdl;
+            h->rdr.no_view = h->args.no_view;
+        }
         h->args.play_name[0] = 0;
         return;
     }
@@ -1316,6 +1328,8 @@ static void near host_apply_cvars( Host *h )
     float skill_value = cvar_value( h->cmd, "skill" );
     float viewsize = cvar_value( h->cmd, "viewsize" );
     short skill = (short) skill_value;
+
+    if ( h->demo.camera ) viewsize = 120.0f;
 
     if ( skill_value != h->skill_cvar_seen ) {
         h->args.skill = h->world.skill = h->fight.skill = skill;
@@ -1466,7 +1480,7 @@ static void near host_input_events( Host *h )
 
 static void near host_legacy_input( Host *h )
 {
-    short replay = (short) ( h->demo.rf != 0 );
+    short replay = (short) ( h->demo.rf != 0 && !h->demo.camera );
     short actions = (short) ( replay && h->demo.actions );
     Input *input = &h->input;
     if ( actions ) {
@@ -1511,6 +1525,11 @@ static void near host_present( Host *h )
     if ( menu_is_open( h->menu ) ) {
         menu_draw( h->menu, h->keys, h->cmd, h->rdr.anim_time,
                    target, v->scr_x_res, v->scr_y_res );
+        if ( v->comp ) qglDrBlit( v->h_video_dc, 0, 0, v->h_comp_dc );
+        goto presented;
+    }
+    if ( h->demo.camera ) {
+        con_draw( h->console, h->hud, target, v->scr_x_res, v->scr_y_res );
         if ( v->comp ) qglDrBlit( v->h_video_dc, 0, 0, v->h_comp_dc );
         goto presented;
     }
@@ -1594,6 +1613,18 @@ void host_frame( Host *h )
     if ( con_open( h->console ) || menu_is_open( h->menu ) ) {
         h->console_frames++;
         h->clock.accum = 0.0f;
+    } else if ( h->demo.camera ) {
+        if ( !demo_camera( &h->demo, &h->cam, &h->player, frame_dt ) ) {
+            demo_close( &h->demo, &h->args );
+            h->args.play_name[0] = 0;
+            if ( h->attract.active ) host_attract_next( h );
+            else h->quit = -1;
+            return;
+        }
+        h->rdr.anim_time += frame_dt;
+        if ( h->rdr.no_styles ) ls_hold( &h->ls );
+        else ls_animate( &h->ls, h->rdr.anim_time );
+        h->clock.accum = 0.0f;
     } else
         dropped = host_advance( h, frame_dt );
 
@@ -1644,8 +1675,9 @@ static void near host_report( Host *h )
     char   buf[160];
     short  a, b, c;
 
-    sprintf( buf, "frames=%d polys=%ld tris=%ld mdl=%ld pos=%ld,%ld,%ld",
+    sprintf( buf, "frames=%d polys=%ld tris=%ld mdl=%ld ticks=%ld pos=%ld,%ld,%ld",
              h->bs.frame, h->bs.poly_sum, h->bs.tri_sum, h->bs.mdl_sum,
+             h->clock.ticks,
              (long) h->cam.pos.x, (long) h->cam.pos.y, (long) h->cam.pos.z );
     mark( buf );
 

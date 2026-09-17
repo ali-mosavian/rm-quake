@@ -12,6 +12,7 @@
 
 static char demo_magic[4] = { 'Q', 'C', 'R', '3' };
 static char demo_magic2[4] = { 'Q', 'C', 'R', '2' };
+static char camera_magic[4] = { 'Q', 'D', 'C', '1' };
 
 static void demo_map_name( const char *name, char *map )
 {
@@ -29,7 +30,8 @@ short demo_map( const char *name, char *map )
 
     if ( !f ) return 0;
     if ( fread( magic, 1, sizeof(magic), f ) != sizeof(magic) ||
-         memcmp( magic, demo_magic, sizeof(magic) ) ||
+         ( memcmp( magic, demo_magic, sizeof(magic) ) &&
+           memcmp( magic, camera_magic, sizeof(magic) ) ) ||
          fread( map, 1, 9, f ) != 9 ) map[0] = 0;
     map[8] = 0;
     fclose( f );
@@ -55,7 +57,19 @@ void demo_open( Demo *dm, const RunArgs *args )
         dm->rf = fopen( args->play_name, "rb" );
         if ( !dm->rf ) sys_error( "could not open -play file" );
         if ( fread( magic, 1, sizeof(magic), dm->rf ) == sizeof(magic) &&
-             !memcmp( magic, demo_magic, sizeof(magic) ) ) {
+             !memcmp( magic, camera_magic, sizeof(magic) ) ) {
+            char map[9];
+            dm->camera = (short) ( fread( dm->map, 1, sizeof(dm->map), dm->rf ) ==
+                                   sizeof(dm->map) );
+            if ( !dm->camera ||
+                 fread( &dm->camera_from, sizeof(dm->camera_from), 1, dm->rf ) != 1 ||
+                 fread( &dm->camera_to, sizeof(dm->camera_to), 1, dm->rf ) != 1 )
+                sys_error( "short QDC1 camera track" );
+            dm->map[8] = 0;
+            demo_map_name( args->map_name, map );
+            if ( stricmp( dm->map, map ) ) sys_error( "QDC1 belongs to another map" );
+            dm->camera_time = dm->camera_from.time;
+        } else if ( !memcmp( magic, demo_magic, sizeof(magic) ) ) {
             char map[9];
             dm->actions = (short) ( fread( dm->map, 1, sizeof(dm->map), dm->rf ) == sizeof(dm->map) );
             if ( !dm->actions ) sys_error( "short QCR3 header" );
@@ -76,7 +90,7 @@ short demo_input( Demo *dm, Input *input, float *frame_dt )
 {
     RecEntry *r = &dm->rec;
 
-    if ( dm->rf ) {
+    if ( dm->rf && !dm->camera ) {
         if ( fread( r, sizeof(*r), 1, dm->rf ) != 1 ) return 0;
         *frame_dt                   = r->dt;
         input->mouse.x              = r->in[0];
@@ -110,6 +124,58 @@ short demo_input( Demo *dm, Input *input, float *frame_dt )
     return 1;
 }
 
+static float near demo_lerp_angle( float a, float b, float frac )
+{
+    float d = b - a;
+    while ( d > 180.0f ) d -= 360.0f;
+    while ( d < -180.0f ) d += 360.0f;
+    return a + d * frac;
+}
+
+short demo_camera( Demo *dm, Camera *cam, Player *player, float frame_dt )
+{
+    DemoCam *a, *b;
+    float frac, dx, dy, dz, pitch, yaw, cp;
+
+    if ( !dm->camera ) return 1;
+    if ( dm->camera_eof ) return 0;
+    dm->camera_time += frame_dt;
+    while ( dm->camera_time > dm->camera_to.time ) {
+        dm->camera_from = dm->camera_to;
+        if ( fread( &dm->camera_to, sizeof(dm->camera_to), 1, dm->rf ) != 1 ) {
+            dm->camera_to = dm->camera_from;
+            dm->camera_time = dm->camera_from.time;
+            dm->camera_eof = -1;
+            break;
+        }
+    }
+    a = &dm->camera_from;
+    b = &dm->camera_to;
+    frac = b->time > a->time ? ( dm->camera_time - a->time ) / ( b->time - a->time ) : 1.0f;
+    if ( frac < 0.0f ) frac = 0.0f;
+    if ( frac > 1.0f ) frac = 1.0f;
+    dx = b->x - a->x; dy = b->y - a->y; dz = b->z - a->z;
+    /* CL_LerpPoint does not sweep a teleport through the intervening wall. */
+    if ( fabs( dx ) > 100.0f || fabs( dy ) > 100.0f || fabs( dz ) > 100.0f ) frac = 0.0f;
+
+    player->pos.x = a->x + dx * frac;
+    player->pos.y = a->y + dy * frac;
+    player->pos.z = a->z + dz * frac - 22.0f;
+    player->vel.x = player->vel.y = player->vel.z = 0.0f;
+    player->fall_vz = 0.0f;
+
+    cam->pos.x = player->pos.x;
+    cam->pos.y = player->pos.z + 22.0f;
+    cam->pos.z = player->pos.y;
+    pitch = demo_lerp_angle( a->pitch, b->pitch, frac ) * 0.017453292f;
+    yaw = demo_lerp_angle( a->yaw, b->yaw, frac ) * 0.017453292f;
+    cp = (float) cos( pitch );
+    cam->look_at.x = cam->pos.x + cp * (float) cos( yaw );
+    cam->look_at.y = cam->pos.y - (float) sin( pitch );
+    cam->look_at.z = cam->pos.z + cp * (float) sin( yaw );
+    return 1;
+}
+
 void demo_actions( Demo *dm, const KeyBindings KB_FAR *keys )
 {
     RecEntry *r;
@@ -131,7 +197,7 @@ void demo_check( Demo *dm, const Camera *cam, short frame )
     char  buf[112];
     float dx, dy, dz;
 
-    if ( !dm->rf || dm->drift ) return;
+    if ( !dm->rf || dm->camera || dm->drift ) return;
     dx = cam->pos.x - dm->rec.px;
     dy = cam->pos.y - dm->rec.py;
     dz = cam->pos.z - dm->rec.pz;
@@ -173,6 +239,7 @@ void demo_close( Demo *dm, const RunArgs *args )
 
     if ( dm->rf ) fclose( dm->rf );
     dm->rf = 0;
+    dm->camera = dm->camera_eof = 0;
     if ( dm->buf && dm->buf->count != 0 ) {
         wf = fopen( args->record_name, "wb" );
         if ( wf ) {
