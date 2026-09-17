@@ -1,12 +1,8 @@
 ;; name: qglNewView
-;; desc: a Surface over another Surface's pixels. A view, in the numpy
-;;       sense: it has its own shape and clipping but owns no memory, and
-;;       nothing is copied. Many small views over one big Surface replace
-;;       many small Surfaces, which matters because a Surface costs
-;;       sizeof(Surface) + yRes*4 bytes of CONVENTIONAL memory for its
-;;       scanline address table -- so a surface cache that gave every
-;;       cached surface one of its own spends its budget on tables rather
-;;       than pixels.
+;; desc: a Surface over another Surface's pixels. A view has its own shape,
+;;       stride and clipping but owns no memory, and nothing is copied.
+;;       Its rows are derived from one byte offset when accessed; it has no
+;;       scanline address table.
 ;;
 ;;       The parent must outlive the view, and freeing the parent leaves
 ;;       every view of it dangling. Same bargain numpy makes.
@@ -33,7 +29,7 @@
 ;; retn: integer                | FALSE if error, TRUE otherwise
 
 ;; name: qglDelView
-;; desc: Frees a view: its struct and its address table, never the pixels.
+;; desc: Frees a view's struct, never the pixels.
 ;;       Deliberately not qglDel -- a Surface carries no mark saying whose
 ;;       memory it is, so qglDel on a view would hand the parent's storage
 ;;       back while other views still point into it.
@@ -51,101 +47,6 @@ qglMemAlloc     proto   far pascal :dword
 qglMemFree      proto   far pascal :dword
 
 .code
-
-;;::::::::::::::
-;; qgl$fillView (sf:dword, ofs:dword) :word -- private
-;;
-;; Lays down the scanline address table. Both parent types store an entry
-;; as a dword: the low word addresses a 'bank' and the high word an offset
-;; inside it. They differ only in how far the offset runs before the bank
-;; steps, and by how much:
-;;
-;;   SF_EMS   low = handle + (page << 8),  offset wraps at 16K, page += 1
-;;   SF_MEM   low = segment,               offset wraps at 64K, seg  += 4096
-;;
-;; so one loop drives both, parameterised by that pair.
-qgl$fillView    proc    near private uses bx cx dx si di es,\
-                        sf:dword, ofs:dword
-
-                mov     es, W sf+2              ;; es-> sf
-
-                mov     cx, es:[Surface.bps]
-                mov     ax, es:[Surface.yRes]
-                test    ax, ax
-                jz      @@error
-
-                xor     di, di
-                mov     si, es:[Surface.typ]
-                cmp     si, SF_EMS
-                je      @@ems
-                cmp     si, SF_MEM
-                je      @@mem
-                jmp     short @@error           ;; anything else: not supported
-
-                ;;
-                ;; EMS: split the byte offset into a logical page and an
-                ;; offset inside it, and add the page into the handle's
-                ;; high byte exactly as qgl_ems_New does.
-                ;;
-@@ems:          push    eax
-                mov     eax, ofs
-                mov     ebx, eax
-                shr     eax, 14                 ;; ax= logical page
-                and     bx, EMS_PGSIZE-1        ;; bx= offset in page
-                mov     dx, es:[Surface.hnd]
-                add     dh, al                  ;; += page, as qgl_ems_New's
-                                                ;; accumulating adc dh,0 does.
-                                                ;; NOT mov: that discards the
-                                                ;; handle's own high byte, which
-                                                ;; is zero only for the first few
-                                                ;; EMS allocations -- so a view
-                                                ;; over any later surface addressed
-                                                ;; somebody else's pages.
-                pop     eax
-
-@@eloop:        mov     W es:[SF_addrTB+di+0], dx
-                mov     W es:[SF_addrTB+di+2], bx
-                add     di, 4
-
-                add     bx, cx                  ;; bx+= bps
-                cmp     bx, EMS_PGSIZE
-                jb      @@enext
-                sub     bx, EMS_PGSIZE
-                add     dh, 1                   ;; ++logical page
-@@enext:        dec     ax
-                jnz     @@eloop
-                jmp     short @@done
-
-                ;;
-                ;; MEM: the parent's far pointer plus the offset, kept
-                ;; normalised so the offset half starts inside a paragraph.
-                ;;
-@@mem:          push    eax
-                mov     eax, ofs
-                mov     ebx, eax
-                shr     eax, 4                  ;; ax= paragraphs
-                and     bx, 15                  ;; bx= remainder
-                mov     dx, W es:[Surface.fptr+2]  ;; parent segment
-                add     dx, ax
-                add     bx, W es:[Surface.fptr+0]  ;; parent offset
-                pop     eax
-
-@@mloop:        mov     W es:[SF_addrTB+di+0], dx
-                mov     W es:[SF_addrTB+di+2], bx
-                add     di, 4
-
-                add     bx, cx                  ;; bx+= bps
-                jnc     @@mnext
-                add     dx, 1000h               ;; past 64k: seg+= 4096
-@@mnext:        dec     ax
-                jnz     @@mloop
-
-@@done:         mov     ax, TRUE
-                ret
-
-@@error:        xor     ax, ax                  ;; FALSE
-                ret
-qgl$fillView    endp
 
 ;;::::::::::::::
 ;; qglNewView (src:dword, ofs:dword, xRes:word, yRes:word) :dword
@@ -172,12 +73,9 @@ qglNewView      proc    public uses bx cx di si fs gs,\
                 cmp     qgl$dctTB[di].state, TRUE
                 jne     @@error
 
-                ;; allocate the descriptor and its table -- and nothing else
+                ;; allocate the descriptor -- and nothing else
                 LOGMSG  <view Surface>
                 mov     eax, T Surface
-                mov     cx, si                  ;; addrTB size= yRes*4
-                shl     cx, 2                   ;; /
-                add     ax, cx
                 invoke  qglMemAlloc, eax
                 mov     cx, ax
                 or      cx, dx
@@ -227,7 +125,7 @@ qglNewView      proc    public uses bx cx di si fs gs,\
                 and     bx, not 7               ;; /
                 mov     fs:[Surface.bps], bx
 
-                mov     fs:[Surface.pages], 1
+                mov     fs:[Surface.pages], 0
                 mov     fs:[Surface.startSL], 0
 
                 ;; No depth until qglSfZNew makes one. qglMemAlloc does
@@ -248,23 +146,14 @@ qglNewView      proc    public uses bx cx di si fs gs,\
                 mov     eax, D gs:[Surface.fptr]
                 mov     D fs:[Surface.fptr], eax
 
-                pop     dx
-                push    dx
-                mov     ax, dx
-                shl     eax, 16                 ;; eax= sf (seg:0)
-                invoke  qgl$fillView, eax, ofs
-                test    ax, ax
-                jz      @@err_fill
+                mov     eax, ofs
+                mov     fs:[Surface.viewOfs], eax
 
                 pop     dx
                 xor     ax, ax                  ;; return seg:0, CF clean
 
 @@exit:         LOGEND
                 ret
-
-@@err_fill:     pop     dx
-                shl     edx, 16
-                invoke  qglMemFree, edx
 
 @@error:        LOGERROR
                 xor     ax, ax                  ;; return NULL
@@ -275,18 +164,19 @@ qglNewView      endp
 
 ;;::::::::::::::
 ;; qglSetView (sf:dword, ofs:dword) :word
-qglSetView      proc    public uses bx,\
+qglSetView      proc    public uses bx es,\
                         sf:dword, ofs:dword
 
                 LOGBEGIN qglSetView
 
-                mov     ax, W sf+2
-                test    ax, ax
+                les     bx, sf
+                mov     ax, es
+                or      ax, bx
                 jz      @@error
-
-                invoke  qgl$fillView, sf, ofs
-                test    ax, ax
-                jz      @@error
+                cmp     es:[bx].Surface.pages, 0
+                jne     @@error
+                mov     eax, ofs
+                mov     es:[bx].Surface.viewOfs, eax
 
                 mov     ax, TRUE
                 LOGEND
@@ -301,54 +191,11 @@ qglSetView      endp
 ;;::::::::::::::
 ;; qglAimView (sf:dword, ofs:dword) :word
 ;;
-;; qglSetView for row 0 alone, which is all qgl$SetTex reads: a surface
-;; cache hit re-aimed every row of its view once a face for nothing.
-;; Rows past 0 are left pointing wherever they did.
+;; Kept as the surface-cache-facing name for qglSetView.
 qglAimView      proc    public,\
                         sf:dword, ofs:dword
 
-                mov     ax, W sf+2
-                test    ax, ax
-                jz      @@error
-                push    es
-                push    bx
-                push    dx
-                mov     es, ax                  ;; es-> sf
-
-                ;; fillView's first entry, both halves
-                mov     ax, W ofs+0
-                mov     dx, W ofs+2
-                cmp     es:[Surface.typ], SF_EMS
-                je      @@ems
-                cmp     es:[Surface.typ], SF_MEM
-                jne     @@refuse
-
-                mov     bx, ax
-                and     bx, 15                  ;; bx= remainder
-                shrd    ax, dx, 4               ;; ax= paragraphs
-                mov     dx, W es:[Surface.fptr+2]
-                add     dx, ax
-                add     bx, W es:[Surface.fptr+0]
-                jmp     short @@put
-
-@@ems:          mov     bx, ax
-                and     bx, EMS_PGSIZE-1        ;; bx= offset in page
-                shrd    ax, dx, 14              ;; al= logical page
-                mov     dx, es:[Surface.hnd]
-                add     dh, al                  ;; add, as fillView says why
-
-@@put:          mov     W es:[SF_addrTB+0], dx
-                mov     W es:[SF_addrTB+2], bx
-                mov     ax, TRUE
-                jmp     short @@out
-
-@@refuse:       xor     ax, ax
-@@out:          pop     dx
-                pop     bx
-                pop     es
-                ret
-
-@@error:        xor     ax, ax                  ;; FALSE
+                invoke  qglSetView, sf, ofs
                 ret
 qglAimView      endp
 
@@ -363,7 +210,7 @@ qglDelView      proc    public,\
                 test    ax, ax
                 jz      @@exit
 
-                ;; the struct and its table, never the pixels
+                ;; the struct, never the pixels
                 invoke  qglMemFree, sf
 
 @@exit:         LOGEND

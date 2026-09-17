@@ -153,25 +153,12 @@ typedef struct {
     QSurf   cmap_dc;       /* the 64-shade table sb_build/hud_shade shade through */
     long  cmap_size;
 
-    /* q_map.bi's TexStore -- every texture, in two atlas dcs (raw
-       indices, and row-0-shaded) instead of one dc per texture per
-       mip: a dc costs conventional memory for its scanline table
-       whatever its pixels cost, and e1m1 would make 648 of them. A
-       handful of VIEWS per atlas instead, re-shaped per face with
-       qglSfViewShape -- no allocation, no copy, the same trick the
-       surface cache uses to avoid a dc per surface. */
+    /* Every texture in two atlases: raw indices and row-0-shaded. */
     QSurf   tex_raw, tex_shaded;
-    /* A view per HEIGHT, not per mip level: a cell keeps its texture's
-       own aspect now, and a view's address table is its height's while
-       qglSfViewShape can still give it any width. Made on first use --
-       a map wants a handful of the nine. */
-    QSurf   tex_v_raw[TEX_HEIGHTS], tex_v_shaded[TEX_HEIGHTS];
-    short tex_aim_raw[TEX_HEIGHTS];  /* cell each view is already aimed
-                                         at, -1 none -- re-aiming
-                                         rewrites a scanline table, and
-                                         consecutive faces usually share
-                                         a texture */
-    short tex_aim_shd[TEX_HEIGHTS];
+    /* One tableless strided view per atlas, reshaped and re-aimed to the
+       current cell. Consecutive faces usually reuse the same key. */
+    QSurf   tex_v_raw, tex_v_shaded;
+    short  tex_aim_raw, tex_aim_shd;
     long  tex_ofs[1024];    /* [id*4 + level] -> byte offset in the atlas */
     QSurf sky_layers, sky_dc;   /* d_sky.c's: back and front, composed */
     short sky_shift;            /* the front shift sky_dc holds, -1 none */

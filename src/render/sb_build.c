@@ -81,9 +81,9 @@ static void sb_sum_styles( LightStyles *ls, unsigned char far *srow,
         }
 }
 
-void sb_build( SurfCache far *sc, World *world, Renderer *rdr, LightStyles *ls,
-               QSurf dc, QSurf tex, short face, short mip, short sw, short sh,
-               short far *gv, unsigned long dlbits )
+short sb_build( SurfCache far *sc, World *world, Renderer *rdr, LightStyles *ls,
+                QSurf dc, QSurf tex, short face, short mip, short sw, short sh,
+                short far *gv, unsigned long dlbits )
 {
     Face    far *f  = &world->faces[face];
     TexInfo far *ti = &world->texinfo[ f->tex_info_id ];
@@ -206,5 +206,9 @@ void sb_build( SurfCache far *sc, World *world, Renderer *rdr, LightStyles *ls,
 
     /* refused -- a luxel grid past sb$lgrid, or a destination not in one
        window: forget the block, or a variant would keep it */
-    if ( !qglSbBuild( dc, tex, (long) (void far *) &sbp ) ) sc_forget( sc, face );
+    if ( !qglSbBuild( dc, tex, (long) (void far *) &sbp ) ) {
+        sc_forget( sc, face );
+        return 0;
+    }
+    return -1;
 }

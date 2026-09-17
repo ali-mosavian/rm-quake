@@ -314,6 +314,8 @@ WRROW           macro   sf, y, slow
                 mov     es, W sf+2              ;; a Surface sits at offset 0
                 cmp     es:[Surface.typ], SF_MEM
                 jne     acc
+                cmp     es:[Surface.pages], 0
+                je      acc
                 mov     bx, y
                 add     bx, es:[Surface.startSL]
                 shl     bx, 2
@@ -630,11 +632,13 @@ qgl$SetTex      proc    near private uses bx cx dx si di es,\
                 jne     @@onepage
                 mov     si, ax                  ;; total bytes, saved: the
                                                 ;; page check needs ax free
-                ;; row 0's table entry: the high word IS the offset within
-                ;; the logical page, so there is nothing to mask off. That
-                ;; is the number qgl$fillView derived the page split from,
-                ;; not a second derivation of it.
-                mov     ax, W es:[bx+SF_addrTB+2]
+                cmp     es:[bx].Surface.pages, 0
+                jne     @@tableofs
+                mov     eax, es:[bx].Surface.viewOfs
+                and     ax, EMS_PAGE_MASK
+                jmp     short @@haveofs
+@@tableofs:     mov     ax, W es:[bx+SF_addrTB+2]
+@@haveofs:
                 add     ax, si
                 cmp     ax, EMS_PAGE_SIZE
                 ja      @@no

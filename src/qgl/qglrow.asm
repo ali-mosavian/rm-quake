@@ -60,6 +60,8 @@
 
 qglRowWriteEx   proto   far pascal :dword, :word, :word, :word, :word,\
                                    :dword, :word
+qglSfAccessRd   proto   far pascal :dword, :word
+qglSfAccessWr   proto   far pascal :dword, :word
 
 QGL_CODE
 ;;::::::::::::::
@@ -71,6 +73,8 @@ qglRowRead      proc    public uses es ds,\
                         buffFmt:word,\
                         buff:dword
 
+                local   xofs:word
+
                 pusha
 
                 mov     gs, W sf+2              ;; gs-> sf
@@ -81,15 +85,13 @@ qglRowRead      proc    public uses es ds,\
                 mov     cl, gs:[Surface.p2b]
                 mov     ax, x
                 shl     ax, cl
+                mov     xofs, ax
 
                 mov     cx, pixels
-
-                mov     si, y
-                shl     si, 2
-
-                mov     bx, gs:[Surface.typ]
-                call    qgl$dctTB[bx].rdAccess  ;; ds:si-> sf[y]
-                add     si, ax
+                invoke  qglSfAccessRd, sf, y
+                mov     ds, dx
+                mov     si, ax
+                add     si, xofs
 
                 cld                             ;; 8bpp: the whole of what
                 rep     movsb                   ;; ul$cfmtTB would have run
@@ -123,6 +125,8 @@ qglRowWriteEx   proc    public uses es ds,\
                         buff:dword,\
                         opt:word
 
+                local   xofs:word
+
                 pusha
 
                 mov     fs, W sf+2              ;; fs-> sf
@@ -131,17 +135,13 @@ qglRowWriteEx   proc    public uses es ds,\
                 mov     cl, fs:[Surface.p2b]
                 mov     ax, x
                 shl     ax, cl
+                mov     xofs, ax
 
                 mov     cx, pixels
-
-                mov     di, y
-                shl     di, 2
-
-                ;; through bx, not bp: buff and opt are read after the call,
-                ;; and with bp holding typ they came from wherever it pointed
-                mov     bx, fs:[Surface.typ]
-                call    qgl$dctTB[bx].wrAccess  ;; es:di-> sf[y]
-                add     di, ax
+                invoke  qglSfAccessWr, sf, y
+                mov     es, dx
+                mov     di, ax
+                add     di, xofs
 
                 mov     bx, opt                 ;; bh: FFh masks, bl: the mask
                 lds     si, buff                ;; ds:si-> buffer

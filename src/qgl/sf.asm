@@ -7,8 +7,8 @@
 ;;
 ;;       EVERYTHING BELOW IS A SHIM. The layer itself is mgl's, transcribed
 ;;       into qglnew.asm / qglview.asm / qgldc.asm / dct/dctmem.asm /
-;;       dct/dctems.asm; a row comes out of a per-scanline address table
-;;       there, not out of arithmetic here. What is left in this file is
+;;       dct/dctems.asm. Owned surfaces use per-scanline address tables;
+;;       views derive a row from their offset and stride. What is left here is
 ;;       the boundary -- argument order, the public SURF_ enum, the
 ;;       BASIC-only entries -- plus the dispatch table itself, which mgl
 ;;       keeps in uglmain.asm and qgl has nowhere else to put.
@@ -32,9 +32,8 @@
 ;;         mgl's shape: qglNewEx allocates the struct and its address
 ;;         table, and the back-end's `new` allocates the pixels. qglSfFree
 ;;         therefore frees both, through the back-end's `del`.
-;;       - qglSfViewNew allocates the header and its address table and
-;;         then aims it at part of another surface's store. The pixels
-;;         stay the parent's; only the header is new.
+;;       - qglSfViewNew allocates only a header and aims it at part of
+;;         another surface's store. The pixels stay the parent's.
 
                 .model medium, pascal
                 .386
@@ -61,6 +60,7 @@ qglSfFree     proto   far pascal :dword
 qglSfView     proto   far pascal :dword, :dword, :dword, :word, :word, :word
 
 qglGemInit        proto   far pascal
+qglGemMap         proto   far pascal :word, :word, :word
 
 qglFileOpen   proto   far pascal :dword
 qglFileRead   proto   far pascal :word, :dword, :dword
@@ -548,8 +548,8 @@ ENDIF
 ;; from the caller instead of derived -- which is what sc_alloc needs, its
 ;; classes being 2^a wide. qglSfViewNew allocates and calls this.
 ;;
-;; PRIVATE: the header must sit at offset 0 of its segment and carry h
-;; entries of address table, which only this module's allocator arranges.
+;; PRIVATE: the header must sit at offset 0 of its segment, which only this
+;; module's allocator arranges.
 ;;::::::::::::::
 qglSfView     proc    private uses bx cx dx si di es,\
                         v:dword, parent:dword, ofs:dword,\
@@ -589,17 +589,19 @@ qglSfView     proc    private uses bx cx dx si di es,\
 
                 mov     ax, bps
                 mov     es:[bx].Surface.bps, ax
-                mov     es:[bx].Surface.pages, 1
+                mov     es:[bx].Surface.pages, 0
                 mov     es:[bx].Surface.startSL, 0
+                mov     eax, ofs
+                mov     es:[bx].Surface.viewOfs, eax
+                mov     D es:[bx].Surface.zsf, 0
+                mov     es:[bx].Surface.zmode, QGL_Z_OFF
 
+                mov     ax, bps
                 mul     hgt                     ;; size= bps * yRes
                 mov     W es:[bx].Surface._size+0, ax
                 mov     W es:[bx].Surface._size+2, dx
 
-                invoke  qglSetView, v, ofs
-                neg     ax                      ;; TRUE (-1) -> 1, as above
-                sbb     ax, ax
-                neg     ax
+                mov     ax, 1
                 ret
 
 @@fail:         xor     ax, ax
@@ -611,16 +613,13 @@ qglSfView     endp
 ;; qglSfViewNew ( parent:far ptr, w:word, h:word, bps:word ) -> far ptr, or 0:0
 ;;
 ;; qglSfView for a BASIC caller: BASIC has no way to allocate a header
-;; matching Surface's own layout, so this allocates one -- the header AND
-;; its h-entry address table, which is what mgl's uglNewView allocates --
-;; and hands the far pointer back. What it aims at is qglSfView's job
-;; exactly, at ofs 0.
+;; matching Surface's own layout, so this allocates one header and hands the
+;; far pointer back. What it aims at is qglSfView's job exactly, at ofs 0.
 ;;
 ;; DO NOT qglSfFree the result. A view SHARES its parent's store rather
 ;; than owning it, and qglSfFree goes through the back-end's `del`, which
 ;; would free the parent's pixels out from under it. Free the parent once,
-;; when every view of it is done; leak the view's own header, the same way
-;; sc_alloc's per-class views already do.
+;; when every view of it is done; release the view with qglDelView.
 ;;::::::::::::::
 qglSfViewNew  proc    public uses bx cx,\
                         parent:dword, wid:word, hgt:word, bps:word
@@ -628,9 +627,7 @@ qglSfViewNew  proc    public uses bx cx,\
                 local   hdr:dword
                 local   nbytes:dword
 
-                mov     ax, hgt
-                shl     ax, 2                   ;; the address table
-                add     ax, T Surface
+                mov     ax, T Surface
                 mov     word ptr nbytes, ax
                 mov     word ptr nbytes+2, 0
 
@@ -659,14 +656,7 @@ qglSfViewNew  endp
 ;; qglSfViewAim ( v:far ptr, ofs:dword ) -> ax nonzero
 ;;
 ;; Re-aims an existing qglSfViewNew view at a new byte offset into its
-;; store. It IS mgl's uglSetView -- the transcribed qglSetView, called
-;; with the same two arguments and nothing added.
-;;
-;; The old note here said this was absolute where mgl's is parent-
-;; relative. With the address table back they are the same thing: a view
-;; carries the parent's own base pointer, and qgl$fillView adds ofs to it.
-;; Every caller (sc_alloc, mod_tex) owns a store whose base is the store,
-;; so "absolute within the store" is what parent-relative already means.
+;; parent's store. No table is rebuilt.
 ;;::::::::::::::
 qglSfViewAim  proc    public,\
                         v:dword, ofs:dword
@@ -680,6 +670,74 @@ qglSfViewAim  proc    public,\
                 neg     ax
                 ret
 qglSfViewAim  endp
+
+;;::::::::::::::
+;; qglSfViewRow ( v, y, slot ) -> dx:ax
+;;
+;; A view has shape, stride and one byte offset into its parent's store.
+;; It has no scanline table: derive the requested row here and map only
+;; the page that contains it.
+;;::::::::::::::
+qglSfViewRow  proc    public uses bx cx si di es,\
+                        v:dword, y:word, slot:word
+
+                les     bx, v
+                mov     ax, es
+                or      ax, bx
+                jz      @@fail
+                cmp     es:[bx].Surface.pages, 0
+                jne     @@fail
+                mov     ax, y
+                cmp     ax, es:[bx].Surface.yRes
+                jae     @@fail
+
+                cmp     es:[bx].Surface.typ, SF_EMS
+                je      @@ems
+                cmp     es:[bx].Surface.typ, SF_MEM
+                jne     @@fail
+
+                ;; Keep one segment while the view fits in 64K, just as
+                ;; an owned CMEM surface's row table does. Normalising each
+                ;; row independently changes the segment every 16 bytes and
+                ;; makes a flat multi-row view appear discontinuous.
+                mov     eax, es:[bx].Surface.viewOfs
+                movzx   ecx, W es:[bx].Surface.fptr+0
+                add     eax, ecx
+                mov     ecx, eax
+                and     cx, 15                  ;; offset of view row 0
+                shr     eax, 4
+                mov     dx, W es:[bx].Surface.fptr+2
+                add     dx, ax                  ;; segment of view row 0
+
+                movzx   eax, y
+                movzx   ebx, es:[bx].Surface.bps
+                imul    eax, ebx
+                movzx   ecx, cx
+                add     eax, ecx
+                mov     ecx, eax
+                shr     ecx, 16
+                shl     cx, 12                  ;; far-offset carry: +1000h
+                add     dx, cx
+                ret
+
+@@ems:         movzx   eax, y
+                movzx   ecx, es:[bx].Surface.bps
+                imul    eax, ecx
+                add     eax, es:[bx].Surface.viewOfs
+                mov     ecx, eax
+                and     cx, EMS_PGSIZE-1
+                shr     eax, 14
+                mov     si, ax
+                mov     ax, es:[bx].Surface.hnd
+                invoke  qglGemMap, ax, si, slot
+                mov     dx, ax
+                mov     ax, cx
+                ret
+
+@@fail:        xor     ax, ax
+                xor     dx, dx
+                ret
+qglSfViewRow  endp
 
 ;;::::::::::::::
 ;; qglSfViewResize ( v:far ptr, parent:far ptr, w:word, h:word, bps:word ) -> ax nonzero

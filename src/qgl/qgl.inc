@@ -629,11 +629,9 @@ CLIPRECT        struc                           ;; clipping rectangle
                 yMax            dw      ?
 CLIPRECT        ends
 
-;; mgl's DC, field for field, and for the stated reason: qgl is a
-;; transcription of mgl and not a second design, so the struct the copied
-;; code indexes has to be the struct mgl's code indexed. The row-address
-;; table is back -- a Surface and a DC are equivalent now, and nothing is
-;; computed where mgl looks something up.
+;; mgl's DC layout with qgl's depth state and tableless-view offset added.
+;; Owned surfaces retain mgl's row-address table; views have pages=0 and
+;; derive rows from viewOfs and bps.
 ;;
 ;; Names are mgl's (xRes, bps) rather than the x_res/stride this carried
 ;; while it was its own thing. MASM's reserved words still bite -- WIDTH
@@ -663,6 +661,8 @@ bps             dw      ?               ;; bytes per scanline
 pages           dw      ?
 startSL         dw      ?               ;; first scanline
 _size           dd      ?               ;; bps * yRes * pages
+viewOfs         dd      ?               ;; byte offset for a tableless view;
+                                        ;; pages=0 distinguishes it
 
 xMin            dw      ?               ;; the clip rect is PER SURFACE, as
 yMin            dw      ?               ;; mgl's is; qgl kept one global
@@ -694,9 +694,9 @@ SF_addrTB       equ     $               ;; scanlines' address table
 Surface         ends
 
 ;;::::::::::::::
-;; A SURFACE IS ITS TABLE. SF_addrTB is the offset of the scanline address
-;; table, and the table is part of the object -- qglNew allocates
-;; SIZEOF Surface + yRes*4 in one block, exactly as mgl's uglNew does.
+;; For an owned surface SF_addrTB is the offset of the scanline address
+;; table, and qglNew allocates SIZEOF Surface + yRes*4 in one block. A view
+;; allocates only SIZEOF Surface and is identified by pages=0.
 ;;
 ;; AND IT LIVES AT OFFSET 0 OF ITS OWN SEGMENT, which is mgl's rule and
 ;; not an accident of the allocator: every accessor reads gs:[Surface.f]

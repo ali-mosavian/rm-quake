@@ -452,8 +452,10 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
                            builder duplicates its far row and column into
                            the power-of-two cache class as a sampling guard. */
                         tex_dc = (long) (void far *) mod_tex_raw( world, tex_id, lm_mip );
-                        sb_build( sc, world, rdr, ls, (QSurf) lm_dc, (QSurf) tex_dc, i, lm_mip,
-                                  lm_sw, lm_sh, gv, dl_bits );
+                        if ( tex_dc == 0 ||
+                             !sb_build( sc, world, rdr, ls, (QSurf) lm_dc, (QSurf) tex_dc,
+                                       i, lm_mip, lm_sw, lm_sh, gv, dl_bits ) )
+                            lm_dc = 0;
                     }
 #if QR_PROF
                     if ( dp->prof ) {

@@ -19,6 +19,8 @@ qglNewView      proto   far :dword, :dword, :word, :word
 qglSetView      proto   far :dword, :dword
 qglAimView      proto   far :dword, :dword
 qglDelView      proto   far :dword
+qglSfAccessRd   proto   far :dword, :word
+qglSfAccessRdEx proto   far :dword, :word, :word
 
 PAR_W           equ     64
 PAR_H           equ     512
@@ -37,21 +39,24 @@ n_first_new     db      'first ems surface made $'
 n_mem_new       db      'mem parent made        $'
 n_ems_new       db      'ems parent made        $'
 n_view          db      'view made              $'
-n_entry         db      'row 0 entry is SetView $'
 n_pixel         db      'row 0 reads offset A   $'
+n_parent_read   db      'parent reads after view$'
+n_parent_write  db      'parent writes after view$'
+n_slot_read     db      'slot read after view   $'
+n_flat_seg      db      'view rows one segment  $'
+n_flat_ofs      db      'view rows one stride   $'
 n_refuse        db      'no view, no aim        $'
 
 first           dd      0
 par             dd      0
 view            dd      0
-ent_a           dd      0
 
 .code
 
 ;;::::::::::::::
 ;; checks the parent in par, then frees it
 ;;::::::::::::::
-aim_case        proc    near private uses bx cx dx si di es
+aim_case        proc    near private uses bx cx dx si di es fs
 
                 invoke  qglSfPset, par, PIX_X+SKEW, ROW_A, PIX_A
                 invoke  qglSfPset, par, PIX_X+SKEW, ROW_B, PIX_B
@@ -64,24 +69,44 @@ aim_case        proc    near private uses bx cx dx si di es
                 CHK     n_view, ax, 1
 
                 invoke  qglSetView, view, OFS_A
-                mov     es, W view+2
-                mov     eax, es:[SF_addrTB]
-                mov     ent_a, eax
-
                 invoke  qglSetView, view, OFS_B
                 invoke  qglAimView, view, OFS_A
-
-                mov     es, W view+2
-                mov     eax, es:[SF_addrTB]
-                xor     cx, cx
-                cmp     eax, ent_a
-                je      @F
-                inc     cx
-@@:             CHK     n_entry, cx, 0
 
                 invoke  qglSfPget, view, PIX_X, 0
                 xor     ah, ah
                 CHK     n_pixel, ax, PIX_A
+
+                invoke  qglSfPget, par, PIX_X+SKEW, ROW_B
+                xor     ah, ah
+                CHK     n_parent_read, ax, PIX_B
+
+                invoke  qglSfPset, view, PIX_X, 0, PIX_B
+                invoke  qglSfPset, par, PIX_X+SKEW, ROW_B, PIX_A
+                invoke  qglSfPget, par, PIX_X+SKEW, ROW_B
+                xor     ah, ah
+                CHK     n_parent_write, ax, PIX_A
+
+                ;; A view may be the first mapper of an explicit slot.
+                ;; The following parent access asks for that same mapping;
+                ;; its segment must not come from an uninitialised private
+                ;; cache in dctems.
+                invoke  qglSfAccessRdEx, view, 0, 2
+                invoke  qglSfAccessRdEx, par, ROW_A, 2
+                mov     fs, dx
+                mov     bx, ax
+                mov     al, fs:[bx+PIX_X+SKEW]
+                xor     ah, ah
+                CHK     n_slot_read, ax, PIX_B
+
+                invoke  qglSfAccessRd, view, 0
+                mov     di, ax
+                mov     si, dx
+                invoke  qglSfAccessRd, view, VIEW_W-1
+                mov     cx, ax
+                sub     cx, di
+                xor     dx, si
+                CHK     n_flat_seg, dx, 0
+                CHK     n_flat_ofs, cx, VIEW_W*(VIEW_W-1)
 
                 invoke  qglDelView, view
                 invoke  qglSfFree, par

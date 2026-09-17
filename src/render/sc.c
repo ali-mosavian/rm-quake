@@ -163,7 +163,6 @@ static short sc_bsplit( SurfCache far *sc, short ord )
             sc->bord[b]--;
             sc->bgrn[h] = sc->bgrn[b] + (short) (1 << sc->bord[b]);
             sc->bord[h] = sc->bord[b];
-            sc->bprev[h] = -1;
             sc_fpush( sc, h );
         }
         return b;
@@ -208,26 +207,20 @@ static short sc_bget( SurfCache far *sc, short bord, long sz )
     return blk;
 }
 
-/* The LRU list, both ends O(1). A face is in its class's list exactly
-   while it owns a block, which .blk >= 0 is the test for -- unlinking
-   one that is not in a list would corrupt the head or the tail. */
+/* The LRU list is singly linked. Unlink walks one class rather than
+   spending 2 KB of scarce conventional memory on reverse links. */
 static void sc_lru_unlink( SurfCache far *sc, short b )
 {
     short c, p, n;
 
     if ( b < 0 ) return;
     c = sc->bord[b];
-    p = sc->bprev[b];
+    p = -1;
+    for ( n = sc->lhead[c]; n >= 0 && n != b; n = sc->bnext[n] ) p = n;
+    if ( n < 0 ) return;
     n = sc->bnext[b];
-
-    /* Existing is not the same as being IN the list: a block just
-       made has no neighbours yet. Without this test its first link
-       takes the "I am both ends" branch and clears the class's head
-       and tail, stranding everything already chained there. */
-    if ( p < 0 && n < 0 && sc->lhead[c] != b ) return;
     if ( p >= 0 ) sc->bnext[p] = n; else sc->lhead[c] = n;
-    if ( n >= 0 ) sc->bprev[n] = p; else sc->ltail[c] = p;
-    sc->bprev[b] = -1;
+    if ( n < 0 ) sc->ltail[c] = p;
     sc->bnext[b] = -1;
 }
 
@@ -241,9 +234,9 @@ static void sc_lru_use( SurfCache far *sc, short b )
     if ( b < 0 ) return;
     sc->bstamp[b] = ++sc->clock;
     c = sc->bord[b];
-    if ( sc->bprev[b] >= 0 || sc->bnext[b] >= 0 || sc->lhead[c] == b ) return;
+    for ( t = sc->lhead[c]; t >= 0; t = sc->bnext[t] )
+        if ( t == b ) return;
     t = sc->ltail[c];
-    sc->bprev[b] = t;
     sc->bnext[b] = -1;
     if ( t >= 0 ) sc->bnext[t] = b; else sc->lhead[c] = b;
     sc->ltail[c] = b;
@@ -294,7 +287,7 @@ static void sc_reset_lists( SurfCache far *sc )
     sc->rfree = -1;
 }
 
-static short sc_why  = 0;   /* the allocation sc_init stopped on, 1..6 */
+static short sc_why  = 0;   /* the allocation sc_init stopped on, 1..9 */
 static long  sc_want = 0;   /* and the bytes it asked that one for */
 
 void sc_fail( short *step, long *want )
@@ -309,9 +302,9 @@ short sc_init( SurfCache far *sc, short face_count )
 
     /* Both callers hand in qglMemAlloc's uncleared bytes, and a pointer
        a refused allocation below never reached passed the null test. */
-    sc->slot = 0; sc->bgrn = 0; sc->bord = 0; sc->bown = 0; sc->bprev = 0;
+    sc->slot = 0; sc->bgrn = 0; sc->bord = 0; sc->bown = 0;
     sc->bnext = 0; sc->btag = 0; sc->bstag = 0; sc->bsib = 0; sc->bstamp = 0;
-    for ( i = 0; i < SC_NCLS; i++ ) sc->desc[i] = 0;
+    sc->desc = 0;
     sc->hnd = 0;
     sc->clock = 0;
 
@@ -336,9 +329,9 @@ short sc_init( SurfCache far *sc, short face_count )
     sc_why  = 1;
     sc->slot = (CacheSlot far *) qglMemAlloc( sc_want );
     if ( sc->slot ) {
-        for ( i = 0; i < 9; i++ ) {
+        for ( i = 0; i < 8; i++ ) {
             short far *b;
-            sc_want = (long) SC_NBLK * (long) ( i == 6 || i == 8 ? sizeof(long) : sizeof(short) );
+            sc_want = (long) SC_NBLK * (long) ( i == 5 || i == 7 ? sizeof(long) : sizeof(short) );
             b = (short far *) qglMemAlloc( sc_want );
             sc_why = (short) ( 2 + i );
             if ( !b ) break;
@@ -346,23 +339,22 @@ short sc_init( SurfCache far *sc, short face_count )
                 case 0: sc->bgrn  = b; break;
                 case 1: sc->bord  = b; break;
                 case 2: sc->bown  = b; break;
-                case 3: sc->bprev = b; break;
-                case 4: sc->bnext = b; break;
-                case 5: sc->btag  = b; break;
-                case 6: sc->bstag = (long far *) b; break;
-                case 7: sc->bsib = b; break;
+                case 3: sc->bnext = b; break;
+                case 4: sc->btag  = b; break;
+                case 5: sc->bstag = (long far *) b; break;
+                case 6: sc->bsib = b; break;
                 default: sc->bstamp = (long far *) b; break;
             }
         }
     }
-    if ( !sc->slot || !sc->bgrn || !sc->bord || !sc->bown || !sc->bprev ||
-         !sc->bnext || !sc->btag || !sc->bstag || !sc->bsib || !sc->bstamp ) {
+    if ( !sc->slot || !sc->bgrn || !sc->bord || !sc->bown || !sc->bnext ||
+         !sc->btag || !sc->bstag || !sc->bsib || !sc->bstamp ) {
         sc_shutdown( sc );   /* what did allocate goes back */
         return 0;
     }
     sc_why = 0;
 
-    for ( i = 0; i < SC_NCLS; i++ ) sc->desc[i] = 0;
+    sc->desc = 0;
     sc_reset_lists( sc );
     sc->bcnt = 0;
     for ( i = 0; i < face_count; i++ ) sc->slot[i].blk = -1;
@@ -390,9 +382,7 @@ static short sc_store_open( SurfCache far *sc )
 {
     if ( sc->hnd != 0 ) return -1;
 
-    /* Shaped so its own scanline table stays tiny. bps is capped at
-       one EMS page, so a 16384-wide DC is exactly one page per
-       scanline. */
+    /* One EMS page per row keeps the store's own row table tiny. */
     sc->hnd = qglSfNew( (short) SC_PGBYTES, SC_PAGES, QGL_SURF_EMS );
     if ( sc->hnd == 0 ) {
         sc->cap = 0;
@@ -422,10 +412,8 @@ void sc_shutdown( SurfCache far *sc )
 
     /* views first: they borrow the store's pixels, so the store
        outlives them */
-    for ( i = 0; i < SC_NCLS; i++ ) {
-        if ( sc->desc[i] != 0 ) qglDelView( sc->desc[i] );
-        sc->desc[i] = 0;
-    }
+    if ( sc->desc != 0 ) qglDelView( sc->desc );
+    sc->desc = 0;
     if ( sc->hnd != 0 ) qglSfFree( sc->hnd );
     sc->hnd  = 0;
     sc->cap  = 0;
@@ -436,14 +424,13 @@ void sc_shutdown( SurfCache far *sc )
     if ( sc->bgrn )  qglMemFree( (long) (void far *) sc->bgrn );
     if ( sc->bord )  qglMemFree( (long) (void far *) sc->bord );
     if ( sc->bown )  qglMemFree( (long) (void far *) sc->bown );
-    if ( sc->bprev ) qglMemFree( (long) (void far *) sc->bprev );
     if ( sc->bnext ) qglMemFree( (long) (void far *) sc->bnext );
     if ( sc->btag )  qglMemFree( (long) (void far *) sc->btag );
     if ( sc->bstag ) qglMemFree( (long) (void far *) sc->bstag );
     if ( sc->bsib )  qglMemFree( (long) (void far *) sc->bsib );
     if ( sc->bstamp ) qglMemFree( (long) (void far *) sc->bstamp );
     sc->slot = 0; sc->bgrn = 0; sc->bord = 0;
-    sc->bown = 0; sc->bprev = 0; sc->bnext = 0;
+    sc->bown = 0; sc->bnext = 0;
     sc->btag = 0; sc->bstag = 0; sc->bsib = 0; sc->bstamp = 0;
 }
 
@@ -469,7 +456,7 @@ QSurf sc_find( SurfCache far *sc, short face, short mip, short w, short h, long 
     short far *btag = sc->btag, far *bsib = sc->bsib;
     long  far *bstag = sc->bstag;
     QSurf dc;
-    short a, b, vcls, blk, tag;
+    short a, b, blk, tag;
 
     if ( !sc->ok ) return 0;
     /* A tag match says the mip and generation are right; stag is the
@@ -487,9 +474,10 @@ QSurf sc_find( SurfCache far *sc, short face, short mip, short w, short h, long 
     b = SC_SHIFT( h );
     if ( a + b > SC_MAXSUM ) return 0;
 
-    vcls = (a - SC_MINSH) * 5 + (b - SC_MINSH);
-    dc = sc->desc[vcls];
+    dc = sc->desc;
     if ( dc == 0 ) return 0;
+    if ( !qglSfViewResize( dc, sc->hnd, (short) (1 << a), (short) (1 << b),
+                          (short) (1 << a) ) ) return 0;
     /* bgrn * SC_GRAN without the long-multiply helper: bgrn is under
        16384, so the long is two 16-bit halves of it. */
     ((unsigned short *) aim_ofs)[0] = (unsigned short) sc->bgrn[blk] << SC_MINORD;
@@ -506,7 +494,7 @@ QSurf sc_find( SurfCache far *sc, short face, short mip, short w, short h, long 
 QSurf sc_alloc( SurfCache far *sc, short face, short mip, short w, short h, short fw, short fh,
               long stag, short face_count, long *aim_ofs )
 {
-    short a, b, cidx, bord;
+    short a, b, bord;
     QSurf dc;
     short vic, blk, j, b2, k, last, n, tag, fresh;
     long ofs, sz;
@@ -526,18 +514,19 @@ QSurf sc_alloc( SurfCache far *sc, short face, short mip, short w, short h, shor
     b = SC_SHIFT( h );
     if ( a + b > SC_MAXSUM ) return 0;   /* past one EMS page, and
                                              rdAccess maps only one */
-    cidx = (a - SC_MINSH) * 5 + (b - SC_MINSH);
-
-    /* One view per class, made once and aimed somewhere new every
-       time -- every DC the cache ever makes, 25 at the very most,
-       against one per cached surface before. */
-    if ( sc->desc[cidx] == 0 ) {
-        dc = qglNewView( sc->hnd, 0, (short) (1 << a), (short) (1 << b) );
+    /* One tableless view for every class, reshaped and re-aimed for the
+       current surface. Its stride is the physical power-of-two width. */
+    if ( sc->desc == 0 ) {
+        dc = qglSfViewNew( sc->hnd, (short) (1 << a), (short) (1 << b),
+                          (short) (1 << a) );
         if ( dc == 0 ) return 0;
-        sc->desc[cidx] = dc;
+        sc->desc = dc;
         sc->made++;
+    } else {
+        dc = sc->desc;
+        if ( !qglSfViewResize( dc, sc->hnd, (short) (1 << a), (short) (1 << b),
+                              (short) (1 << a) ) ) return 0;
     }
-    dc = sc->desc[cidx];
 
     /* The block is sized at the mip being drawn NOW, and grows only if
        a finer mip is later wanted -- sizing at the face's floor mip
@@ -623,7 +612,6 @@ QSurf sc_alloc( SurfCache far *sc, short face, short mip, short w, short h, shor
         }
 
         sc->bown[blk]  = face;
-        sc->bprev[blk] = -1;
         sc->bnext[blk] = -1;
         sc->bsib[blk]  = sc->slot[face].blk;
         sc->slot[face].blk = blk;
@@ -819,6 +807,17 @@ static short sc_selftest_run( SurfCache far *sc )
         if ( !sc_find( sc, 1, 0, 112, 112, 0, &aim ) || sc->bown[ sc_lru_oldest( sc, ord ) ] != 2 ) return -93;
         if ( !sc_find( sc, 2, 0, 112, 112, 0, &aim ) || sc->bown[ sc_lru_oldest( sc, ord ) ] != 0 ) return -94;
         if ( !sc_find( sc, 0, 0, 112, 112, 0, &aim ) || sc->bown[ sc_lru_oldest( sc, ord ) ] != 1 ) return -95;
+
+        /* The victim is the middle link in insertion order, which is
+           the case the singly-linked unlink has to walk to reach. */
+        next0 = sc->cap;
+        sc->cap = sc->next;
+        built = sc_alloc( sc, 3, 0, 112, 112, 112, 112, 0, 10, &aim ) != 0;
+        sc->cap = next0;
+        if ( !built || sc_find( sc, 1, 0, 112, 112, 0, &aim ) != 0 ) return -101;
+        if ( !sc_find( sc, 0, 0, 112, 112, 0, &aim ) ) return -102;
+        if ( !sc_find( sc, 2, 0, 112, 112, 0, &aim ) ) return -103;
+        if ( !sc_find( sc, 3, 0, 112, 112, 0, &aim ) ) return -104;
     }
 
     /* A face keeps a distinct block per mip, as Quake's cachespots[4].

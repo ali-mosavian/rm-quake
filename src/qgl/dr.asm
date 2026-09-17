@@ -544,9 +544,13 @@ qglDrBlit     proc    public uses bx cx dx si di ds es,\
                 les     bx, d
                 cmp     es:[bx].Surface.typ, SF_MEM
                 jne     @@generic
+                cmp     es:[bx].Surface.pages, 0
+                je      @@generic
                 les     bx, s
                 cmp     es:[bx].Surface.typ, SF_MEM
                 jne     @@generic
+                cmp     es:[bx].Surface.pages, 0
+                je      @@generic
 
                 ;;
                 ;; The cursor that used to be resolved once and stepped by
@@ -734,6 +738,8 @@ qglDrBlitScl proc    public uses bx cx dx si di ds es,\
                 les     bx, d
                 cmp     es:[bx].Surface.typ, SF_MEM
                 jne     @@generic
+                cmp     es:[bx].Surface.pages, 0
+                je      @@generic
                 mov     ax, w
                 cmp     ax, es:[bx].Surface.xRes
                 jne     @@generic
@@ -745,6 +751,8 @@ qglDrBlitScl proc    public uses bx cx dx si di ds es,\
                 les     bx, s
                 cmp     es:[bx].Surface.typ, SF_MEM
                 jne     @@generic
+                cmp     es:[bx].Surface.pages, 0
+                je      @@generic
                 cmp     dx, W es:[bx].Surface.fptr+2
                 je      @@generic               ;; one store, so they overlap
                 ;; HALVE THE DESTINATION, do not double the source: a

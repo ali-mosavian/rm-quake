@@ -425,14 +425,7 @@ qgl_ems_RdWrSwitch endp
 qgl_ems_RdAccess proc   near private
 
                 mov     esi, gs:[SF_addrTB][si]
-                cmp     ss:qgl$emsCtx.rdCurrent, si
-                jne     @@change
-
-                mov     ds, ss:qgl$emsCtx.segTB[EMS_READPAGE * 2]
-                shr     esi, 16
-                ret
-
-@@change:       mov     ss:qgl$emsCtx.rdCurrent, si
+                mov     ss:qgl$emsCtx.rdCurrent, si
                 PS      ax, bx, cx, dx
                 QGL_MAP EMS_READPAGE
                 PP      dx, cx, bx, ax
@@ -450,14 +443,7 @@ qgl_ems_RdAccess endp
 qgl_ems_WrAccess proc   near private
 
                 mov     edi, fs:[SF_addrTB][di]
-                cmp     ss:qgl$emsCtx.wrCurrent, di
-                jne     @@change
-
-                mov     es, ss:qgl$emsCtx.segTB[EMS_WRITEPAGE * 2]
-                shr     edi, 16
-                ret
-
-@@change:       mov     ss:qgl$emsCtx.wrCurrent, di
+                mov     ss:qgl$emsCtx.wrCurrent, di
                 PS      ax, bx, cx, dx
                 QGL_MAP EMS_WRITEPAGE
                 PP      dx, cx, bx, ax
@@ -477,15 +463,7 @@ qgl_ems_WrAccess endp
 qgl_ems_RdWrAccess proc near private
 
                 mov     edi, fs:[SF_addrTB][di]
-                cmp     ss:qgl$emsCtx.wrCurrent, di
-                jne     @@change
-
-                mov     ax, ss:qgl$emsCtx.segTB[EMS_WRITEPAGE * 2]
-                mov     es, ax
-                shr     edi, 16
-                ret
-
-@@change:       mov     ss:qgl$emsCtx.wrCurrent, di
+                mov     ss:qgl$emsCtx.wrCurrent, di
                 PS      bx, cx, dx
                 QGL_MAP EMS_WRITEPAGE
                 PP      dx, cx, bx
@@ -515,10 +493,6 @@ qgl$AccessEx    proc    near private uses bx cx
 
                 movzx   bx, cl
                 shl     bx, 1                   ;; bx= slot * T word
-
-                cmp     qgl$gem_key[bx], si
-                je      @@mapped                ;; that page already there?
-
                 mov     ss:qgl$emsCtx.ppgTB[bx], si
                 push    bx
                 push    si
@@ -532,7 +506,7 @@ qgl$AccessEx    proc    near private uses bx cx
                 pop     bx
                 mov     ss:qgl$emsCtx.segTB[bx], ax
 
-@@mapped:       mov     dx, ss:qgl$emsCtx.segTB[bx]
+                mov     dx, ss:qgl$emsCtx.segTB[bx]
                 mov     eax, esi
                 shr     eax, 16                 ;; ax= scanline offset
                 clc

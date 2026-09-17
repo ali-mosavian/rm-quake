@@ -179,6 +179,8 @@ qglSfGet        endp
 
 QGL_CODE
 
+qglSfViewRow proto far pascal :dword, :word, :word
+
 ;;::::::::::::::
 ;; A KIND THAT IS NOT THERE MUST NOT ANSWER WITH THE CALLER'S OWN es.
 ;;
@@ -207,6 +209,12 @@ qglSfAccessRd   proc    public uses bx si gs ds,\
                 mov     gs, W sf+2                      ;; gs-> sf
                 mov     si, y
 
+                cmp     gs:[Surface.pages], 0
+                jne     @F
+                invoke  qglSfViewRow, sf, y, EMS_READPAGE
+                ret
+@@:
+
                 mov     bx, gs:[Surface.typ]
                 CHECKKIND bx, @@dead
                 add     si, gs:[Surface.startSL]        ;; + page
@@ -231,6 +239,12 @@ qglSfAccessWr   proc    public uses bx di fs es,\
 
                 mov     fs, W sf+2                      ;; fs-> sf
                 mov     di, y
+
+                cmp     fs:[Surface.pages], 0
+                jne     @F
+                invoke  qglSfViewRow, sf, y, EMS_WRITEPAGE
+                ret
+ @@:
 
                 mov     bx, fs:[Surface.typ]
                 CHECKKIND bx, @@dead
@@ -257,6 +271,16 @@ qglSfAccessRdWr proc    public uses bx di fs es,\
 
                 mov     fs, W sf+2                      ;; fs-> sf
                 mov     di, y
+
+                cmp     fs:[Surface.pages], 0
+                jne     @F
+                invoke  qglSfViewRow, sf, y, EMS_READPAGE
+                mov     bx, rdPtr
+                mov     [bx+0], ax
+                mov     [bx+2], dx
+                invoke  qglSfViewRow, sf, y, EMS_WRITEPAGE
+                ret
+@@:
 
                 mov     bx, fs:[Surface.typ]
                 CHECKKIND bx, @@dead
@@ -296,6 +320,12 @@ qglSfAccessRdEx proc    public uses bx cx si gs,\
                 mov     gs, W sf+2                      ;; gs-> sf
                 mov     si, y
 
+                cmp     gs:[Surface.pages], 0
+                jne     @F
+                invoke  qglSfViewRow, sf, y, slot
+                ret
+ @@:
+
                 mov     bx, gs:[Surface.typ]
                 CHECKKIND bx, @@dead
                 add     si, gs:[Surface.startSL]        ;; + page
@@ -319,6 +349,12 @@ qglSfAccessWrEx proc    public uses bx cx di fs,\
 
                 mov     fs, W sf+2                      ;; fs-> sf
                 mov     di, y
+
+                cmp     fs:[Surface.pages], 0
+                jne     @F
+                invoke  qglSfViewRow, sf, y, slot
+                ret
+ @@:
 
                 mov     bx, fs:[Surface.typ]
                 CHECKKIND bx, @@dead

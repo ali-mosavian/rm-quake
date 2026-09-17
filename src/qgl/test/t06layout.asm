@@ -40,15 +40,16 @@ SF_BPS          equ     10
 SF_PAGES        equ     12
 SF_STARTSL      equ     14
 SF_SIZE         equ     16
-SF_XMIN         equ     20
-SF_YMIN         equ     22
-SF_XMAX         equ     24
-SF_YMAX         equ     26
-SF_FPTR         equ     28              ;; MEM_SF.fptr / EMS_SF.hnd, the union
-SF_ZSF          equ     32              ;; the depth Surface made for this one
-SF_ZMODE        equ     36
-SF_TBL          equ     38
-SF_BYTES        equ     38              ;; T Surface, header only
+SF_VIEWOFS      equ     20
+SF_XMIN         equ     24
+SF_YMIN         equ     26
+SF_XMAX         equ     28
+SF_YMAX         equ     30
+SF_FPTR         equ     32              ;; MEM_SF.fptr / EMS_SF.hnd, the union
+SF_ZSF          equ     36              ;; the depth Surface made for this one
+SF_ZMODE        equ     40
+SF_TBL          equ     42
+SF_BYTES        equ     42              ;; T Surface, header only
 
 SFW             equ     32
 SFH             equ     4
@@ -64,16 +65,17 @@ n_bps           db      'bps     at 10         $'
 n_pages         db      'pages   at 12         $'
 n_startsl       db      'startSL at 14         $'
 n_size          db      '_size   at 16         $'
-n_xmin          db      'xMin    at 20         $'
-n_ymin          db      'yMin    at 22         $'
-n_xmax          db      'xMax    at 24         $'
-n_ymax          db      'yMax    at 26         $'
-n_fptr          db      'fptr    at 28         $'
-n_hnd           db      'hnd     at 28         $'
-n_zsf           db      'zsf     at 32         $'
-n_zmode         db      'zmode   at 36         $'
-n_tbl           db      'addrTB  at 38         $'
-n_size_of       db      'T Surface is 38       $'
+n_viewofs       db      'viewOfs at 20         $'
+n_xmin          db      'xMin    at 24         $'
+n_ymin          db      'yMin    at 26         $'
+n_xmax          db      'xMax    at 28         $'
+n_ymax          db      'yMax    at 30         $'
+n_fptr          db      'fptr    at 32         $'
+n_hnd           db      'hnd     at 32         $'
+n_zsf           db      'zsf     at 36         $'
+n_zmode         db      'zmode   at 40         $'
+n_tbl           db      'addrTB  at 42         $'
+n_size_of       db      'T Surface is 42       $'
 n_row_seg       db      'addrTB[0] seg is row 0$'
 n_row_ofs       db      'addrTB[0] ofs is row 0$'
 
@@ -93,6 +95,7 @@ tmain           proc    far public uses bx es
                 CHK     n_pages,   Surface.pages,   SF_PAGES
                 CHK     n_startsl, Surface.startSL, SF_STARTSL
                 CHK     n_size,    Surface._size,   SF_SIZE
+                CHK     n_viewofs, Surface.viewOfs, SF_VIEWOFS
                 CHK     n_xmin,    Surface.xMin,    SF_XMIN
                 CHK     n_ymin,    Surface.yMin,    SF_YMIN
                 CHK     n_xmax,    Surface.xMax,    SF_XMAX

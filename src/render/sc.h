@@ -9,7 +9,7 @@
  * slice (see sc.c's own header for the pool's shape and why).
  *
  * SurfCache is heap-sized, not stack/DGROUP-sized -- its block tables
- * alone are 18 KB (SC_NBLK entries x 18 bytes), and
+ * alone are 20 KB (SC_NBLK entries x 20 bytes), and
  * medium model's DGROUP is 64 KB shared with the stack and every other
  * near global. Its owner allocates it with qglMemAlloc (mgl's dos.h, the
  * standard far heap, not a MEM/EMS uGL store -- this is bookkeeping,
@@ -24,8 +24,6 @@
 #define SC_MAXSH  8    /* 256 on one axis, if the other stays small */
 #define SC_MAXSUM 14   /* 2^a * 2^b <= 16384: one EMS page, all a single
                            rdAccess brings in */
-#define SC_NCLS   25   /* (SC_MAXSH-SC_MINSH+1) squared */
-
 #define SC_NBLK   1024  /* block records, free buddy halves included. At
                            384 e1m1's (480,-19,29) ran out, every flicker
                            rebuilt its (0,10) faces: 800 builds in 300
@@ -65,7 +63,7 @@ typedef struct {
                              what hitches is how many land in one frame */
     short builds;
     short bpeak;          /* the worst frame seen */
-    short made;           /* slots (views) created at init */
+    short made;           /* views created */
     long  live;           /* blocks currently resident */
     long  evict;          /* blocks thrown out over the run */
     long  flushes;        /* whole-cache flushes over the run */
@@ -93,9 +91,8 @@ typedef struct {
     CacheSlot far *slot; /* one per face -- far-allocated in sc_init to
                              world->face_count entries */
 
-    QSurf       desc[SC_NCLS];   /* one view DC per size class, made on
-                                   demand and re-aimed per surface; 0 =
-                                   not made yet */
+    QSurf       desc;      /* one tableless strided view, reshaped and
+                              re-aimed for the surface being used */
 
     /* The block table. One entry per surface actually resident, not
        per face. Offsets are kept in SC_GRAN granules so they fit a
@@ -108,8 +105,7 @@ typedef struct {
     short far *bgrn;   /* block offset / SC_GRAN -- SC_NBLK entries */
     short far *bord;   /* size order: 2^(o+SC_MINORD) bytes */
     short far *bown;   /* owning face, -1 if none */
-    short far *bprev;  /* the class's LRU chain */
-    short far *bnext;
+    short far *bnext;  /* the class's LRU and free-list chain */
     long  far *bstamp; /* clock at the block's last use */
     long      clock;    /* one more a use, so no two stamps are equal */
     short     bcnt;     /* blocks made so far */
@@ -120,7 +116,7 @@ typedef struct {
     short ltail[SC_NORD];
     short fhead[SC_NORD];  /* per-order free blocks, via bnext */
 
-    /* Where sc_find/sc_alloc last aimed the class view -- now returned
+    /* Where sc_find/sc_alloc last aimed the shared view -- now returned
        to the caller explicitly (both take a trailing long *aim_ofs)
        instead of being read back later through a separate accessor;
        the old sc_view_ofs() read a `dim shared sc_aim_ofs` no caller

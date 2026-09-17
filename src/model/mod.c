@@ -219,10 +219,8 @@ void mod_unload( World *world )
 {
     short i;
 
-    for ( i = 0; i < TEX_HEIGHTS; i++ ) {
-        if ( world->tex_v_raw[i] ) qglDelView( world->tex_v_raw[i] );
-        if ( world->tex_v_shaded[i] ) qglDelView( world->tex_v_shaded[i] );
-    }
+    if ( world->tex_v_raw )    qglDelView( world->tex_v_raw );
+    if ( world->tex_v_shaded ) qglDelView( world->tex_v_shaded );
     if ( world->tex_raw )     qglSfFree( world->tex_raw );
     if ( world->tex_shaded )  qglSfFree( world->tex_shaded );
     if ( world->sky_layers )  qglSfFree( world->sky_layers );
