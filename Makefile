@@ -71,7 +71,7 @@ $(if $(DUPS),$(error one name in two subsystems: $(DUPS)))
 OBJS := $(addprefix $(BUILD)/,$(addsuffix .obj,$(MODS)))
 EXE  := $(BUILD)/QCPORT.EXE
 
-.PHONY: all build assets maps test run clean help
+.PHONY: all build title assets maps test run clean help
 
 # ONE file per map: <map>.qmp carries every lump, both atlases, the
 # palette, the font and the colormap, and the run takes its name.
@@ -85,6 +85,17 @@ DATA_OUT := $(addprefix $(BUILD)/,$(DATA) $(ROOT_DATA))
 
 all: build                      ## build QCPORT.EXE (default)
 build: $(EXE) $(DATA_OUT)
+
+# The no-argument id-style attract loop. These map containers are generated
+# by `make maps`; the recordings are small checked-in input streams.
+TITLE_MAPS := start e1m1 e1m2 e1m3
+TITLE_DEMOS := demo1.qcr demo2.qcr demo3.qcr
+TITLE_MAP_OUT := $(foreach m,$(TITLE_MAPS),$(BUILD)/$(m).qmp)
+TITLE_DEMO_OUT := $(addprefix $(BUILD)/,$(TITLE_DEMOS))
+title: build $(TITLE_MAP_OUT) $(TITLE_DEMO_OUT) ## build the no-argument title-demo setup
+
+$(foreach m,$(TITLE_MAPS),$(eval $(BUILD)/$(m).qmp: data/maps/$(m)/$(m).qmp | $(BUILD); cp $$< $$@))
+$(foreach f,$(TITLE_DEMOS),$(eval $(BUILD)/$(f): data/demos/$(f) | $(BUILD); cp $$< $$@))
 
 # Named one by one, not a `$(BUILD)/%:` pattern -- that pattern also
 # matches $(BUILD)/<anything>.obj and would compete with the compile

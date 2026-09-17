@@ -10,7 +10,31 @@
 #include "qgl.h"
 #include "demo.h"
 
-static char demo_magic[4] = { 'Q', 'C', 'R', '2' };
+static char demo_magic[4] = { 'Q', 'C', 'R', '3' };
+static char demo_magic2[4] = { 'Q', 'C', 'R', '2' };
+
+static void demo_map_name( const char *name, char *map )
+{
+    short n = (short) strlen( name );
+    if ( n > 4 && !stricmp( name + n - 4, ".qmp" ) ) n -= 4;
+    if ( n > 8 ) n = 8;
+    memcpy( map, name, n );
+    map[n] = 0;
+}
+
+short demo_map( const char *name, char *map )
+{
+    char magic[4];
+    FILE *f = fopen( name, "rb" );
+
+    if ( !f ) return 0;
+    if ( fread( magic, 1, sizeof(magic), f ) != sizeof(magic) ||
+         memcmp( magic, demo_magic, sizeof(magic) ) ||
+         fread( map, 1, 9, f ) != 9 ) map[0] = 0;
+    map[8] = 0;
+    fclose( f );
+    return map[0] != 0;
+}
 
 void demo_open( Demo *dm, const RunArgs *args )
 {
@@ -22,6 +46,7 @@ void demo_open( Demo *dm, const RunArgs *args )
         dm->buf = (RecBuf far *) qglMemAlloc( (long) sizeof(RecBuf) );
         if ( !dm->buf ) sys_error( "out of far memory for -record buffer" );
         dm->buf->count = 0;
+        demo_map_name( args->map_name, dm->map );
         raw = (long) (void far *) dm->buf;
         sprintf( mbuf, "rec_buf seg=%ld ofs=%ld max=%d", raw >> 16, raw & 0xFFFFL, REC_MAX );
         mark( mbuf );
@@ -29,9 +54,19 @@ void demo_open( Demo *dm, const RunArgs *args )
         char magic[4];
         dm->rf = fopen( args->play_name, "rb" );
         if ( !dm->rf ) sys_error( "could not open -play file" );
-        dm->actions = (short) ( fread( magic, 1, sizeof(magic), dm->rf ) == sizeof(magic) &&
-                                !memcmp( magic, demo_magic, sizeof(magic) ) );
-        if ( !dm->actions ) fseek( dm->rf, 0L, SEEK_SET );
+        if ( fread( magic, 1, sizeof(magic), dm->rf ) == sizeof(magic) &&
+             !memcmp( magic, demo_magic, sizeof(magic) ) ) {
+            char map[9];
+            dm->actions = (short) ( fread( dm->map, 1, sizeof(dm->map), dm->rf ) == sizeof(dm->map) );
+            if ( !dm->actions ) sys_error( "short QCR3 header" );
+            dm->map[8] = 0;
+            demo_map_name( args->map_name, map );
+            if ( stricmp( dm->map, map ) ) sys_error( "QCR3 belongs to another map" );
+        } else if ( !memcmp( magic, demo_magic2, sizeof(magic) ) ) {
+            dm->actions = 1;
+        } else {
+            fseek( dm->rf, 0L, SEEK_SET );
+        }
     }
 }
 
@@ -142,6 +177,7 @@ void demo_close( Demo *dm, const RunArgs *args )
         wf = fopen( args->record_name, "wb" );
         if ( wf ) {
             fwrite( demo_magic, 1, sizeof(demo_magic), wf );
+            fwrite( dm->map, 1, sizeof(dm->map), wf );
             for ( i = 0; i < dm->buf->count; i++ ) {
                 e = dm->buf->e[i];
                 fwrite( &e, sizeof(e), 1, wf );

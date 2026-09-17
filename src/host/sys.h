@@ -117,8 +117,8 @@ typedef struct {
  *       that was a VBDOS runtime quirk, not a property of the command
  *       line itself; flags are matched case-insensitively anyway,
  *       matching the original's own lcase$ compares. The first token
- *       is the map name; prints a usage line and exits if the command
- *       line is empty, matching the original's own behaviour.
+ *       is the map name; an empty command line starts the original-style
+ *       `startdemos demo1 demo2 demo3` attract loop on start.
  *       Unrecognised flags are ignored.
  */
 void sys_parse_args( RunArgs *args );

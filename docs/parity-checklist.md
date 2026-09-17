@@ -145,10 +145,12 @@ PAK0 and are left out.
 
 ## Front end and engine
 
-- [ ] Title demos
+- [x] Title demos
       id: `cl_demo.c` `CL_PlayDemo_f`, `cl_main.c` `CL_NextDemo`;
       `demo1..3.dem` are in PAK0
-      qcport: no `.dem` playback; `-record`/`-play` are this port's input log
+      qcport: no-argument `startdemos demo1 demo2 demo3`, map-aware QCR3
+      playback and id's wrapping/suspended menu loop. QCR3 records input because
+      `.dem` is the excluded network snapshot protocol; `tools/test-title-demos.sh`
 - [x] Menus, save and load
       id: `menu.c` `M_Menu_Main_f`, `M_Menu_Options_f`, `M_Menu_Keys_f`,
       `M_Menu_Load_f`, `M_Menu_Save_f`; `host_cmd.c` `Host_Savegame_f`,

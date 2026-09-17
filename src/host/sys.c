@@ -234,7 +234,11 @@ void sys_parse_args( RunArgs *args )
     cmd[len] = '\0';
 
     argc = sys_tokenize( cmd, len, argv );
-    if ( argc < 1 ) sys_usage();
+    if ( argc < 1 ) {
+        strcpy( args->map_name, "start.qmp" );
+        strcpy( args->startup_cmd, "startdemos demo1 demo2 demo3" );
+        return;
+    }
 
     strncpy( args->map_name, argv[0], sizeof(args->map_name) - 1 );
 

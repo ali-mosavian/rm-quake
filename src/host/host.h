@@ -36,6 +36,13 @@ typedef struct {
     float warp_xyz[4][3];
 } HostClock;
 
+#define ATTRACT_MAX 8
+typedef struct {
+    char demo[ATTRACT_MAX][13];
+    char pending[13];
+    short count, next, active, waiting;
+} Attract;
+
 /* Everything one run owns, in main's frame for the whole run. Hud and
    the surface cache are far-allocated: too big for DGROUP. */
 typedef struct {
@@ -57,6 +64,7 @@ typedef struct {
     PhaseTimes     pt;
     BenchStats     bs;
     Demo           demo;
+    Attract        attract;
     CmdState far  *cmd;
     Console far   *console;
     KeyBindings far *keys;

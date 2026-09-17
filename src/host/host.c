@@ -57,6 +57,7 @@ static void near host_input_events( Host *h );
 static void near host_console_result( Host *h, CmdKind kind, CmdResult *result );
 static short near host_save_slot( Host *h, short slot, char *error );
 static short near host_load_slot( Host *h, short slot, char *error );
+static short near host_attract_next( Host *h );
 
 static float near host_view_aspect( const Host *h )
 {
@@ -91,6 +92,60 @@ static void near host_map_base( const Host *h, char *map )
     if ( len > 8 ) len = 8;
     memcpy( map, h->args.map_name, len );
     map[len] = 0;
+}
+
+/* CL_NextDemo: wrap the configured loop and stage its recorded map. */
+static short near host_attract_next( Host *h )
+{
+    char map[9], buf[64];
+    short tried;
+
+    if ( !h->attract.active || h->attract.count == 0 ) return 0;
+    for ( tried = 0; tried < h->attract.count; tried++ ) {
+        char *name = h->attract.demo[h->attract.next];
+        h->attract.next = (short) ( ( h->attract.next + 1 ) % h->attract.count );
+        if ( !demo_map( name, map ) ) continue;
+        strcpy( h->attract.pending, name );
+        strcpy( h->fight.next_map, map );
+        h->attract.waiting = 0;
+        h->pending_load = -1;
+        h->carried = 0;
+        h->fight.state = GS_NEXT;
+        sprintf( buf, "attract demo %s map %s", name, map );
+        mark( buf );
+        return -1;
+    }
+    h->attract.active = 0;
+    con_print( h->console, "No playable demos in loop" );
+    return 0;
+}
+
+static void near host_startdemos( Host *h, char *text )
+{
+    char *p = text;
+    short n;
+
+    h->attract.count = h->attract.next = 0;
+    while ( *p && h->attract.count < ATTRACT_MAX ) {
+        while ( *p == ' ' ) p++;
+        if ( !*p ) break;
+        n = 0;
+        while ( p[n] && p[n] != ' ' ) n++;
+        if ( n <= 12 ) {
+            memcpy( h->attract.demo[h->attract.count], p, n );
+            h->attract.demo[h->attract.count][n] = 0;
+            if ( !strchr( h->attract.demo[h->attract.count], '.' ) ) {
+                if ( n > 8 ) { p += n; continue; }
+                strcpy( h->attract.demo[h->attract.count] + n, ".qcr" );
+            }
+            h->attract.count++;
+        }
+        p += n;
+    }
+    h->attract.active = (short) ( h->attract.count != 0 );
+    h->attract.waiting = 0;
+    if ( h->attract.active ) host_attract_next( h );
+    else con_print( h->console, "usage: startdemos <demo1> [demo2 ...]" );
 }
 
 #if QR_PROF
@@ -340,11 +395,12 @@ static void near host_tick( Host *h, float dt )
  * rate, and only how many steps a frame runs varies. A long step
  * overshoots a wall a short one stops against.
  */
-static void near host_advance( Host *h, float real_dt )
+static float near host_advance( Host *h, float real_dt )
 {
     HostClock *clock  = &h->clock;
     Player    *player = &h->player;
     short steps = 0, w;
+    float dropped = 0.0f;
 #if QR_PROF
     float t0 = sys_now( &h->sysclk );
 #endif
@@ -378,11 +434,15 @@ static void near host_advance( Host *h, float real_dt )
 
     /* Still behind after the cap: give up on the backlog rather than
        carry it into the next frame, where it would only grow. */
-    if ( clock->accum > HOST_DT ) clock->accum = 0.0f;
+    if ( clock->accum > HOST_DT ) {
+        dropped = clock->accum;
+        clock->accum = 0.0f;
+    }
 
 #if QR_PROF
     pt_stop( h, t0, &h->pt.tick_sum, &h->pt.tick_max );
 #endif
+    return dropped;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1096,8 +1156,8 @@ static void near host_console_result( Host *h, CmdKind kind, CmdResult *result )
     if ( kind == CMD_CMDLIST ) {
         con_print( h->console,
                    "bind clear cmdlist cvarlist echo exec impulse load map menu_keys menu_main "
-                   "menu_options quit save set sizedown sizeup togglemenu unbind unbindall wait "
-                   "writeconfig" );
+                   "menu_options quit save set sizedown sizeup startdemos demos stopdemo "
+                   "togglemenu unbind unbindall wait writeconfig" );
         return;
     }
     if ( kind == CMD_CVARLIST ) {
@@ -1162,6 +1222,24 @@ static void near host_console_result( Host *h, CmdKind kind, CmdResult *result )
         if ( !host_load_slot( h, slot, error ) ) con_print( h->console, error );
         return;
     }
+    if ( !strcmp( result->name, "startdemos" ) ) {
+        host_startdemos( h, result->text );
+        return;
+    }
+    if ( !strcmp( result->name, "demos" ) ) {
+        if ( h->attract.count ) {
+            h->attract.active = -1;
+            h->attract.waiting = 0;
+            host_attract_next( h );
+        } else con_print( h->console, "No demos listed with startdemos" );
+        return;
+    }
+    if ( !strcmp( result->name, "stopdemo" ) ) {
+        h->attract.active = h->attract.waiting = 0;
+        if ( h->demo.rf ) demo_close( &h->demo, &h->args );
+        h->args.play_name[0] = 0;
+        return;
+    }
     if ( !strcmp( result->name, "sizeup" ) || !strcmp( result->name, "sizedown" ) ) {
         char error[CMD_TEXT];
         short value = (short) cvar_value( h->cmd, "viewsize" );
@@ -1220,6 +1298,7 @@ static void near host_console_result( Host *h, CmdKind kind, CmdResult *result )
         if ( len > 4 && !stricmp( map + len - 4, ".qmp" ) ) map[len -= 4] = 0;
         if ( len > 8 ) { con_print( h->console, "map name is longer than 8 characters" ); return; }
         strcpy( h->fight.next_map, map );
+        h->attract.active = h->attract.waiting = 0;
         h->console->open = 0;
         h->carried = 0;             /* Host_Map_f starts a fresh game */
         h->fight.state = GS_NEXT;
@@ -1293,6 +1372,7 @@ static void near host_menu_action( Host *h, MenuAction action )
     if ( action == MENU_ACTION_QUIT ) { h->quit = -1; return; }
     if ( action == MENU_ACTION_NEW ) {
         strcpy( h->fight.next_map, "start" );
+        h->attract.active = h->attract.waiting = 0;
         h->carried = 0;
         h->fight.state = GS_NEXT;
     }
@@ -1324,6 +1404,7 @@ static short near host_load_slot( Host *h, short slot, char *error )
     host_apply_cvars( h );
     strcpy( h->fight.next_map, map );
     h->pending_load = slot;
+    h->attract.active = h->attract.waiting = 0;
     h->carried = 0;
     h->fight.state = GS_NEXT;
     menu_close( h->menu );
@@ -1466,18 +1547,27 @@ presented:
 
 void host_frame( Host *h )
 {
-    float raw_dt, frame_dt;
+    float raw_dt, frame_dt, dropped = 0.0f;
 #if QR_PROF
     float t_frame = 0.0f, t_ph;
 #endif
 
     frame_dt = sys_frame_time( &h->sysclk, &raw_dt );
     if ( !demo_input( &h->demo, &h->input, &frame_dt ) ) {
-        h->quit = -1;   /* the recording ended: stop, as the live run did */
+        if ( h->attract.active ) {
+            demo_close( &h->demo, &h->args );
+            h->args.play_name[0] = 0;
+            if ( menu_is_open( h->menu ) || con_open( h->console ) ) h->attract.waiting = -1;
+            else host_attract_next( h );
+        } else h->quit = -1;   /* a standalone -play ends where its live run did */
         return;
     }
     host_legacy_input( h );
     host_input_events( h );
+    if ( h->attract.waiting && !menu_is_open( h->menu ) && !con_open( h->console ) ) {
+        host_attract_next( h );
+        return;
+    }
     demo_actions( &h->demo, h->keys );
     if ( h->quit || h->fight.state == GS_NEXT ) return;
     con_animate( h->console, frame_dt, h->v.scr_y_res );
@@ -1505,7 +1595,15 @@ void host_frame( Host *h )
         h->console_frames++;
         h->clock.accum = 0.0f;
     } else
-        host_advance( h, frame_dt );
+        dropped = host_advance( h, frame_dt );
+
+    /* A -ticks recording may spend only part of its final frame before
+       the tick budget stops it. Store that spent time, or replay runs the
+       discarded remainder and advances one tick past the captured camera. */
+    if ( h->demo.buf && dropped > 0.0f ) {
+        h->demo.rec.dt -= dropped;
+        if ( h->demo.rec.dt < 0.0f ) h->demo.rec.dt = 0.0f;
+    }
 
     /* Between the tick and the render, where nothing holds an EMS window:
        the mixer takes PAGE_SLOT. Every frame: the DMA never stops, and
@@ -1674,10 +1772,15 @@ short host_changelevel( Host *h )
 
     if ( h->quit ) return 0;
     if ( h->fight.state != GS_NEXT ) return 0;
+    if ( h->attract.active && !h->attract.pending[0] && !host_attract_next( h ) ) return 0;
     sprintf( map, "%.8s.qmp", h->fight.next_map );
     host_map_finish( h );
     host_map_release( h );
     host_change_args( &h->args, map );
+    if ( h->attract.pending[0] ) {
+        strcpy( h->args.play_name, h->attract.pending );
+        h->attract.pending[0] = 0;
+    }
     if ( h->pending_load >= 0 ) h->args.carry = 0;
     host_map_init( h );
     slot = h->pending_load;
