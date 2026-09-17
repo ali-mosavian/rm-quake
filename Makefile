@@ -189,6 +189,7 @@ test:                           ## header deps, far-to-near pointers, then qgl's
 	@tools/test-console.sh
 	@tools/test-keybind.sh
 	@tools/test-centerprint.sh
+	@tools/test-video.sh
 	@python3 tools/test-id-demo-camera.py $(PAK)
 	@python3 tools/farnear.py
 	@tools/test-x87cmp.sh

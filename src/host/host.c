@@ -1513,20 +1513,21 @@ static void near host_present( Host *h )
 {
     Video *v = &h->v;
     QSurf target;
-    short special;
+    short special, menu;
 #if QR_PROF
     float t0 = sys_now( &h->sysclk );
 #endif
 
-    v_present( v, h->h_dst_dc, 0 );
+    special = (short) ( h->fight.state == GS_EXIT || h->fight.state == GS_FINALE );
+    menu = menu_is_open( h->menu );
+    v_present( v, h->h_dst_dc, 0, (short) ( !special && !menu ) );
     target = v->comp ? v->h_comp_dc : v->h_video_dc;
-    if ( menu_is_open( h->menu ) ) {
+    if ( menu ) {
         menu_draw( h->menu, h->keys, h->cmd, h->rdr.anim_time,
                    target, v->scr_x_res, v->scr_y_res );
         if ( v->comp ) qglDrBlit( v->h_video_dc, 0, 0, v->h_comp_dc );
         goto presented;
     }
-    special = (short) ( h->fight.state == GS_EXIT || h->fight.state == GS_FINALE );
     if ( v->comp ) {
         if ( !special )
             scr_draw_hud( &h->world, &h->rdr, &h->cam, &h->player, h->sc, h->hud,
