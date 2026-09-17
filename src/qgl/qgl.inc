@@ -364,6 +364,12 @@ QGL_Z_SLOT      equ     EMS_WRITEPAGE
 ;; Named because t20zems and qgl.bi still want to say it out loud.
 QGL_TEX_SLOT    equ     EMS_READPAGE
 
+;; qglRsPoly's destination is held across its filler while texture and
+;; depth occupy slots 0 and 1. Slot 2 is safe there: BSP/model readers
+;; have copied their input to conventional vertices before the call.
+;; Slot 3 stays available to the model triangle walk.
+QGL_DST_SLOT    equ     2
+
 ;;
 ;; Which free figure qglMemAvail should report. LARGEST is what an
 ;; allocation actually has to satisfy; TOTAL is every free block added

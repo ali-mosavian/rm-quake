@@ -36,9 +36,9 @@
    note on why the geometry store's shape isn't in a header). */
 #define GEOM_W       8192
 #define GEOM_LMOFS   1
-#define GEOM_VTX0    9
+#define GEOM_VTX0    10
 #define GEOM_MAXVTX  33
-#define GEOM_MAXREC  (18 + GEOM_MAXVTX * 6)
+#define GEOM_MAXREC  (20 + GEOM_MAXVTX * 6)
 
 /* bspfile.bi's vertex2 is Q13.3. A multiply, not a divide. */
 #define VTX_UNSCALE  0.125f
@@ -158,6 +158,7 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
     short z_want, z_have = -1, lm_use, lm_on;
     short lm_tms, lm_tmt, lm_extw, lm_exth;
     long  lm_stag;
+    short lm_state;
     short lm_mip, lm_floor, lm_sw, lm_sh, lm_fw, lm_fh;
     short leaf_indx, leaf_end, p2;
     long  aim_ofs, lm_dc, src_dc, tex_dc, texofs;
@@ -271,6 +272,7 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
                (would rebuild every time the frame index moved). */
             lm_on = 0;
             lm_stag = 0;
+            lm_state = 0;
             dl_bits = 0;
             lm_extw = lm_exth = 0;
             lm_tms = lm_tmt = 0;
@@ -292,7 +294,11 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
 
                     {
                         short s01 = gv[GEOM_LMOFS + 6], s23 = gv[GEOM_LMOFS + 7];
+                        unsigned short hp = (unsigned short) gv[GEOM_LMOFS + 8];
                         lm_stag = LS_FACE_KEY( ls, s01, s23 );
+                        if ( hp & 255 )
+                            lm_state = (short) ( ( ( lm_stag * ( hp & 255 ) ) ^
+                                                  ( (unsigned long) lm_stag >> ( hp >> 8 ) ) ) & 63 );
                     }
 
                     /* D_CacheSurface's cache->dlight: a lit face
@@ -301,7 +307,7 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
                        glow froze at its first build. */
                     dl_bits = dl_mark( rdr, dl_on, pl, &texinf[tex], lm_tms, lm_tmt,
                                        lm_extw, lm_exth );
-                    if ( dl_bits ) lm_stag = dl_stag( rdr );
+                    if ( dl_bits ) lm_state = -1;
                 }
             }
 
@@ -440,13 +446,13 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
                 lm_fw = (short)( lm_extw >> lm_floor ); if ( lm_fw < 1 ) lm_fw = 1;
                 lm_fh = (short)( lm_exth >> lm_floor ); if ( lm_fh < 1 ) lm_fh = 1;
 
-                lm_dc = (long) (void far *) sc_find( sc, i, lm_mip, lm_sw, lm_sh, lm_stag, &aim_ofs );
+                lm_dc = (long) (void far *) sc_find( sc, i, lm_mip, lm_sw, lm_sh, lm_state, &aim_ofs );
                 if ( lm_dc == 0 ) {
 #if QR_PROF
                     bt0 = dp->prof ? sys_rdtsc( sysclk ) : 0;
 #endif
                     lm_dc = (long) (void far *) sc_alloc( sc, i, lm_mip, lm_sw, lm_sh, lm_fw, lm_fh,
-                                                           lm_stag, world->face_count, &aim_ofs );
+                                                           lm_state, world->face_count, &aim_ofs );
                     if ( lm_dc != 0 ) {
                         /* Build Quake's exact logical rectangle. The
                            builder duplicates its far row and column into

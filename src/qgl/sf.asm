@@ -220,7 +220,7 @@ qgl$EmsBps      endp
 
 
 ;;::::::::::::::
-;; qglSfNewEx ( w:word, h:word, stride:word, where:word )
+;; qglSfNewEx ( w:word, h:word, stride:word, where:word ) -> far ptr, or 0:0
 ;;
 ;; A stride wider than the row is what a depth buffer needs -- two bytes
 ;; a pixel -- and what padding an EMS row up to a power of two needs. The

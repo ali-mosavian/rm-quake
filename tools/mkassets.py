@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from dataclasses import field
 
 import mksnd
+import lighthash
 import texquant
 
 # every output lands here and becomes one assets.zip member
@@ -182,7 +183,7 @@ SKILLS     = 4   # easy, normal, hard, nightmare: an ents<N>.bin each
 ENTS_HEAD  = '<4f3fff13hfhhh3ffh'  # ent.h's EntsHead; the monsters follow it
 ENTS_MON   = '<hh3ffhh'          # ent.h's EntsMon
 
-QMAP_VER   = 4
+QMAP_VER   = 5
 QMAP_HEAD  = 64
 QMAP_NAME  = 16
 QMAP_ENT   = 24
@@ -384,7 +385,7 @@ PAGED_ELEM = {
     'nodes.pag': 16,    # Node: planeid child0 child1 lfaceid lfacenum + bound[6]
     'clip.pag':   6,    # ClipNode: planenum front back
     'leaves.pag':16,    # Leaf: cont vislist bound[6] lfaceid lfacenum
-    'faces.pag': 10,    # Face: planeid side geom_row geom_ofs texinfoid
+    'faces.pag': 10,    # Face: planeid geom_ofs texinfoid cache geom_row side
 }
 
 
@@ -474,11 +475,6 @@ def pot2(v):
         p <<= 1
     return p
 
-LM_FACES_PER_CHUNK = 4000   # 16 bytes a record, so 64,000 -- also under the cap.
-                            # e3m6 has 6,985 faces and would otherwise need a
-                            # 111K table, which BLOAD cannot take.
-
-
 def face_lightmap_geometry(d, lumps):
     """Per-face texturemins/extents, exactly as Quake's CalcSurfaceExtents.
 
@@ -536,9 +532,9 @@ def convert_lightmaps(d, lumps, out):
     would otherwise have to be special-cased in the builder. Faces come out
     in face order, so the table is indexed by face id with no indirection.
 
-    Record is 8 integers, because QuickBASIC has no byte type and a uniform
-    TYPE is what the loader can BLOAD straight into an array:
-        ofs_hi, ofs_lo, tmin_s, tmin_t, lm_w, lm_h, styles01, styles23
+    Record is 8 integers plus two hash bytes:
+        ofs_hi, ofs_lo, tmin_s, tmin_t, lm_w, lm_h, styles01, styles23,
+        hash_multiplier, hash_shift
     ofs_hi = -1 marks a face with no lightmap. The two styles words pack four
     bytes each and are written unsigned -- an unlit face is styles 255,255,
     i.e. 0xFFFF, which BASIC reads back as -1; only the bytes matter.
@@ -603,6 +599,10 @@ def convert_lightmaps(d, lumps, out):
         atlas += bytes(LM_ATLAS_W - (len(atlas) % LM_ATLAS_W))
     atlas_h = max(1, len(atlas) // LM_ATLAS_W)
 
+    light_keys = lighthash.bsp_light_keys(d)
+    hash_choices = {
+        styles: lighthash.best_hash(keys, 64) for styles, keys in light_keys.items()
+    }
     table = bytearray()
     lit = unlit = 0
     for k in range(0, len(faces), 20):
@@ -621,9 +621,16 @@ def convert_lightmaps(d, lumps, out):
         # the face's place in the atlas: the scanline, then x within it. The
         # scanline takes the signed field so -1 still means "unlit", which is
         # the sign test sb_build already makes.
-        table += struct.pack('<hH4h2H', ay, ax, tmin[0], tmin[1], lm_w, lm_h,
+        style_tuple = tuple(style for style in styles if style != 255)
+        choice = hash_choices.get(style_tuple, lighthash.HashChoice(0, 0, 0))
+        if choice.collisions:
+            raise SystemExit(
+                f"face {fid}: styles {style_tuple} need more than 64 exact light states"
+            )
+        table += struct.pack('<hH4h2HBB', ay, ax, tmin[0], tmin[1], lm_w, lm_h,
                              styles[0] | (styles[1] << 8),
-                             styles[2] | (styles[3] << 8))
+                             styles[2] | (styles[3] << 8),
+                             choice.multiplier, choice.shift)
 
     # Raw rows of LM_ATLAS_W, top down, into a qgl EMS store of one row
     # per record -- the same shape fgeom.bin has. Padded above to a whole
@@ -1427,7 +1434,7 @@ def convert_lumps(d, lumps, outdir, gravity, crates):
     # same solution, as the luxel atlas. A record is
     #
     #     word nvtx
-    #     16 bytes of lightmap placement, as convert_lightmaps built it
+    #     18 bytes of lightmap placement and exact hash parameters
     #     nvtx * { int16 x, y, z }                        Q13.3 as before
     #
     # and a face carries (row, offset) instead of (ledgeid, ledgenum). The
@@ -1471,7 +1478,7 @@ def convert_lumps(d, lumps, outdir, gravity, crates):
                 f"GEOM_MAXVTX is {GEOM_MAXVTX}")
         fi = k // 20
         rec = bytearray(struct.pack('<h', nvtx))
-        rec += lmtab[fi * 16:(fi + 1) * 16]
+        rec += lmtab[fi * 18:(fi + 1) * 18]
         for e in range(nvtx):
             se = surfedges[firstedge + e]
             rec += struct.pack('<3h', *verts[edges[abs(se)][0 if se >= 0 else 1]])
@@ -1485,6 +1492,8 @@ def convert_lumps(d, lumps, outdir, gravity, crates):
 
     ent_text = lump(0).split(b'\0')[0].decode('latin-1')
     nmodels = lumps[14][1] // 64
+    if nmodels > 128:
+        raise SystemExit(f"faces.pag: {nmodels} models do not fit Face.side")
     boxes = [struct.unpack_from('<6f', lump(14), m * 64) for m in range(nmodels)]
     # one a skill, chosen at load (trigger_setskill): NOT_EASY 256, NOT_MEDIUM 512,
     # NOT_HARD 1024; nightmare is hard's set
@@ -1538,9 +1547,11 @@ def convert_lumps(d, lumps, outdir, gravity, crates):
         planeid, side, _le, _ln, texinfoid, _f1, _f2, _lightmap = \
             struct.unpack_from('<hhihhhhi', raw, k)
         grow, gofs = fgeom[k // 20]
-        # gofs is 0..GEOM_W-1 so it always fits; grow is a row count and a
-        # map big enough to pass 32,767 rows would be 256MB of geometry
-        buf += struct.pack('<hhhhh', planeid, side, grow, gofs, texinfoid)
+        if not (0 <= grow <= 255):
+            raise SystemExit(f"faces.pag: geometry row {grow} does not fit Face.geom_row")
+        if k // 20 >= 8192:
+            raise SystemExit("faces.pag: face count does not fit the surface-cache owner field")
+        buf += struct.pack('<hhhHBB', planeid, gofs, texinfoid, 0x03FF, grow, side)
     out['faces.pag'] = bytes(buf)
 
     # leaves: leaf(28) -> Leaf(16), dropping the trailing 4 bytes,

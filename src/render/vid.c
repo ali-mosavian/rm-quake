@@ -37,15 +37,18 @@ void v_init_ugl( void )
 
 /*
  * name: v_init
- * desc: Opens the video mode, allocates the backbuffer (and -comp's
- *       composite buffer) and paints the border once. v owns the
- *       result: h_video_dc/h_comp_dc/h_back_bdc are written back into
+ * desc: Opens the video mode, allocates the backbuffer and the permanent
+ *       video-resolution composite buffer, and paints the border once.
+ *       v owns the result: h_video_dc/h_comp_dc/h_back_bdc are written back into
  *       it, matching the caller's own expectation of what "init"
  *       leaves behind. Fatal on failure, same reasoning as
  *       v_init_ugl -- nothing downstream can run without a mode.
  */
 void v_init( Video *v, long pal )
 {
+    short back_stride = 8;
+    short comp_stride = 8;
+
     /* qgl owns the mode: one call takes it and hands back the screen
        surface, whose shape is the mode's own (320x200x8). There is no
        page count -- qgl does not page, and v_present blits. */
@@ -55,29 +58,28 @@ void v_init( Video *v, long pal )
     }
 
     {
-        v->h_back_bdc = qglSfNew( v->x_res, v->y_res, QGL_SURF_CMEM );
+        while ( back_stride < v->x_res ) back_stride <<= 1;
+        v->h_back_bdc = qglSfNewEx( v->x_res, v->y_res,
+                                    back_stride, QGL_SURF_EMS );
         if ( v->h_back_bdc == 0 ) {
             sys_error( "0x0002, Could not create a backbuffer" );
         }
 
-        if ( v->comp ) {
-            /* EMS, and it has to be. A screen-sized composite is 64,000
-               bytes; in conventional memory that is enough on its own to
-               stop e1m1 loading -- it dies on texinf.bld, a 16 KB
-               allocation, with this buffer in the way, and loads without
-               it. This was briefly QGL_SURF_CMEM as a workaround for the
-               live-input crash (docs/bugs/); it did not fix that crash
-               and it cost the map the whole port was meant to unblock,
-               so it is the wrong trade twice over. */
-            v->h_comp_dc = qglSfNew( v->scr_x_res, v->scr_y_res, QGL_SURF_EMS );
-            if ( v->h_comp_dc == 0 ) {
-                sys_error( "0x0003, Could not create the composite buffer" );
-            }
+        /* EMS, and it has to be. The logical image is 320x200; EMS rows
+           use a page-safe power-of-two stride, so this is 102,400 bytes
+           and seven physical pages. Every frame is completed here before
+           one VGA blit. */
+        while ( comp_stride < v->scr_x_res ) comp_stride <<= 1;
+        v->h_comp_dc = qglSfNewEx( v->scr_x_res, v->scr_y_res,
+                                   comp_stride, QGL_SURF_EMS );
+        if ( v->h_comp_dc == 0 ) {
+            sys_error( "0x0003, Could not create the composite buffer" );
         }
         v->base_x_res = v->x_res;
         v->base_y_res = v->y_res;
+        v->back_stride = back_stride;
         v->h_view = qglSfViewNew( v->h_back_bdc, v->base_x_res,
-                                  v->base_y_res, v->base_x_res );
+                                  v->base_y_res, v->back_stride );
         if ( !v->h_view ) sys_error( "0x0004, Could not create the display view" );
         v_set_viewsize( v, 100 );
     }
@@ -119,7 +121,7 @@ void v_set_viewsize( Video *v, short viewsize )
     if ( y_res < 1 ) y_res = 1;
 
     if ( !qglSfViewResize( v->h_view, v->h_back_bdc,
-                           x_res, y_res, v->base_x_res ) )
+                           x_res, y_res, v->back_stride ) )
         sys_error( "0x0004, Could not resize the display view" );
     v->x_res = x_res;
     v->y_res = y_res;
@@ -166,7 +168,7 @@ short v_present( Video *v, QSurf h_dst_dc, short page, short keep_sbar )
     /* qgl has no page flip, so there is one path: blit the backbuffer
        up. qglDrBlitScl takes the destination SIZE where uglPutScl took
        a scale factor -- same rectangle, stated the other way round. */
-    QSurf target = v->comp ? v->h_comp_dc : v->h_video_dc;
+    QSurf target = v->h_comp_dc;
     QSurf source = v->h_view;
 
     v_clear_border( v, target, keep_sbar );

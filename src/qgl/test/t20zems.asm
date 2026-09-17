@@ -9,10 +9,10 @@
 ;; output, no error.
 ;;
 ;; The shape here is the renderer's, which is what the coverage was
-;; missing: a CONVENTIONAL destination, an EMS texture on one slot and
-;; an EMS depth buffer on another, all live across one qglRsPoly. Three
-;; owners of the EMS window and a per-scanline remap between two of
-;; them; that alternation is the thing under test, not the arithmetic.
+;; missing: an EMS destination, an EMS texture and an EMS depth buffer,
+;; all live across one qglRsPoly. Three owners of the EMS window must
+;; retain their own slots for every scanline; that mapping is the thing
+;; under test, not the arithmetic.
 ;;
 ;; Numbers are t09rs's and derived the same way: a square from (8,8) to
 ;; (40,40) covers rows 8..39, 32 by 32 pixels, at a constant 1/z of 1.0
@@ -95,9 +95,9 @@ tmain           proc    far public uses bx cx dx si di es
 
                 invoke  qglSfInit
 
-                ;; the renderer's shape: conventional destination, the
-                ;; two EMS objects on the slots qgl.inc gives them
-                invoke  qglSfNew, SFW, SFH, SURF_CMEM
+                ;; the renderer's three EMS surfaces: destination,
+                ;; texture and its attached depth buffer.
+                invoke  qglSfNew, SFW, SFH, SURF_EMS
                 SAVEP   dst
                 invoke  qglSfNew, 8, 8, SURF_EMS
                 SAVEP   tx

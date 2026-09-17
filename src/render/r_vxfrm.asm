@@ -177,7 +177,7 @@ vxfrm_cont:
 
                 push    es
                 les     bx, gv          ;; ES:BX -> gv, loaded ONCE
-                add     bx, 18          ;; GEOM_VTX0 (9 shorts) * 2
+                add     bx, 20          ;; GEOM_VTX0 (10 shorts) * 2
                 mov     si, m           ;; DS:SI -> m, ONCE, never reloaded
                 xor     dx, dx          ;; running output byte-offset
 

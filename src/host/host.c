@@ -605,23 +605,6 @@ static void near host_render_models( Host *h, RenderView *rv )
 #endif
 }
 
-/* Quake's bar, then the stats overlay that may cover its edge. Under
-   -comp host_present draws these onto the composite instead. */
-static void near host_render_overlay( Host *h )
-{
-#if QR_PROF
-    float t0 = sys_now( &h->sysclk );
-#endif
-    if ( !h->demo.camera && !h->v.comp && !menu_is_open( h->menu ) &&
-         h->fight.state != GS_EXIT && h->fight.state != GS_FINALE ) {
-        scr_draw_hud( &h->world, &h->rdr, &h->cam, &h->player, h->sc, h->hud,
-                      h->h_dst_dc, h->v.x_res, h->v.y_res );
-    }
-#if QR_PROF
-    pt_stop( h, t0, &h->pt.hud_sum, &h->pt.hud_max );
-#endif
-}
-
 /* One frame's drawing. Reads the world, changes none of it. */
 static void near host_render( Host *h )
 {
@@ -649,10 +632,8 @@ static void near host_render( Host *h )
     host_render_faces( h, &rv );
     host_render_models( h, &rv );
 
-    /* depth off for the overlay, which is 2D */
+    /* Leave the completed 3D target with depth writes disabled. */
     if ( h->z_dc != 0 ) qglSfZMode( h->h_dst_dc, QGL_Z_OFF );
-
-    host_render_overlay( h );
 }
 
 /* ------------------------------------------------------------------ */
@@ -683,7 +664,6 @@ static void near host_video( Host *h )
     v->scr_y_res  = h->cfg.scr_y_res;
     v->x_res      = h->cfg.x_res;
     v->y_res      = h->cfg.y_res;
-    v->comp       = h->args.comp;
     v->view_x     = h->cfg.view_x;
     v->view_y     = h->cfg.view_y;
     v->view_scale = h->cfg.view_scale;
@@ -824,7 +804,7 @@ static void near host_load_rest( Host *h, LoadScreen *ldr )
 
     ld_stage( ldr, vdc, h->hud, "surface cache" );
     h->sc = (SurfCache far *) qglMemAlloc( (long) sizeof(SurfCache) );
-    if ( !h->sc || !sc_init( h->sc, h->world.face_count ) ) {
+    if ( !h->sc || !sc_init( h->sc, h->world.faces, h->world.face_count ) ) {
         short step; long want;
         sc_fail( &step, &want );
         sprintf( buf, "sc_init FAILED step=%d want=%ld largest=%ld total=%ld",
@@ -1532,34 +1512,36 @@ static void near host_legacy_input( Host *h )
                    (short) ( h->args.fire || ( replay && input->mouse.left ) ) );
 }
 
-/* -comp: v_present has scaled the view into the composite and left the
-   screen alone, so the overlay goes onto the composite at the mode's
-   resolution and one blit carries it. A second pass over VRAM tears and
-   costs frames. */
+/* v_present scales the view into the permanent composite and leaves VGA
+   alone. The overlays complete that image before one final blit. */
 static void near host_present( Host *h )
 {
     Video *v = &h->v;
     QSurf target;
     short special, menu;
 #if QR_PROF
-    float t0 = sys_now( &h->sysclk );
+    float t0 = sys_now( &h->sysclk ), hud_t0;
 #endif
 
     special = (short) ( h->fight.state == GS_EXIT || h->fight.state == GS_FINALE );
     menu = menu_is_open( h->menu );
     v_present( v, h->h_dst_dc, 0, (short) ( !special && !menu ) );
-    target = v->comp ? v->h_comp_dc : v->h_video_dc;
+    target = v->h_comp_dc;
     if ( menu ) {
         menu_draw( h->menu, h->keys, h->cmd, h->rdr.anim_time,
                    target, v->scr_x_res, v->scr_y_res );
-        if ( v->comp ) qglDrBlit( v->h_video_dc, 0, 0, v->h_comp_dc );
+        qglDrBlit( v->h_video_dc, 0, 0, target );
         goto presented;
     }
-    if ( v->comp ) {
-        if ( !special )
-            scr_draw_hud( &h->world, &h->rdr, &h->cam, &h->player, h->sc, h->hud,
-                          target, v->scr_x_res, v->scr_y_res );
-    }
+#if QR_PROF
+    hud_t0 = sys_now( &h->sysclk );
+#endif
+    if ( !special )
+        scr_draw_hud( &h->world, &h->rdr, &h->cam, &h->player, h->sc, h->hud,
+                      target, v->scr_x_res, v->scr_y_res );
+#if QR_PROF
+    pt_stop( h, hud_t0, &h->pt.hud_sum, &h->pt.hud_max );
+#endif
     if ( h->fight.state == GS_EXIT )
         scr_sbar_intermission( &h->world, &h->fight, target, v->scr_x_res, v->scr_y_res );
     else {
@@ -1575,9 +1557,7 @@ static void near host_present( Host *h )
                            target, v->scr_x_res, v->scr_y_res );
     }
     con_draw( h->console, h->hud, target, v->scr_x_res, v->scr_y_res );
-    if ( v->comp ) {
-        qglDrBlit( v->h_video_dc, 0, 0, v->h_comp_dc );
-    }
+    qglDrBlit( v->h_video_dc, 0, 0, v->h_comp_dc );
 presented:
     ;
 #if QR_PROF
@@ -1754,10 +1734,7 @@ static void near host_map_finish( Host *h )
 
     demo_close( &h->demo, &h->args );
     host_report( h );
-    if ( v->comp )
-        scr_screenshot( "bench.bmp", v->h_comp_dc, v->scr_x_res, v->scr_y_res );
-    else
-        scr_screenshot( "bench.bmp", h->h_dst_dc, v->x_res, v->y_res );
+    scr_screenshot( "bench.bmp", v->h_comp_dc, v->scr_x_res, v->scr_y_res );
     mark( "scr_screenshot ok" );
     bench_write( &h->bs, &h->pt, &h->rdr, h->sc );
     if ( h->args.mdlsum ) mdl_report_sums( &h->world );

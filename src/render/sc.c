@@ -13,8 +13,7 @@
  *
  * DCs are pooled by size class and recycled rather than deleted,
  * because a miss should cost a build, not a qglNew. sc_flush hands
- * every DC back to its class and bumps the generation, which is what
- * makes every slot stale at once.
+ * every DC back to its class and clears every face's chain.
  *
  * Reclaim is keyed on a block's SIZE, not its class shape: 2^a * 2^b
  * is 2^(a+b), so a 4096-byte block serves (4,8), (5,7), (6,6), (7,5)
@@ -30,6 +29,81 @@
 #include <string.h>
 #include "sc.h"
 #include "qgl.h"
+
+#define SC_HINDEX_MASK 0x07FF
+#define SC_HSTATE_SHIFT 11
+#define SC_HSTATE_HIGH 0x8000
+#define SC_GRAN_MASK 0x3FFF
+#define SC_DYNAMIC 0x4000
+#define SC_OWNER_MASK 0x1FFF
+#define SC_MIP_SHIFT 13
+
+static short sc_hindex( unsigned short h )
+{
+    short b = (short) ( h & SC_HINDEX_MASK );
+    return b == SC_NULL_INDEX ? -1 : b;
+}
+
+static short sc_hstate( SurfCache far *sc, unsigned short h )
+{
+    short b = sc_hindex( h );
+    return (short) ( ( h >> SC_HSTATE_SHIFT ) |
+                     ( ( sc->bown[b] & SC_HSTATE_HIGH ) ? 32 : 0 ) );
+}
+
+static unsigned short sc_handle( SurfCache far *sc, short b, short state )
+{
+    sc->bown[b] = (unsigned short) ( ( sc->bown[b] & ~SC_HSTATE_HIGH ) |
+                                     ( ( state & 32 ) ? SC_HSTATE_HIGH : 0 ) );
+    return (unsigned short) ( ( ( state & 31 ) << SC_HSTATE_SHIFT ) | b );
+}
+
+static short sc_owner( SurfCache far *sc, short b )
+{
+    return sc->bown[b] == 0xFFFF ? -1 : (short) ( sc->bown[b] & SC_OWNER_MASK );
+}
+
+static short sc_mip( SurfCache far *sc, short b )
+{
+    return (short) ( ( sc->bown[b] >> SC_MIP_SHIFT ) & 3 );
+}
+
+static void sc_set_owner( SurfCache far *sc, short b, short face, short mip )
+{
+    sc->bown[b] = (unsigned short) ( face | ( mip << SC_MIP_SHIFT ) );
+}
+
+static short sc_gran( SurfCache far *sc, short b )
+{
+    return (short) ( sc->bgrn[b] & SC_GRAN_MASK );
+}
+
+static short sc_next_get( SurfCache far *sc, short b )
+{
+    short bit = (short) ( b * 3 );
+    short off = (short) ( bit >> 3 );
+    short shift = (short) ( bit & 7 );
+    unsigned short hi = (unsigned short) sc->bnext[SC_NBLK + off]
+                      | ( (unsigned short) sc->bnext[SC_NBLK + off + 1] << 8 );
+    unsigned short v = (unsigned short) sc->bnext[b]
+                     | (unsigned short) ( ( ( hi >> shift ) & 7 ) << 8 );
+    return v == SC_NULL_INDEX ? -1 : (short) v;
+}
+
+static void sc_next_set( SurfCache far *sc, short b, short next )
+{
+    short bit = (short) ( b * 3 );
+    short off = (short) ( bit >> 3 );
+    short shift = (short) ( bit & 7 );
+    unsigned short mask = (unsigned short) ( 7 << shift );
+    unsigned short hi = (unsigned short) sc->bnext[SC_NBLK + off]
+                      | ( (unsigned short) sc->bnext[SC_NBLK + off + 1] << 8 );
+    unsigned short n = next < 0 ? SC_NULL_INDEX : (unsigned short) next;
+    sc->bnext[b] = (unsigned char) n;
+    hi = (unsigned short) ( ( hi & ~mask ) | ( ( ( n >> 8 ) << shift ) & mask ) );
+    sc->bnext[SC_NBLK + off] = (unsigned char) hi;
+    sc->bnext[SC_NBLK + off + 1] = (unsigned char) ( hi >> 8 );
+}
 
 /* Smallest power-of-two shift that covers v, clamped to the classes
    the filler can address. */
@@ -63,7 +137,7 @@ static short sc_brec( SurfCache far *sc )
 
     if ( sc->rfree >= 0 ) {
         b = sc->rfree;
-        sc->rfree = sc->bnext[b];
+        sc->rfree = sc_next_get( sc, b );
         return b;
     }
     if ( sc->bcnt < SC_NBLK ) return sc->bcnt++;
@@ -72,7 +146,7 @@ static short sc_brec( SurfCache far *sc )
 
 static void sc_bput( SurfCache far *sc, short b )
 {
-    sc->bnext[b] = sc->rfree;
+    sc_next_set( sc, b, sc->rfree );
     sc->rfree = b;
 }
 
@@ -80,17 +154,17 @@ static void sc_bput( SurfCache far *sc, short b )
    pulls out one specific granule rather than the head -- that is how
    a merge finds its buddy, and the lists are short enough that a walk
    costs nothing. */
-static void sc_fpush( SurfCache far *sc, short b )
+static void sc_fpush( SurfCache far *sc, short b, short ord )
 {
-    sc->bown[b] = -1;
-    sc->bnext[b] = sc->fhead[ sc->bord[b] ];
-    sc->fhead[ sc->bord[b] ] = b;
+    sc->bown[b] = 0xFFFF;
+    sc_next_set( sc, b, sc->fhead[ord] );
+    sc->fhead[ord] = b;
 }
 
 static short sc_fpop( SurfCache far *sc, short ord )
 {
     short b = sc->fhead[ord];
-    if ( b >= 0 ) sc->fhead[ord] = sc->bnext[b];
+    if ( b >= 0 ) sc->fhead[ord] = sc_next_get( sc, b );
     return b;
 }
 
@@ -99,13 +173,13 @@ static short sc_ftake( SurfCache far *sc, short ord, short gran )
     short b = sc->fhead[ord], p = -1;
 
     while ( b >= 0 ) {
-        if ( sc->bgrn[b] == gran ) {
-            if ( p >= 0 ) sc->bnext[p] = sc->bnext[b];
-            else          sc->fhead[ord] = sc->bnext[b];
+        if ( sc_gran( sc, b ) == gran ) {
+            if ( p >= 0 ) sc_next_set( sc, p, sc_next_get( sc, b ) );
+            else          sc->fhead[ord] = sc_next_get( sc, b );
             return b;
         }
         p = b;
-        b = sc->bnext[b];
+        b = sc_next_get( sc, b );
     }
     return -1;
 }
@@ -117,30 +191,28 @@ static short sc_ftake( SurfCache far *sc, short ord, short gran )
  * bit -- and the merged block keeps the lower address, which is what
  * keeps it aligned to its new, larger size.
  */
-static void sc_bfree( SurfCache far *sc, short blk )
+static void sc_bfree( SurfCache far *sc, short blk, short ord )
 {
-    short b = blk, bud, ord, g;
+    short b = blk, bud, g;
 
-    sc->bown[b] = -1;
-    ord = sc->bord[b];
+    sc->bown[b] = 0xFFFF;
 
     while ( ord < SC_NORD - 1 ) {
-        g = sc->bgrn[b] ^ (short) (1 << ord);
+        g = sc_gran( sc, b ) ^ (short) (1 << ord);
         bud = sc_ftake( sc, ord, g );
         if ( bud < 0 ) break;
 
         /* the merged block is the lower of the two, one order bigger,
            which is what keeps it aligned to its new size */
-        if ( sc->bgrn[bud] < sc->bgrn[b] ) {
+        if ( sc_gran( sc, bud ) < sc_gran( sc, b ) ) {
             sc_bput( sc, b );
             b = bud;
         } else {
             sc_bput( sc, bud );
         }
         ord++;
-        sc->bord[b] = ord;
     }
-    sc_fpush( sc, b );
+    sc_fpush( sc, b, ord );
 }
 
 /* A free block of exactly this order, made by halving a bigger one
@@ -154,16 +226,15 @@ static short sc_bsplit( SurfCache far *sc, short ord )
         b = sc_fpop( sc, j );
         if ( b < 0 ) continue;
 
-        while ( sc->bord[b] > ord ) {
+        while ( j > ord ) {
             h = sc_brec( sc );
             if ( h < 0 ) {   /* no record to hold the half */
-                sc_fpush( sc, b );
+                sc_fpush( sc, b, j );
                 return -1;
             }
-            sc->bord[b]--;
-            sc->bgrn[h] = sc->bgrn[b] + (short) (1 << sc->bord[b]);
-            sc->bord[h] = sc->bord[b];
-            sc_fpush( sc, h );
+            j--;
+            sc->bgrn[h] = (unsigned short) ( sc_gran( sc, b ) + (short) (1 << j) );
+            sc_fpush( sc, h, j );
         }
         return b;
     }
@@ -202,78 +273,67 @@ static short sc_bget( SurfCache far *sc, short bord, long sz )
         sc_bput( sc, blk );
         return -1;
     }
-    sc->bgrn[blk] = (short) ( ofs / SC_GRAN );
-    sc->bord[blk] = bord;
+    sc->bgrn[blk] = (unsigned short) ( ofs / SC_GRAN );
     return blk;
 }
 
-/* The LRU list is singly linked. Unlink walks one class rather than
+/* The FIFO list is singly linked. Unlink walks one class rather than
    spending 2 KB of scarce conventional memory on reverse links. */
-static void sc_lru_unlink( SurfCache far *sc, short b )
+static void sc_lru_unlink( SurfCache far *sc, short b, short ord )
 {
-    short c, p, n;
+    short p, n;
 
     if ( b < 0 ) return;
-    c = sc->bord[b];
     p = -1;
-    for ( n = sc->lhead[c]; n >= 0 && n != b; n = sc->bnext[n] ) p = n;
+    for ( n = sc->lhead[ord]; n >= 0 && n != b; n = sc_next_get( sc, n ) ) p = n;
     if ( n < 0 ) return;
-    n = sc->bnext[b];
-    if ( p >= 0 ) sc->bnext[p] = n; else sc->lhead[c] = n;
-    if ( n < 0 ) sc->ltail[c] = p;
-    sc->bnext[b] = -1;
+    n = sc_next_get( sc, b );
+    if ( p >= 0 ) sc_next_set( sc, p, n ); else sc->lhead[ord] = n;
+    if ( n < 0 ) sc->ltail[ord] = p;
+    sc_next_set( sc, b, -1 );
 }
 
-/* A use: the stamp, and the class list if the block is not on it yet.
-   Moving a block to the list's end on every hit was ~115 instructions a
-   drawn face; a hit in sc_find writes the stamp alone. */
-static void sc_lru_use( SurfCache far *sc, short b )
+/* Owned blocks are FIFO within each size. Hits do no bookkeeping. */
+static void sc_lru_use( SurfCache far *sc, short b, short ord )
 {
-    short c, t;
+    short t;
 
     if ( b < 0 ) return;
-    sc->bstamp[b] = ++sc->clock;
-    c = sc->bord[b];
-    for ( t = sc->lhead[c]; t >= 0; t = sc->bnext[t] )
+    for ( t = sc->lhead[ord]; t >= 0; t = sc_next_get( sc, t ) )
         if ( t == b ) return;
-    t = sc->ltail[c];
-    sc->bnext[b] = -1;
-    if ( t >= 0 ) sc->bnext[t] = b; else sc->lhead[c] = b;
-    sc->ltail[c] = b;
+    t = sc->ltail[ord];
+    sc_next_set( sc, b, -1 );
+    if ( t >= 0 ) sc_next_set( sc, t, b ); else sc->lhead[ord] = b;
+    sc->ltail[ord] = b;
 }
 
-/* The least recently used owned block of an order. Stamps rise by one a
-   use, so the smallest is the block a list reordered on every use would
-   hold at its head. Only eviction walks it. */
 static short sc_lru_oldest( SurfCache far *sc, short ord )
 {
-    short b, best = -1;
-    long  low = 0;
-
-    for ( b = sc->lhead[ord]; b >= 0; b = sc->bnext[b] )
-        if ( best < 0 || sc->bstamp[b] < low ) { best = b; low = sc->bstamp[b]; }
-    return best;
+    return sc->lhead[ord];
 }
 
 /* A face's own blocks, most recently used first, linked through bsib
-   from slot[face].blk. Every eviction goes through sc_chain_drop: the
+   from Face.cache. Every eviction goes through sc_chain_drop: the
    face keeps its other surfaces. */
 static void sc_chain_drop( SurfCache far *sc, short face, short b )
 {
-    short p = -1, k = sc->slot[face].blk;
+    unsigned short h = sc->faces[face].cache, p = SC_NULL_HANDLE;
+    short k = sc_hindex( h );
 
-    while ( k >= 0 && k != b ) { p = k; k = sc->bsib[k]; }
+    while ( k >= 0 && k != b ) { p = h; h = sc->bsib[k]; k = sc_hindex( h ); }
     if ( k < 0 ) return;
-    if ( p >= 0 ) sc->bsib[p] = sc->bsib[k]; else sc->slot[face].blk = sc->bsib[k];
-    sc->bsib[k] = -1;
+    if ( sc_hindex( p ) >= 0 ) sc->bsib[ sc_hindex( p ) ] = sc->bsib[k];
+    else sc->faces[face].cache = sc->bsib[k];
+    sc->bsib[k] = SC_NULL_HANDLE;
 }
 
-static void sc_chain_front( SurfCache far *sc, short face, short b )
+static void sc_chain_front( SurfCache far *sc, short face, unsigned short h )
 {
-    if ( sc->slot[face].blk == b ) return;
+    short b = sc_hindex( h );
+    if ( sc->faces[face].cache == h ) return;
     sc_chain_drop( sc, face, b );
-    sc->bsib[b] = sc->slot[face].blk;
-    sc->slot[face].blk = b;
+    sc->bsib[b] = sc->faces[face].cache;
+    sc->faces[face].cache = h;
 }
 
 static void sc_reset_lists( SurfCache far *sc )
@@ -287,7 +347,7 @@ static void sc_reset_lists( SurfCache far *sc )
     sc->rfree = -1;
 }
 
-static short sc_why  = 0;   /* the allocation sc_init stopped on, 1..9 */
+static short sc_why  = 0;   /* the allocation sc_init stopped on, 1..4 */
 static long  sc_want = 0;   /* and the bytes it asked that one for */
 
 void sc_fail( short *step, long *want )
@@ -296,19 +356,15 @@ void sc_fail( short *step, long *want )
     *want = sc_want;
 }
 
-short sc_init( SurfCache far *sc, short face_count )
+short sc_init( SurfCache far *sc, Face far *faces, short face_count )
 {
     short i;
 
-    /* Both callers hand in qglMemAlloc's uncleared bytes, and a pointer
-       a refused allocation below never reached passed the null test. */
-    sc->slot = 0; sc->bgrn = 0; sc->bord = 0; sc->bown = 0;
-    sc->bnext = 0; sc->btag = 0; sc->bstag = 0; sc->bsib = 0; sc->bstamp = 0;
+    sc->faces = faces;
+    sc->bgrn = 0; sc->bown = 0; sc->bnext = 0; sc->bsib = 0;
     sc->desc = 0;
     sc->hnd = 0;
-    sc->clock = 0;
 
-    sc->gen = 1;
     sc->flushes = 0;
     sc->peak    = 0;
     sc->made    = 0;
@@ -321,43 +377,22 @@ short sc_init( SurfCache far *sc, short face_count )
     sc->dlit    = 0;
     sc->nofresh = 0;
 
-    /* Which one failed and what it asked for. A silent 0 return read as
-       "e1m1 has 5,516 faces of CacheSlot and that is too much" for a
-       long time, which is a story: nothing had ever printed the size
-       it wanted or the memory there was. */
-    sc_want = (long) face_count * (long) sizeof(CacheSlot);
-    sc_why  = 1;
-    sc->slot = (CacheSlot far *) qglMemAlloc( sc_want );
-    if ( sc->slot ) {
-        for ( i = 0; i < 8; i++ ) {
-            short far *b;
-            sc_want = (long) SC_NBLK * (long) ( i == 5 || i == 7 ? sizeof(long) : sizeof(short) );
-            b = (short far *) qglMemAlloc( sc_want );
-            sc_why = (short) ( 2 + i );
-            if ( !b ) break;
-            switch ( i ) {
-                case 0: sc->bgrn  = b; break;
-                case 1: sc->bord  = b; break;
-                case 2: sc->bown  = b; break;
-                case 3: sc->bnext = b; break;
-                case 4: sc->btag  = b; break;
-                case 5: sc->bstag = (long far *) b; break;
-                case 6: sc->bsib = b; break;
-                default: sc->bstamp = (long far *) b; break;
-            }
-        }
-    }
-    if ( !sc->slot || !sc->bgrn || !sc->bord || !sc->bown || !sc->bnext ||
-         !sc->btag || !sc->bstag || !sc->bsib || !sc->bstamp ) {
-        sc_shutdown( sc );   /* what did allocate goes back */
-        return 0;
-    }
+    sc_want = (long) SC_NBLK * sizeof(unsigned short);
+    sc_why = 1; sc->bgrn = (unsigned short far *) qglMemAlloc( sc_want );
+    if ( !sc->bgrn ) { sc_shutdown( sc ); return 0; }
+    sc_why = 2; sc->bown = (unsigned short far *) qglMemAlloc( sc_want );
+    if ( !sc->bown ) { sc_shutdown( sc ); return 0; }
+    sc_why = 3; sc->bsib = (unsigned short far *) qglMemAlloc( sc_want );
+    if ( !sc->bsib ) { sc_shutdown( sc ); return 0; }
+    sc_want = SC_NEXT_BYTES;
+    sc_why = 4; sc->bnext = (unsigned char far *) qglMemAlloc( sc_want );
+    if ( !sc->bnext ) { sc_shutdown( sc ); return 0; }
     sc_why = 0;
 
     sc->desc = 0;
     sc_reset_lists( sc );
     sc->bcnt = 0;
-    for ( i = 0; i < face_count; i++ ) sc->slot[i].blk = -1;
+    for ( i = 0; i < face_count; i++ ) sc->faces[i].cache = SC_NULL_HANDLE;
 
     sc->hnd  = 0;
     sc->next = 0;
@@ -398,18 +433,15 @@ void sc_reset( SurfCache far *sc, short face_count )
     short i;
 
     for ( i = 0; i < face_count; i++ ) {
-        sc->slot[i].blk = -1;
+        sc->faces[i].cache = SC_NULL_HANDLE;
     }
     sc_reset_lists( sc );
     sc->bcnt = 0;
     sc->next = 0;
-    sc->gen  = 1;
 }
 
 void sc_shutdown( SurfCache far *sc )
 {
-    short i;
-
     /* views first: they borrow the store's pixels, so the store
        outlives them */
     if ( sc->desc != 0 ) qglDelView( sc->desc );
@@ -420,18 +452,13 @@ void sc_shutdown( SurfCache far *sc )
     sc->next = 0;
     sc->ok   = 0;
 
-    if ( sc->slot )  qglMemFree( (long) (void far *) sc->slot );
     if ( sc->bgrn )  qglMemFree( (long) (void far *) sc->bgrn );
-    if ( sc->bord )  qglMemFree( (long) (void far *) sc->bord );
     if ( sc->bown )  qglMemFree( (long) (void far *) sc->bown );
     if ( sc->bnext ) qglMemFree( (long) (void far *) sc->bnext );
-    if ( sc->btag )  qglMemFree( (long) (void far *) sc->btag );
-    if ( sc->bstag ) qglMemFree( (long) (void far *) sc->bstag );
     if ( sc->bsib )  qglMemFree( (long) (void far *) sc->bsib );
-    if ( sc->bstamp ) qglMemFree( (long) (void far *) sc->bstamp );
-    sc->slot = 0; sc->bgrn = 0; sc->bord = 0;
+    sc->faces = 0; sc->bgrn = 0;
     sc->bown = 0; sc->bnext = 0;
-    sc->btag = 0; sc->bstag = 0; sc->bsib = 0; sc->bstamp = 0;
+    sc->bsib = 0;
 }
 
 void sc_flush( SurfCache far *sc, short face_count )
@@ -439,31 +466,27 @@ void sc_flush( SurfCache far *sc, short face_count )
     short i;
 
     sc->next = 0;
-    sc->gen++;
-    if ( sc->gen > 16000 ) sc->gen = 1;
     sc->flushes++;
     /* a flush is a mass eviction: every surface in the store at once */
     sc->evict += sc->live;
     sc->live = 0;
 
     sc_reset_lists( sc );
-    for ( i = 0; i < face_count; i++ ) sc->slot[i].blk = -1;
+    for ( i = 0; i < face_count; i++ ) sc->faces[i].cache = SC_NULL_HANDLE;
     sc->bcnt = 0;
 }
 
-QSurf sc_find( SurfCache far *sc, short face, short mip, short w, short h, long stag, long *aim_ofs )
+QSurf sc_find( SurfCache far *sc, short face, short mip, short w, short h, short state, long *aim_ofs )
 {
-    short far *btag = sc->btag, far *bsib = sc->bsib;
-    long  far *bstag = sc->bstag;
     QSurf dc;
-    short a, b, blk, tag;
+    unsigned short hnd;
+    short a, b, blk;
 
-    if ( !sc->ok ) return 0;
-    /* A tag match says the mip and generation are right; stag is the
-       separate axis, the light the block was built under. */
-    tag = (short) ( sc->gen * 4 + mip );
-    for ( blk = sc->slot[face].blk; blk >= 0; blk = bsib[blk] )
-        if ( btag[blk] == tag && bstag[blk] == stag ) break;
+    if ( !sc->ok || state < 0 ) return 0;
+    hnd = sc->faces[face].cache;
+    for ( blk = sc_hindex( hnd ); blk >= 0; hnd = sc->bsib[blk], blk = sc_hindex( hnd ) )
+        if ( sc_mip( sc, blk ) == mip && !( sc->bgrn[blk] & SC_DYNAMIC ) &&
+             sc_hstate( sc, hnd ) == state ) break;
     if ( blk < 0 ) return 0;
 
     /* The view is the CURRENT mip's shape, which is not the block's: a
@@ -480,23 +503,23 @@ QSurf sc_find( SurfCache far *sc, short face, short mip, short w, short h, long 
                           (short) (1 << a) ) ) return 0;
     /* bgrn * SC_GRAN without the long-multiply helper: bgrn is under
        16384, so the long is two 16-bit halves of it. */
-    ((unsigned short *) aim_ofs)[0] = (unsigned short) sc->bgrn[blk] << SC_MINORD;
-    ((unsigned short *) aim_ofs)[1] = (unsigned short) ( sc->bgrn[blk] >> ( 16 - SC_MINORD ) );
+    ((unsigned short *) aim_ofs)[0] = (unsigned short) sc_gran( sc, blk ) << SC_MINORD;
+    ((unsigned short *) aim_ofs)[1] = (unsigned short) ( sc_gran( sc, blk ) >> ( 16 - SC_MINORD ) );
     /* Row 0 only: a hit is drawn, never built into, and the texture
        fetch reads nothing past row 0. sc_alloc aims every row. */
     if ( !qglAimView( dc, *aim_ofs ) ) return 0;
     sc->hits++;
-    sc->bstamp[blk] = ++sc->clock;   /* a use, already on its list */
-    if ( sc->slot[face].blk != blk ) sc_chain_front( sc, face, blk );
+    if ( sc->faces[face].cache != hnd ) sc_chain_front( sc, face, hnd );
     return dc;
 }
 
 QSurf sc_alloc( SurfCache far *sc, short face, short mip, short w, short h, short fw, short fh,
-              long stag, short face_count, long *aim_ofs )
+              short state, short face_count, long *aim_ofs )
 {
     short a, b, bord;
     QSurf dc;
-    short vic, blk, j, b2, k, last, n, tag, fresh;
+    unsigned short hnd, newh;
+    short vic, blk, j, b2, k, last, n, fresh;
     long ofs, sz;
 
     (void) fw; (void) fh;   /* kept in the signature for a future
@@ -538,17 +561,18 @@ QSurf sc_alloc( SurfCache far *sc, short face, short mip, short w, short h, shor
        holding this key (a find that missed on it wanted a bigger class),
        one a dynamic light built (its key never comes back), or the least
        recently used after SC_VARIANTS light keys. Other mips stay resident. */
-    tag  = (short) ( sc->gen * 4 + mip );
     blk  = -1;
     last = -1;
     n    = 0;
-    for ( k = sc->slot[face].blk; k >= 0; k = sc->bsib[k] ) {
-        if ( sc->btag[k] != tag ) continue;
-        if ( blk < 0 && ( sc->bstag[k] < 0 || sc->bstag[k] == stag ) ) blk = k;
+    hnd = sc->faces[face].cache;
+    for ( k = sc_hindex( hnd ); k >= 0; hnd = sc->bsib[k], k = sc_hindex( hnd ) ) {
+        if ( sc_mip( sc, k ) != mip ) continue;
+        if ( blk < 0 && ( ( sc->bgrn[k] & SC_DYNAMIC ) ||
+                          ( state >= 0 && sc_hstate( sc, hnd ) == state ) ) ) blk = k;
         last = k;
         n++;
     }
-    if ( blk < 0 && ( stag < 0 || n >= SC_VARIANTS ) ) blk = last;
+    if ( blk < 0 && ( state < 0 || n >= SC_VARIANTS ) ) blk = last;
     fresh = -1;
     if ( blk < 0 && last >= 0 ) {
         /* Another surface for the face, but only out of free store:
@@ -558,32 +582,22 @@ QSurf sc_alloc( SurfCache far *sc, short face, short mip, short w, short h, shor
         if ( fresh < 0 ) { blk = last; sc->nofresh++; }
     }
 
-    if ( fresh < 0 && blk >= 0 && sc->bord[blk] >= bord ) {
-        /* big enough -- a coarser mip just uses less of it, and not
-           shrinking avoids churn every step */
-        sc_chain_front( sc, face, blk );
+    if ( fresh < 0 && blk >= 0 ) {
+        newh = sc_handle( sc, blk, state < 0 ? 0 : state );
+        sc_chain_front( sc, face, newh );
     } else {
-        if ( blk >= 0 ) {
-            /* growing: the old block goes back for someone else --
-               the leak the bump allocator never plugged */
-            sc_lru_unlink( sc, blk );
-            sc_chain_drop( sc, face, blk );
-            sc_bfree( sc, blk );
-            sc->live--;
-        }
-
         /* Then an eviction, and only as the very last thing, giving up. */
         blk = fresh >= 0 ? fresh : sc_bget( sc, bord, sz );
-        if ( blk < 0 ) {                               /* evict LRU of this size */
+        if ( blk < 0 ) {                               /* evict FIFO of this size */
             blk = sc_lru_oldest( sc, bord );
             if ( blk >= 0 ) {
-                vic = sc->bown[blk];
+                vic = sc_owner( sc, blk );
                 if ( vic >= 0 ) {
                     sc_chain_drop( sc, vic, blk );
                     sc->live--;
                     sc->evict++;
                 }
-                sc_lru_unlink( sc, blk );
+                sc_lru_unlink( sc, blk, bord );
             }
         }
         if ( blk < 0 ) {
@@ -593,14 +607,14 @@ QSurf sc_alloc( SurfCache far *sc, short face, short mip, short w, short h, shor
             for ( j = bord + 1; j < SC_NORD; j++ ) {
                 vic = sc_lru_oldest( sc, j );
                 if ( vic < 0 ) continue;
-                b2 = sc->bown[vic];
+                b2 = sc_owner( sc, vic );
                 if ( b2 >= 0 ) {
                     sc_chain_drop( sc, b2, vic );
                     sc->live--;
                     sc->evict++;
                 }
-                sc_lru_unlink( sc, vic );
-                sc_bfree( sc, vic );
+                sc_lru_unlink( sc, vic, j );
+                sc_bfree( sc, vic, j );
                 blk = sc_bsplit( sc, bord );
                 if ( blk >= 0 ) break;
             }
@@ -611,24 +625,24 @@ QSurf sc_alloc( SurfCache far *sc, short face, short mip, short w, short h, shor
             return 0;
         }
 
-        sc->bown[blk]  = face;
-        sc->bnext[blk] = -1;
-        sc->bsib[blk]  = sc->slot[face].blk;
-        sc->slot[face].blk = blk;
+        sc_set_owner( sc, blk, face, mip );
+        sc_next_set( sc, blk, -1 );
+        newh = sc_handle( sc, blk, state < 0 ? 0 : state );
+        sc->bsib[blk] = sc->faces[face].cache;
+        sc->faces[face].cache = newh;
         sc->live++;
     }
-    ofs = (long) sc->bgrn[blk] * SC_GRAN;
+    sc->bgrn[blk] = (unsigned short) ( sc_gran( sc, blk ) | ( state < 0 ? SC_DYNAMIC : 0 ) );
+    ofs = (long) sc_gran( sc, blk ) * SC_GRAN;
     if ( sc->next > sc->peak ) sc->peak = sc->next;
 
-    sc->btag[blk]  = tag;
-    sc->bstag[blk] = stag;
-    sc_lru_use( sc, blk );
+    sc_lru_use( sc, blk, bord );
 
     /* aim it at the bytes just claimed, ready for the builder to write;
        unaimed, nothing is built, so the block must not read as built */
     *aim_ofs = ofs;
     if ( !qglSetView( dc, ofs ) ) {
-        sc->btag[blk] = -1;
+        sc->bgrn[blk] |= SC_DYNAMIC;
         return 0;
     }
 
@@ -637,8 +651,9 @@ QSurf sc_alloc( SurfCache far *sc, short face, short mip, short w, short h, shor
 
 void sc_forget( SurfCache far *sc, short face )
 {
-    /* -1 is no tag: gen tops out at 16000, so gen*4+mip never wraps there */
-    if ( sc->ok && sc->slot[face].blk >= 0 ) sc->btag[ sc->slot[face].blk ] = -1;
+    short blk;
+    if ( sc->ok && ( blk = sc_hindex( sc->faces[face].cache ) ) >= 0 )
+        sc->bgrn[blk] |= SC_DYNAMIC;
 }
 
 void sc_stats( SurfCache far *sc, CacheStats *s )
@@ -696,11 +711,9 @@ void sc_note_dlit( SurfCache far *sc )
  * desc: Proves the pool behaves: sizes round up to the class the
  *       filler needs, a recycled DC comes back rather than a new one,
  *       distinct faces get distinct surfaces, a flush retires every
- *       slot, and bytes written to a cached DC read back -- then the
- *       LRU itself (reuse happens, a HIT changes who gets evicted,
- *       eviction takes exactly one surface), the buddy allocator's
- *       merge and split, and finally that a light-style change forces
- *       a rebuild even when the mip and generation still match.
+ *       chain, and bytes written to a cached DC read back -- then FIFO
+ *       reuse, single-surface eviction, buddy merge/split, and finally
+ *       that a light-state change forces a rebuild.
  *
  *       10 faces (indices 0, 1, 2, 5 and 9 are used below) is the
  *       throwaway world this runs against -- never the caller's.
@@ -708,7 +721,7 @@ void sc_note_dlit( SurfCache far *sc )
 static short sc_selftest_run( SurfCache far *sc )
 {
     QSurf d0, d1, d2;
-    short gen0, made0;
+    short made0;
     unsigned char wr[32], rd[32];
     long ofs0, live0, flush0, next0;
     long aim;
@@ -735,7 +748,7 @@ static short sc_selftest_run( SurfCache far *sc )
     /* both round to 128x128, so they share a view and differ only in
        where it points -- the whole point of the store */
     if ( d0 != d1 ) return -18;
-    if ( sc->slot[0].blk == sc->slot[1].blk ) return -21;
+    if ( sc_hindex( sc->faces[0].cache ) == sc_hindex( sc->faces[1].cache ) ) return -21;
     if ( sc->hnd == 0 ) return -22;
 
     /* and the floor it implies: 224 needs mip 1, 112 does not */
@@ -743,19 +756,20 @@ static short sc_selftest_run( SurfCache far *sc )
     if ( sc_mipfloor( 112, 112 ) != 0 ) return -20;
 
     if ( sc_find( sc, 0, 0, 112, 112, 0, &aim ) != d0 ) return -9;
-    if ( aim != (long) sc->bgrn[sc->slot[0].blk] * SC_GRAN ) return -91;
+    if ( aim != (long) sc_gran( sc, sc_hindex( sc->faces[0].cache ) ) * SC_GRAN ) return -91;
     {   /* a granule past 255 reaches the offset's high word */
-        short keep = sc->bgrn[sc->slot[0].blk];
-        sc->bgrn[sc->slot[0].blk] = 300;
+        short hb = sc_hindex( sc->faces[0].cache );
+        short keep = sc->bgrn[hb];
+        sc->bgrn[hb] = 300;
         if ( sc_find( sc, 0, 0, 112, 112, 0, &aim ) != d0 || aim != 300L * SC_GRAN ) return -92;
-        sc->bgrn[sc->slot[0].blk] = keep;
+        sc->bgrn[hb] = keep;
     }
     if ( sc_find( sc, 1, 0, 112, 96,  0, &aim ) != d1 ) return -10;
     if ( sc_find( sc, 1, 1, 112, 96,  0, &aim ) != 0 )  return -11;
 
     /* a write into the last row of the largest class, the 16K page edge.
        sc_find aims row 0 alone, so every row is aimed here first. */
-    if ( !qglSetView( d0, (long) sc->bgrn[sc->slot[0].blk] * SC_GRAN ) ) return -85;
+    if ( !qglSetView( d0, (long) sc_gran( sc, sc_hindex( sc->faces[0].cache ) ) * SC_GRAN ) ) return -85;
     for ( i = 0; i < 32; i++ ) { wr[i] = (unsigned char) ((i * 7 + 3) & 255); rd[i] = 0; }
     /* through a far cast: (long) on a near array drops DS, and the row
        went to and from segment 0 */
@@ -764,21 +778,19 @@ static short sc_selftest_run( SurfCache far *sc )
     for ( i = 0; i < 32; i++ ) if ( rd[i] != wr[i] ) return -12;
 
     /* a flush must retire the slots and hand the DCs back, not make more */
-    gen0  = sc->gen;
     made0 = sc->made;
     sc_flush( sc, 10 );
-    if ( sc->gen == gen0 ) return -13;
     if ( sc_find( sc, 0, 0, 112, 112, 0, &aim ) != 0 ) return -14;
 
     /* a flush rewinds the store and makes no new view */
     d2 = sc_alloc( sc, 5, 0, 112, 112, 112, 112, 0, 10, &aim );
     if ( d2 != d0 ) return -15;
     if ( sc->made != made0 ) return -16;
-    if ( sc->slot[5].blk < 0 ) return -23;
-    if ( sc->bgrn[ sc->slot[5].blk ] != 0 ) return -33;
+    if ( sc_hindex( sc->faces[5].cache ) < 0 ) return -23;
+    if ( sc_gran( sc, sc_hindex( sc->faces[5].cache ) ) != 0 ) return -33;
 
     /*
-     * ---- the LRU itself ------------------------------------------
+     * ---- FIFO reuse ----------------------------------------------
      * Everything above would pass just as well with the bump-and-flush
      * this replaced, so prove the part that is actually new: that
      * reuse happens, that a HIT changes who gets evicted, and that
@@ -792,21 +804,16 @@ static short sc_selftest_run( SurfCache far *sc )
     d2 = sc_alloc( sc, 2, 0, 112, 112, 112, 112, 0, 10, &aim );
     if ( d0 == 0 || d1 == 0 || d2 == 0 ) return -24;
     if ( sc->bcnt != 3 ) return (short) -(2000 + sc->bcnt);
-    if ( sc->slot[0].blk < 0 ) return -2999;
-    if ( sc->slot[0].blk == sc->slot[1].blk ) return -25;
-    if ( sc->slot[1].blk == sc->slot[2].blk ) return -26;
+    if ( sc_hindex( sc->faces[0].cache ) < 0 ) return -2999;
+    if ( sc_hindex( sc->faces[0].cache ) == sc_hindex( sc->faces[1].cache ) ) return -25;
+    if ( sc_hindex( sc->faces[1].cache ) == sc_hindex( sc->faces[2].cache ) ) return -26;
 
-    /* face 0 is the oldest, so touching it must make face 1 the victim */
+    /* FIFO deliberately does no work on a hit: face 0 remains the victim. */
     if ( sc_find( sc, 0, 0, 112, 112, 0, &aim ) == 0 ) return -27;
     {
-        short ord = sc->bord[ sc->slot[0].blk ];
+        short ord = SC_SHIFT( 112 ) * 2 - SC_MINORD;
         if ( sc_lru_oldest( sc, ord ) < 0 ) return -28;
-        if ( sc->bown[ sc_lru_oldest( sc, ord ) ] != 1 )
-            return (short) -(4000 + sc->bown[ sc_lru_oldest( sc, ord ) ]);
-        /* each hit hands the victim on; the last puts face 1 back first */
-        if ( !sc_find( sc, 1, 0, 112, 112, 0, &aim ) || sc->bown[ sc_lru_oldest( sc, ord ) ] != 2 ) return -93;
-        if ( !sc_find( sc, 2, 0, 112, 112, 0, &aim ) || sc->bown[ sc_lru_oldest( sc, ord ) ] != 0 ) return -94;
-        if ( !sc_find( sc, 0, 0, 112, 112, 0, &aim ) || sc->bown[ sc_lru_oldest( sc, ord ) ] != 1 ) return -95;
+        if ( sc_owner( sc, sc_lru_oldest( sc, ord ) ) != 0 ) return -93;
 
         /* The victim is the middle link in insertion order, which is
            the case the singly-linked unlink has to walk to reach. */
@@ -814,19 +821,21 @@ static short sc_selftest_run( SurfCache far *sc )
         sc->cap = sc->next;
         built = sc_alloc( sc, 3, 0, 112, 112, 112, 112, 0, 10, &aim ) != 0;
         sc->cap = next0;
-        if ( !built || sc_find( sc, 1, 0, 112, 112, 0, &aim ) != 0 ) return -101;
-        if ( !sc_find( sc, 0, 0, 112, 112, 0, &aim ) ) return -102;
+        if ( !built || sc_find( sc, 0, 0, 112, 112, 0, &aim ) != 0 ) return -101;
+        if ( !sc_find( sc, 1, 0, 112, 112, 0, &aim ) ) return -102;
         if ( !sc_find( sc, 2, 0, 112, 112, 0, &aim ) ) return -103;
         if ( !sc_find( sc, 3, 0, 112, 112, 0, &aim ) ) return -104;
     }
 
     /* A face keeps a distinct block per mip, as Quake's cachespots[4].
        Building mip 1 must leave mip 0 resident and cost no flush. */
-    ofs0   = sc->slot[0].blk;
+    sc_reset( sc, 10 );
+    if ( sc_alloc( sc, 0, 0, 112, 112, 112, 112, 0, 10, &aim ) == 0 ) return -105;
+    ofs0   = sc_hindex( sc->faces[0].cache );
     live0  = sc->live;
     flush0 = sc->flushes;
     if ( sc_alloc( sc, 0, 1, 56, 56, 112, 112, 0, 10, &aim ) == 0 ) return -29;
-    if ( sc->slot[0].blk == ofs0 ) return -30;
+    if ( sc_hindex( sc->faces[0].cache ) == ofs0 ) return -30;
     if ( sc->live != live0 + 1 ) return -31;
     if ( sc_find( sc, 0, 0, 112, 112, 0, &aim ) == 0 ) return -34;
     if ( sc_find( sc, 0, 1, 56, 56, 0, &aim ) == 0 ) return -35;
@@ -841,16 +850,17 @@ static short sc_selftest_run( SurfCache far *sc )
      * and the second free must merge them into one order-1 block.
      */
     sc_reset( sc, 10 );
-    if ( sc_alloc( sc, 0, 0, 16, 16, 16, 16, 0, 10, &aim ) == 0 ) return -40;
-    if ( sc_alloc( sc, 1, 0, 16, 16, 16, 16, 0, 10, &aim ) == 0 ) return -41;
-    /* grow both: each takes a new order-2 block and hands its order-0 back */
-    if ( sc_alloc( sc, 0, 0, 32, 32, 32, 32, 0, 10, &aim ) == 0 ) return -42;
-    if ( sc_alloc( sc, 1, 0, 32, 32, 32, 32, 0, 10, &aim ) == 0 ) return -43;
-
-    next0 = sc->next;
-    /* 32x16 is 512 bytes, order 1: only the MERGED pair can serve it */
-    if ( sc_alloc( sc, 2, 0, 32, 16, 32, 16, 0, 10, &aim ) == 0 ) return -44;
-    if ( sc->next != next0 ) return -45;
+    {
+        short b0 = sc_bget( sc, 0, 256L );
+        short b1 = sc_bget( sc, 0, 256L );
+        if ( b0 < 0 ) return -40;
+        if ( b1 < 0 ) return -41;
+        sc_bfree( sc, b0, 0 );
+        sc_bfree( sc, b1, 0 );
+        next0 = sc->next;
+        if ( sc_bget( sc, 1, 512L ) < 0 ) return -44;
+        if ( sc->next != next0 ) return -45;
+    }
 
     /*
      * ---- buddy split --------------------------------------------
@@ -858,45 +868,45 @@ static short sc_selftest_run( SurfCache far *sc )
      * request rather than the store being grown again.
      */
     sc_reset( sc, 10 );
-    if ( sc_alloc( sc, 0, 0, 32, 32, 32, 32, 0, 10, &aim ) == 0 ) return -46;
-    if ( sc_alloc( sc, 0, 0, 64, 64, 64, 64, 0, 10, &aim ) == 0 ) return -47;
-    next0 = sc->next;
-    if ( sc_alloc( sc, 1, 0, 16, 16, 16, 16, 0, 10, &aim ) == 0 ) return -48;
-    if ( sc->next != next0 ) return -49;
+    {
+        short b0 = sc_bget( sc, 2, 1024L );
+        if ( b0 < 0 ) return -46;
+        sc_bfree( sc, b0, 2 );
+        next0 = sc->next;
+        if ( sc_bget( sc, 0, 256L ) < 0 ) return -48;
+        if ( sc->next != next0 ) return -49;
+    }
 
     /*
-     * ---- stag: a light-style change must force a rebuild ---------
-     * Everything above passes whether or not sc_find even looks at
-     * stag, so this is the one block that proves it does. A tag match
-     * (same gen, same mip) must still MISS if the light key moved
-     * on -- that is the entire mechanism animated lightmaps rely on.
+     * ---- state: a light-style change must force a rebuild --------
+     * Everything above passes whether or not sc_find checks the state,
+     * so this block proves that a different six-bit state misses.
      */
     sc_reset( sc, 10 );
     if ( sc_alloc( sc, 0, 0, 112, 112, 112, 112, 5, 10, &aim ) == 0 ) return -50;
     if ( sc_find( sc, 0, 0, 112, 112, 5, &aim ) == 0 ) return -51;
-    if ( sc_find( sc, 0, 0, 112, 112, 6, &aim ) != 0 ) return -52;
+    if ( sc_find( sc, 0, 0, 112, 112, 62, &aim ) != 0 ) return -52;
 
-    /* building at the new stag keeps the old one: a style flickering
+    /* building at the new state keeps the old one: a style flickering
        back to 5 hits instead of rebuilding */
     live0 = sc->live;
-    if ( sc_alloc( sc, 0, 0, 112, 112, 112, 112, 6, 10, &aim ) == 0 ) return -53;
+    if ( sc_alloc( sc, 0, 0, 112, 112, 112, 112, 62, 10, &aim ) == 0 ) return -53;
     if ( sc_find( sc, 0, 0, 112, 112, 5, &aim ) == 0 ) return -54;
-    if ( sc_find( sc, 0, 0, 112, 112, 6, &aim ) == 0 ) return -55;
+    if ( sc_find( sc, 0, 0, 112, 112, 62, &aim ) == 0 ) return -55;
     if ( sc->live != live0 + 1 ) return -56;
 
-    /* evicting one of a face's surfaces leaves the others: 6 is the
-       least recently used, and a full store takes it for face 1 */
+    /* FIFO eviction removes the first inserted state and leaves the other. */
     if ( sc_find( sc, 0, 0, 112, 112, 5, &aim ) == 0 ) return -57;
     next0 = sc->cap;
     sc->cap = sc->next;
     if ( sc_alloc( sc, 1, 0, 112, 112, 112, 112, 0, 10, &aim ) == 0 ) { sc->cap = next0; return -58; }
     sc->cap = next0;
-    if ( sc_find( sc, 0, 0, 112, 112, 6, &aim ) != 0 ) return -59;
-    if ( sc_find( sc, 0, 0, 112, 112, 5, &aim ) == 0 ) return -60;
+    if ( sc_find( sc, 0, 0, 112, 112, 5, &aim ) != 0 ) return -59;
+    if ( sc_find( sc, 0, 0, 112, 112, 62, &aim ) == 0 ) return -60;
     if ( sc_find( sc, 1, 0, 112, 112, 0, &aim ) == 0 ) return -61;
 
-    /* The light-key cap is per mip. Growing mip 0 past SC_VARIANTS gives
-       up only mip 0's least recently used key; all mip 1 keys stay. */
+    /* The light-state cap is per mip. Adding one past SC_VARIANTS gives
+       up only mip 0's oldest face-chain state; all mip 1 states stay. */
     sc_reset( sc, 10 );
     live0 = sc->live;
     for ( i = 1; i <= SC_VARIANTS; i++ )
@@ -904,11 +914,11 @@ static short sc_selftest_run( SurfCache far *sc )
     for ( i = 1; i <= SC_VARIANTS; i++ )
         if ( sc_alloc( sc, 3, 1, 16, 16, 16, 16, i + 10, 10, &aim ) == 0 ) return -99;
     if ( sc_find( sc, 3, 0, 16, 16, 1, &aim ) == 0 ) return -63;
-    if ( sc_alloc( sc, 3, 0, 32, 32, 32, 32, 99, 10, &aim ) == 0 ) return -64;
+    if ( sc_alloc( sc, 3, 0, 16, 16, 16, 16, 9, 10, &aim ) == 0 ) return -64;
     if ( sc_find( sc, 3, 0, 16, 16, 2, &aim ) != 0 ) return -65;
     for ( i = 1; i <= SC_VARIANTS; i++ )
         if ( i != 2 && sc_find( sc, 3, 0, 16, 16, i, &aim ) == 0 ) return -66;
-    if ( sc_find( sc, 3, 0, 32, 32, 99, &aim ) == 0 ) return -67;
+    if ( sc_find( sc, 3, 0, 16, 16, 9, &aim ) == 0 ) return -67;
     for ( i = 1; i <= SC_VARIANTS; i++ )
         if ( sc_find( sc, 3, 1, 16, 16, i + 10, &aim ) == 0 ) return -100;
     if ( sc->live != live0 + SC_VARIANTS * 2 ) return -68;
@@ -946,9 +956,7 @@ static short sc_selftest_run( SurfCache far *sc )
     sc_forget( sc, 0 );
     if ( sc_find( sc, 0, 0, 112, 112, 7, &aim ) != 0 ) return -84;
 
-    /* a split takes the least recently used larger block, not the head of
-       its list: with face 0 hit, face 1 goes. Read FIFO, face 0 went. The
-       same-order path is -59's. */
+    /* A split takes the oldest larger block. Hits do not reorder FIFO. */
     sc_reset( sc, 10 );
     if ( !sc_alloc( sc, 0, 0, 112, 112, 112, 112, 0, 10, &aim ) ||
          !sc_alloc( sc, 1, 0, 112, 112, 112, 112, 0, 10, &aim ) ||
@@ -957,7 +965,8 @@ static short sc_selftest_run( SurfCache far *sc )
     sc->cap = sc->next;
     built = sc_alloc( sc, 3, 0, 16, 16, 16, 16, 0, 10, &aim ) != 0;
     sc->cap = next0;
-    if ( !built || sc->slot[1].blk >= 0 || sc->slot[0].blk < 0 ) return -96;
+    if ( !built || sc_hindex( sc->faces[0].cache ) >= 0 ||
+         sc_hindex( sc->faces[1].cache ) < 0 ) return -96;
 
     sc_reset( sc, 10 );
     return 1;
@@ -967,11 +976,12 @@ static short sc_selftest_run( SurfCache far *sc )
    0xFF, as uncleared qglMemAlloc bytes can be: the pointers sc_init never
    reached passed its null test, it returned 1, and what it did allocate
    was never given back. Memory is filled with blocks one short array wide
-   and every other one freed, so the holes cannot merge: the short arrays
-   fit, bstag's long one does not, and six arrays have to go back. */
+   and two non-adjacent ones freed, so two short arrays fit and the third
+   does not. Everything allocated before the failure has to go back. */
 static short sc_selftest_short( SurfCache far *sc )
 {
     long hog[256];   /* on the stack: static is 1K of DGROUP */
+    Face faces[10];
     long before, want;
     short n = 0, k, r, ok, step;
 
@@ -979,14 +989,19 @@ static short sc_selftest_short( SurfCache far *sc )
     before = qglMemAvail( QGL_MEM_TOTAL );
 
     while ( n < 256 && ( hog[n] = qglMemAlloc( (long) SC_NBLK * (long) sizeof(short) ) ) != 0 ) n++;
-    for ( k = 0; k < n; k += 2 ) qglMemFree( hog[k] );
+    if ( n < 4 ) {
+        for ( k = 0; k < n; k++ ) qglMemFree( hog[k] );
+        return -86;
+    }
+    qglMemFree( hog[0] );
+    qglMemFree( hog[2] );
 
     _fmemset( sc, 0xFF, sizeof(SurfCache) );
-    r = sc_init( sc, 10 );
+    r = sc_init( sc, (Face far *) faces, 10 );
     ok = sc->ok;
     sc_fail( &step, &want );
 
-    for ( k = 1; k < n; k += 2 ) qglMemFree( hog[k] );
+    for ( k = 1; k < n; k++ ) if ( k != 2 ) qglMemFree( hog[k] );
     if ( r != 0 ) return -87;
     if ( ok != 0 ) return -88;
     if ( step < 3 ) return -86;   /* no array allocated: not armed */
@@ -998,13 +1013,14 @@ static short sc_selftest_short( SurfCache far *sc )
 short sc_selftest( void )
 {
     SurfCache far *sc;
+    Face faces[10];
     short face_count = 10;
     short result;
 
     sc = (SurfCache far *) qglMemAlloc( (long) sizeof(SurfCache) );
     if ( !sc ) return -1;
 
-    if ( !sc_init( sc, face_count ) ) {
+    if ( !sc_init( sc, (Face far *) faces, face_count ) ) {
         qglMemFree( (long) (void far *) sc );
         return -1;
     }

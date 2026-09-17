@@ -80,10 +80,11 @@ typedef struct {
    filled per face by the caller, model.bas isn't ported yet either). */
 typedef struct {
     short plane_id;
-    short side;
-    short geom_row;
     short geom_ofs;
     short tex_info_id;
+    unsigned short cache;
+    unsigned char geom_row;
+    unsigned char side;
 } Face;
 
 /* bspfile.bi's TexInfo. vecs/vect are FIXED-size embedded arrays (dim

@@ -136,7 +136,7 @@ short pascal far qglSfInit( void );
 short pascal far qglSfLoad( long s, long path );
 short pascal far qglSfLoadFh( long s, short fh );
 long pascal far qglSfNew( short wid, short hgt, short whr );
-void pascal far qglSfNewEx( short wid, short hgt, short strd, short whr );
+long pascal far qglSfNewEx( short wid, short hgt, short strd, short whr );
 short pascal far qglSfPget( long s, short x, short y );
 void pascal far qglSfPset( long s, short x, short y, short col );
 long pascal far qglSfRdRow( long s, short y );

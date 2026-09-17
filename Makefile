@@ -153,7 +153,7 @@ $(EXE): $(OBJS)
 ASSETS     := data/assets/assets.zip
 MAP_ROOT   ?= data/maps
 MAP_ASSETS := $(if $(wildcard $(PAK)),$(foreach m,$(MAPS),$(MAP_ROOT)/$(m)/assets.zip))
-MKASSETS   := tools/mkassets.py tools/mkportals.py tools/mksnd.py tools/texquant.py tools/fsdither.c \
+MKASSETS   := tools/mkassets.py tools/lighthash.py tools/mkportals.py tools/mksnd.py tools/texquant.py tools/fsdither.c \
               tools/mkmdl.py tools/mkgfx.py tools/mdlview.py
 MKASSETS_CMD ?= python3 tools/mkassets.py
 
@@ -192,6 +192,7 @@ test:                           ## header deps, far-to-near pointers, then qgl's
 	@tools/test-centerprint.sh
 	@tools/test-video.sh
 	@tools/test-viewmdl.sh
+	@python3 tools/test-lighthash.py
 	@python3 tools/test-id-demo-camera.py $(PAK)
 	@python3 tools/farnear.py
 	@tools/test-x87cmp.sh

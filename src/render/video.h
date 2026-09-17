@@ -21,11 +21,11 @@ typedef struct {
     short x_res, y_res;
     short base_x_res;
     short base_y_res;
+    short back_stride;
     short scr_x_res, scr_y_res;
     short view_x, view_y, view_scale;
     short sbar_lines;
     short c_fmt;
-    short comp;
 } Video;
 
 void  v_init_ugl( void );

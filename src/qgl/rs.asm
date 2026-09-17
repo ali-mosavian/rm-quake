@@ -305,25 +305,6 @@ CYLAP           macro   k
                 endif
 endm
 
-;; dx:ax = surface sf's row y, for writing.
-WRROW           macro   sf, y, slow
-                local   dead, have
-                push    fs
-                push    di
-                mov     fs, W sf+2
-                mov     bx, fs:[Surface.typ]
-                CHECKKIND bx, dead
-                mov     di, y
-                call    qgl$dctTB[bx].wrAccess
-                mov     dx, es
-                mov     ax, di
-                jmp     short have
-dead:           xor     ax, ax
-                xor     dx, dx
-have:           pop     di
-                pop     fs
-endm
-
 ;; dx:ax = surface sf's row y through window slot: qglSfWrRowEx's
 ;; dispatch without its two far frames. bx, cx gone.
 DCTROW          macro   sf, y, slot
@@ -1428,14 +1409,14 @@ qgl$drawA       proc    near private,\
 ;;
 ;; ---- one scanline ----------------------------------------------------
 ;;
-@@outer:        WRROW   d, yy, <invoke qglSfWrRow, d, yy>
+@@outer:        DCTROW  d, yy, QGL_DST_SLOT
                 mov     rowo, ax
                 mov     rows, dx
                 mov     zsegv, dx               ;; harmless when depth is off
 
                 cmp     qgl$zmode, QGL_Z_OFF
                 je      @@nodepth
-                WRROW   qgl$zsf, yy, <ZEMSROW qgl$zsf, yy, QGL_Z_SLOT>
+                DCTROW  qgl$zsf, yy, QGL_Z_SLOT
                 mov     qgl$zline, ax
                 mov     zsegv, dx
 
@@ -1751,14 +1732,14 @@ qgl$drawP       proc    near private,\
 ;;
 ;; ---- one scanline ----------------------------------------------------
 ;;
-@@outer:        WRROW   d, yy, <invoke qglSfWrRow, d, yy>
+@@outer:        DCTROW  d, yy, QGL_DST_SLOT
                 mov     rowo, ax
                 mov     rows, dx
                 mov     zsegv, dx               ;; harmless when depth is off
 
                 cmp     qgl$zmode, QGL_Z_OFF
                 je      @@nodepth
-                WRROW   qgl$zsf, yy, <ZEMSROW qgl$zsf, yy, QGL_Z_SLOT>
+                DCTROW  qgl$zsf, yy, QGL_Z_SLOT
                 mov     qgl$zline, ax
                 mov     zsegv, dx
 
