@@ -172,10 +172,13 @@ static short mdl_draw_tris(
              * map, a gradient and a clip first.
              */
             if ( area > -2.0f ) continue;
-            qv[0].u = (float) t->u1 / MDL_UV_SCALE; qv[0].v = (float) t->v1 / MDL_UV_SCALE;
-            qv[1].u = (float) t->u2 / MDL_UV_SCALE; qv[1].v = (float) t->v2 / MDL_UV_SCALE;
-            qv[2].u = (float) t->u3 / MDL_UV_SCALE; qv[2].v = (float) t->v3 / MDL_UV_SCALE;
-            qglRsPoly( dst, (void far *) qv, 3, QGL_M_TEX, skin );
+            qv[0].u = (float) t->u1 / MDL_UV_SCALE * srw[a];
+            qv[0].v = (float) t->v1 / MDL_UV_SCALE * srw[a];
+            qv[1].u = (float) t->u2 / MDL_UV_SCALE * srw[b];
+            qv[1].v = (float) t->v2 / MDL_UV_SCALE * srw[b];
+            qv[2].u = (float) t->u3 / MDL_UV_SCALE * srw[c];
+            qv[2].v = (float) t->v3 / MDL_UV_SCALE * srw[c];
+            qglRsPoly( dst, (void far *) qv, 3, QGL_M_ATEX, skin );
             drawn++;
             continue;
         }
@@ -250,16 +253,15 @@ static short mdl_draw_tris(
         nout = ns;
         if ( nout < 3 ) continue;
 
-        /* The divide, on corners that are all inside the frustum. RAW u
-           and v: the model is drawn affine, and that filler steps them
-           linearly in screen space. */
+        /* Projected u/z and v/z share the perspective edge walk. The
+           affine filler recovers them once at each row endpoint. */
         for ( k = 0; k < nout; k++ ) {
             rw = 1.0f / cs[k].w;
             qv[k].x = xresh + cs[k].x * rw * xresh;
             qv[k].y = yresh - cs[k].y * rw * yresh;
             qv[k].z = rw;
-            qv[k].u = cs[k].u;
-            qv[k].v = cs[k].v;
+            qv[k].u = cs[k].u * rw;
+            qv[k].v = cs[k].v * rw;
         }
 
         /* Backface after the clip: clipping preserves winding, so the
@@ -268,7 +270,7 @@ static short mdl_draw_tris(
              - ( qv[2].x - qv[0].x ) * ( qv[1].y - qv[0].y );
         if ( bf_pre && area >= 0.0f ) bf_bad++;
         if ( area < 0.0f ) {
-            qglRsPoly( dst, (void far *) qv, nout, QGL_M_TEX, skin );
+            qglRsPoly( dst, (void far *) qv, nout, QGL_M_ATEX, skin );
             drawn++;
         }
     }
@@ -471,10 +473,10 @@ static short mdl_draw_crate( World *world, BspVec3 *org, CrateModel far *c,
             qv[k].x = xresh + bx[ci] * rw * xresh;
             qv[k].y = yresh - by[ci] * rw * yresh;
             qv[k].z = rw;
-            qv[k].u = (float) cf->v[k*3+1] / 32.0f;
-            qv[k].v = (float) cf->v[k*3+2] / 32.0f;
+            qv[k].u = (float) cf->v[k*3+1] / 32.0f * rw;
+            qv[k].v = (float) cf->v[k*3+2] / 32.0f * rw;
         }
-        qglRsPoly( dst, (void far *) qv, 4, QGL_M_TEX, src );
+        qglRsPoly( dst, (void far *) qv, 4, QGL_M_ATEX, src );
         drawn++;
     }
     return drawn;

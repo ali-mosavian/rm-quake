@@ -158,7 +158,7 @@ typedef struct {
     short any, left, middle, right;
 } MouseInf;
 
-/* x, y, 1/z, u, v -- what qglRsPoly walks. */
+/* x, y, 1/z, u, v. PTEX/ATEX take u/z and v/z; TEX takes plain u/v. */
 typedef struct { float x, y, z, u, v; } QVert;
 
 #endif

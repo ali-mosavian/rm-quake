@@ -30,6 +30,7 @@
 #define QGL_M_FLAT 1
 #define QGL_M_TEX  2
 #define QGL_M_PTEX 3
+#define QGL_M_ATEX 4
 
 /* Where a paged array store's records live. */
 #define QGL_AR_MEM 0
@@ -118,6 +119,7 @@ void pascal far qglRowWriteEx( long sf, short x, short y, short pixels, short bu
 void pascal far qglRsCover( short on );
 void pascal far qglRsCoverClear( void );
 short pascal far qglRsPoly( long d, void far * v, short n, short mode, long src );
+short pascal far qglRsPolyBound( long d, void far * v, short n, short mode, long src, short uw, short vh );
 void pascal far qglRsRef( short on );
 short pascal far qglSbBuild( long dstDc, long texDc, long parm );
 void pascal far qglSetClipRect( long sf, void far * cr );

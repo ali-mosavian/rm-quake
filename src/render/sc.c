@@ -545,19 +545,17 @@ QSurf sc_alloc( SurfCache far *sc, short face, short mip, short w, short h, shor
     bord = (a + b) - SC_MINORD;
     sz   = (long) (1L << a) * (1L << b);
 
-    /* Which of the face's own blocks to write over: one holding this very
-       key (a find that missed on it wanted a bigger class), one at
-       another mip, or one a dynamic light built (its key never comes
-       back); else, at SC_VARIANTS or for a light's key, the face's least
-       recently used.
-       Otherwise the face gains a block, which is what lets a flickering
-       style hit on its next change. */
+    /* Quake keeps one cache spot per mip. Within this mip, write over one
+       holding this key (a find that missed on it wanted a bigger class),
+       one a dynamic light built (its key never comes back), or the least
+       recently used after SC_VARIANTS light keys. Other mips stay resident. */
     tag  = (short) ( sc->gen * 4 + mip );
     blk  = -1;
     last = -1;
     n    = 0;
     for ( k = sc->slot[face].blk; k >= 0; k = sc->bsib[k] ) {
-        if ( blk < 0 && ( sc->btag[k] != tag || sc->bstag[k] < 0 || sc->bstag[k] == stag ) ) blk = k;
+        if ( sc->btag[k] != tag ) continue;
+        if ( blk < 0 && ( sc->bstag[k] < 0 || sc->bstag[k] == stag ) ) blk = k;
         last = k;
         n++;
     }
@@ -653,14 +651,6 @@ void sc_forget( SurfCache far *sc, short face )
 {
     /* -1 is no tag: gen tops out at 16000, so gen*4+mip never wraps there */
     if ( sc->ok && sc->slot[face].blk >= 0 ) sc->btag[ sc->slot[face].blk ] = -1;
-}
-
-short sc_held( SurfCache far *sc, short face )
-{
-    if ( !sc->ok ) return -1;
-    if ( sc->slot[face].blk < 0 ) return -1;
-    if ( ( sc->btag[ sc->slot[face].blk ] / 4 ) != sc->gen ) return -1;
-    return (short) ( sc->btag[ sc->slot[face].blk ] & 3 );
 }
 
 void sc_stats( SurfCache far *sc, CacheStats *s )
@@ -831,14 +821,16 @@ static short sc_selftest_run( SurfCache far *sc )
         if ( !sc_find( sc, 0, 0, 112, 112, 0, &aim ) || sc->bown[ sc_lru_oldest( sc, ord ) ] != 1 ) return -95;
     }
 
-    /* rebuilding the SAME face at a new mip must reuse its own block,
-       not take a second one -- this is the leak the old allocator had */
+    /* A face keeps a distinct block per mip, as Quake's cachespots[4].
+       Building mip 1 must leave mip 0 resident and cost no flush. */
     ofs0   = sc->slot[0].blk;
     live0  = sc->live;
     flush0 = sc->flushes;
     if ( sc_alloc( sc, 0, 1, 56, 56, 112, 112, 0, 10, &aim ) == 0 ) return -29;
-    if ( sc->slot[0].blk != ofs0 ) return -30;
-    if ( sc->live != live0 ) return -31;
+    if ( sc->slot[0].blk == ofs0 ) return -30;
+    if ( sc->live != live0 + 1 ) return -31;
+    if ( sc_find( sc, 0, 0, 112, 112, 0, &aim ) == 0 ) return -34;
+    if ( sc_find( sc, 0, 1, 56, 56, 0, &aim ) == 0 ) return -35;
 
     /* and a mip change must not have cost a flush */
     if ( sc->flushes != flush0 ) return -32;
@@ -904,19 +896,23 @@ static short sc_selftest_run( SurfCache far *sc )
     if ( sc_find( sc, 0, 0, 112, 112, 5, &aim ) == 0 ) return -60;
     if ( sc_find( sc, 1, 0, 112, 112, 0, &aim ) == 0 ) return -61;
 
-    /* growing past SC_VARIANTS gives up the face's least recently used
-       surface, and only that one */
+    /* The light-key cap is per mip. Growing mip 0 past SC_VARIANTS gives
+       up only mip 0's least recently used key; all mip 1 keys stay. */
     sc_reset( sc, 10 );
     live0 = sc->live;
     for ( i = 1; i <= SC_VARIANTS; i++ )
         if ( sc_alloc( sc, 3, 0, 16, 16, 16, 16, i, 10, &aim ) == 0 ) return -62;
+    for ( i = 1; i <= SC_VARIANTS; i++ )
+        if ( sc_alloc( sc, 3, 1, 16, 16, 16, 16, i + 10, 10, &aim ) == 0 ) return -99;
     if ( sc_find( sc, 3, 0, 16, 16, 1, &aim ) == 0 ) return -63;
     if ( sc_alloc( sc, 3, 0, 32, 32, 32, 32, 99, 10, &aim ) == 0 ) return -64;
     if ( sc_find( sc, 3, 0, 16, 16, 2, &aim ) != 0 ) return -65;
     for ( i = 1; i <= SC_VARIANTS; i++ )
         if ( i != 2 && sc_find( sc, 3, 0, 16, 16, i, &aim ) == 0 ) return -66;
     if ( sc_find( sc, 3, 0, 32, 32, 99, &aim ) == 0 ) return -67;
-    if ( sc->live != live0 + SC_VARIANTS ) return -68;
+    for ( i = 1; i <= SC_VARIANTS; i++ )
+        if ( sc_find( sc, 3, 1, 16, 16, i + 10, &aim ) == 0 ) return -100;
+    if ( sc->live != live0 + SC_VARIANTS * 2 ) return -68;
 
     /* a dynamic light's key never comes back, so it writes over what
        the face has rather than taking another block */
