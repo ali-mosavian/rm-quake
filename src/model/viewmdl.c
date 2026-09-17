@@ -19,6 +19,8 @@ short pl_view_of( short weapon )
 static char *vmdl_name[PL_VIEW_N] = {
     "v_shot", "v_shot2", "v_nail", "v_rock", "v_nail2", "v_rock2" };
 
+char *pl_view_name( short view ) { return vmdl_name[view]; }
+
 void host_view_load( World *world, short weapon )
 {
     short i, active = pl_view_of( weapon );
@@ -31,6 +33,6 @@ void host_view_load( World *world, short weapon )
        mdl_load says so once; asking again every frame would say it
        every frame, so a failed load is remembered as a try. */
     if ( world->vmdl[active].loaded || world->vmdl[active].ntri ) return;
-    mdl_load( &world->pak, &world->vmdl[active], vmdl_name[active], MDL_VIEW_SETS );
+    mdl_load( &world->pak, &world->vmdl[active], pl_view_name( active ), MDL_VIEW_SETS );
     if ( !world->vmdl[active].loaded ) world->vmdl[active].ntri = -1;
 }

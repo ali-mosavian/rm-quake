@@ -223,7 +223,7 @@ void mdl_report_sums( World *world )
     short i;
 
     for ( i = 0; i < MDL_KINDS; i++ ) mdl_report_one( &world->mdl[i], mdl_name[i] );
-    for ( i = 0; i < PL_VIEW_N; i++ ) mdl_report_one( &world->vmdl[i], vmdl_name[i] );
+    for ( i = 0; i < PL_VIEW_N; i++ ) mdl_report_one( &world->vmdl[i], pl_view_name( i ) );
     mdl_report_one( &world->boss, "boss" );
 }
 

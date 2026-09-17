@@ -61,6 +61,7 @@ MdlState *mdl_of( World *world, short kind );
 /* Which view model a PL_IT_* weapon holds: the shotgun's when the bit
    is one no gun has a model for. */
 short pl_view_of( short weapon );
+char *pl_view_name( short view );
 
 /*
  * name: host_view_load
