@@ -392,6 +392,25 @@ void pl_fire( World *world, Player *player, Camera *cam, Fight *fight,
 
 void pl_select_weapon( Fight *fight, short impulse )
 {
+    static short cycle[] = { PL_IT_SHOTGUN, PL_IT_SSG, PL_IT_NAILGUN,
+                              PL_IT_SNG, PL_IT_GL, PL_IT_RL };
+    short i, remaining;
+
+    if ( impulse == 10 ) {
+        for ( i = 0; i < 6 && cycle[i] != fight->weapon; i++ ) {}
+        if ( i == 6 ) i = 0;
+        for ( remaining = 0; remaining < 6; remaining++ ) {
+            i = (short) ( ( i + 1 ) % 6 );
+            if ( ( fight->items & cycle[i] ) &&
+                 ( cycle[i] == PL_IT_SHOTGUN || cycle[i] == PL_IT_SSG ? fight->shells > 0
+                   : cycle[i] == PL_IT_NAILGUN || cycle[i] == PL_IT_SNG ? fight->nails > 0
+                   : fight->rockets > 0 ) ) {
+                fight->weapon = cycle[i];
+                return;
+            }
+        }
+        return;
+    }
     if ( impulse == 2 ) fight->weapon = PL_IT_SHOTGUN;
     if ( impulse == 3 && ( fight->items & PL_IT_SSG ) ) fight->weapon = PL_IT_SSG;
     if ( impulse == 4 && ( fight->items & PL_IT_NAILGUN ) ) fight->weapon = PL_IT_NAILGUN;

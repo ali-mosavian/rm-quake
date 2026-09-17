@@ -153,7 +153,8 @@ PAK0 and are left out.
       id: `menu.c` `M_Menu_Main_f`, `M_Menu_Options_f`, `M_Menu_Keys_f`,
       `M_Menu_Load_f`, `M_Menu_Save_f`; `host_cmd.c` `Host_Savegame_f`,
       `Host_Loadgame_f`
-      qcport: none; only `CARRY.BIN` crosses a map, `src/game/client.c:42`
+      qcport (partial): original main and single-player art, options and
+      interactive key rebinding; save/load slots remain
 - [x] Console and cvars
       id: `console.c` `Con_Init`, `cvar.c` `Cvar_RegisterVariable`
       qcport: queued keyboard input, scrollback/history/completion, bounded

@@ -274,7 +274,7 @@ static void near host_tick( Host *h, float dt )
     dl_decay( rdr, dt );
 
     v_update_camera( cam, player, world, input, h->keys, fight, rdr,
-                     dt, scr_x_res, scr_y_res );
+                     dt, scr_x_res, scr_y_res, h->forward_speed, h->invert_mouse );
 
     ent_check_teleport( player, world, rdr->anim_time, scr_x_res );
     ent_fog_tick( world, player, rdr->anim_time );
@@ -515,7 +515,8 @@ static void near host_render_overlay( Host *h )
 #if QR_PROF
     float t0 = sys_now( &h->sysclk );
 #endif
-    if ( !h->v.comp && h->fight.state != GS_EXIT && h->fight.state != GS_FINALE ) {
+    if ( !h->v.comp && !menu_is_open( h->menu ) &&
+         h->fight.state != GS_EXIT && h->fight.state != GS_FINALE ) {
         scr_draw_hud( &h->world, &h->rdr, &h->cam, &h->player, h->sc, h->hud,
                       h->h_dst_dc, h->v.x_res, h->v.y_res );
     }
@@ -710,6 +711,7 @@ static void near host_load_rest( Host *h, LoadScreen *ldr )
 
     /* after the map: its ambient_* points were recorded by the ent loader */
     snd_init( &h->world.snd, &h->world.pak, h->args.no_sound );
+    snd_volume( &h->world.snd, cvar_value( h->cmd, "volume" ) );
     {   short st, lp, un;
         snd_stats( &h->world.snd, &st, &lp, &un );
         sprintf( buf, "snd loops=%d", (int) lp );
@@ -960,10 +962,13 @@ void host_init( Host *h )
     h->cmd = (CmdState far *) qglMemAlloc( (long) sizeof(*h->cmd) );
     h->console = (Console far *) qglMemAlloc( (long) sizeof(*h->console) );
     h->keys = (KeyBindings far *) qglMemAlloc( (long) sizeof(*h->keys) );
-    if ( !h->cmd || !h->console || !h->keys ) sys_error( "out of far memory for front end" );
+    h->menu = (Menu far *) qglMemAlloc( (long) sizeof(*h->menu) );
+    if ( !h->cmd || !h->console || !h->keys || !h->menu )
+        sys_error( "out of far memory for front end" );
     h->carried = (short) ( h->args.carry && pl_carry_read( &h->carry ) );
     cmd_init( h->cmd );
     keybind_init( h->keys );
+    menu_init( h->menu );
     initial_skill = h->carried ? h->carry.skill : h->args.skill;
     if ( initial_skill < 0 ) initial_skill = 0;
     if ( initial_skill > 3 ) initial_skill = 3;
@@ -977,7 +982,12 @@ void host_init( Host *h )
     sprintf( value, "%.3f", fov_horizontal( h->cfg.cam_fov, aspect ) );
     cvar_register( h->cmd, "fov", value, CVAR_ARCHIVE, 10.0f, 170.0f );
     cvar_register( h->cmd, "viewsize", "100", CVAR_ARCHIVE, 30.0f, 120.0f );
+    cvar_register( h->cmd, "volume", "1", CVAR_ARCHIVE, 0.0f, 1.0f );
+    cvar_register( h->cmd, "cl_forwardspeed", "200", CVAR_ARCHIVE, 200.0f, 400.0f );
+    cvar_register( h->cmd, "m_pitch", "1", CVAR_ARCHIVE, -1.0f, 1.0f );
     h->viewsize_applied = 100.0f;
+    h->forward_speed = 200.0f;
+    h->invert_mouse = 0;
     con_init( h->console );
     commands[0] = 0;
     if ( host_file_exists( "default.cfg" ) &&
@@ -1072,8 +1082,9 @@ static void near host_console_result( Host *h, CmdKind kind, CmdResult *result )
     if ( kind == CMD_CLEAR ) { con_clear( h->console ); return; }
     if ( kind == CMD_CMDLIST ) {
         con_print( h->console,
-                   "bind clear cmdlist cvarlist echo exec impulse map quit set sizedown sizeup "
-                   "unbind unbindall wait writeconfig" );
+                   "bind clear cmdlist cvarlist echo exec impulse map menu_keys menu_main "
+                   "menu_options quit set sizedown sizeup togglemenu unbind unbindall wait "
+                   "writeconfig" );
         return;
     }
     if ( kind == CMD_CVARLIST ) {
@@ -1143,6 +1154,23 @@ static void near host_console_result( Host *h, CmdKind kind, CmdResult *result )
         con_toggle( h->console, &h->input );
         return;
     }
+    if ( !strcmp( result->name, "togglemenu" ) ) {
+        if ( menu_is_open( h->menu ) ) menu_close( h->menu );
+        else menu_open( h->menu, &h->world.pak, MENU_MAIN );
+        return;
+    }
+    if ( !strcmp( result->name, "menu_main" ) ) {
+        menu_open( h->menu, &h->world.pak, MENU_MAIN );
+        return;
+    }
+    if ( !strcmp( result->name, "menu_options" ) ) {
+        menu_open( h->menu, &h->world.pak, MENU_OPTIONS );
+        return;
+    }
+    if ( !strcmp( result->name, "menu_keys" ) ) {
+        menu_open( h->menu, &h->world.pak, MENU_KEYS );
+        return;
+    }
     if ( !strcmp( result->name, "togglemips" ) ) { h->rdr.use_mips = !h->rdr.use_mips; return; }
     if ( !strcmp( result->name, "togglewire" ) ) { h->rdr.rend_mode = h->rdr.rend_mode ? 0 : 2; return; }
     if ( !strcmp( result->name, "toggleview" ) ) { h->cam.fps_view = !h->cam.fps_view; return; }
@@ -1208,6 +1236,30 @@ static void near host_apply_cvars( Host *h )
                     h->cfg.z_near, h->cfg.z_far );
         h->fov_applied = fov;
     }
+    h->forward_speed = cvar_value( h->cmd, "cl_forwardspeed" );
+    h->invert_mouse = (short) ( cvar_value( h->cmd, "m_pitch" ) < 0.0f );
+    snd_volume( &h->world.snd, cvar_value( h->cmd, "volume" ) );
+}
+
+static void near host_menu_action( Host *h, MenuAction action )
+{
+    if ( action == MENU_ACTION_NONE ) return;
+    if ( action == MENU_ACTION_CONSOLE ) {
+        menu_close( h->menu );
+        con_toggle( h->console, &h->input );
+        return;
+    }
+    if ( action == MENU_ACTION_DEFAULTS ) {
+        cmd_enqueue( h->cmd, "exec default.cfg" );
+        return;
+    }
+    menu_close( h->menu );
+    if ( action == MENU_ACTION_QUIT ) { h->quit = -1; return; }
+    if ( action == MENU_ACTION_NEW ) {
+        strcpy( h->fight.next_map, "start" );
+        h->carried = 0;
+        h->fight.state = GS_NEXT;
+    }
 }
 
 static void near host_input_events( Host *h )
@@ -1218,14 +1270,19 @@ static void near host_input_events( Host *h )
 
     if ( in_event_overflow( &h->input ) ) keybind_release_all( h->keys );
     if ( h->demo.rf ) keybind_mouse( h->keys, h->cmd, 0, 0, 0 );
-    else if ( con_open( h->console ) ) keybind_mouse( h->keys, h->cmd, 0, 0, 0 );
+    else if ( con_open( h->console ) || menu_is_open( h->menu ) )
+        keybind_mouse( h->keys, h->cmd, 0, 0, 0 );
     else keybind_mouse( h->keys, h->cmd, h->input.mouse.left,
                         h->input.mouse.right, h->input.mouse.middle );
 
     while ( ( key = in_key_event( &h->input, &shift, &down ) ) != 0 ) {
-        if ( !down ) { keybind_event( h->keys, h->cmd, key, 0 ); continue; }
+        if ( !down ) {
+            if ( !menu_is_open( h->menu ) ) keybind_event( h->keys, h->cmd, key, 0 );
+            continue;
+        }
         if ( key == KEY_TILDE || key == KEY_OEM102 ) {
             keybind_release_all( h->keys );
+            if ( menu_is_open( h->menu ) ) menu_close( h->menu );
             con_toggle( h->console, &h->input );
             continue;
         }
@@ -1238,7 +1295,15 @@ static void near host_input_events( Host *h )
             con_key( h->console, h->cmd, key, shift );
             continue;
         }
-        if ( key == KEY_ESC ) { h->quit = -1; continue; }
+        if ( menu_is_open( h->menu ) ) {
+            host_menu_action( h, menu_key( h->menu, key, h->keys, h->cmd ) );
+            continue;
+        }
+        if ( key == KEY_ESC ) {
+            keybind_release_all( h->keys );
+            menu_open( h->menu, &h->world.pak, MENU_MAIN );
+            continue;
+        }
         keybind_event( h->keys, h->cmd, key, -1 );
     }
     while ( ( kind = cmd_run( h->cmd, &result ) ) != CMD_NONE ) {
@@ -1294,6 +1359,12 @@ static void near host_present( Host *h )
 
     v_present( v, h->h_dst_dc, 0 );
     target = v->comp ? v->h_comp_dc : v->h_video_dc;
+    if ( menu_is_open( h->menu ) ) {
+        menu_draw( h->menu, h->keys, h->cmd, h->rdr.anim_time,
+                   target, v->scr_x_res, v->scr_y_res );
+        if ( v->comp ) qglDrBlit( v->h_video_dc, 0, 0, v->h_comp_dc );
+        goto presented;
+    }
     special = (short) ( h->fight.state == GS_EXIT || h->fight.state == GS_FINALE );
     if ( v->comp ) {
         if ( !special )
@@ -1318,6 +1389,8 @@ static void near host_present( Host *h )
     if ( v->comp ) {
         qglDrBlit( v->h_video_dc, 0, 0, v->h_comp_dc );
     }
+presented:
+    ;
 #if QR_PROF
     pt_stop( h, t0, &h->pt.present_sum, 0 );
 #endif
@@ -1360,7 +1433,7 @@ void host_frame( Host *h )
     }
 
     ent_msg_frame( &h->fight, frame_dt );
-    if ( con_open( h->console ) ) {
+    if ( con_open( h->console ) || menu_is_open( h->menu ) ) {
         h->console_frames++;
         h->clock.accum = 0.0f;
     } else
@@ -1473,6 +1546,7 @@ static void near host_map_release( Host *h )
     long  largest, total;
     short ems;
 
+    menu_close( h->menu );
     if ( h->z_dc ) qglSfZFree( h->h_dst_dc );
     h->z_dc = 0;
     if ( h->sc ) {
@@ -1549,9 +1623,11 @@ void host_shutdown( Host *h )
     if ( h->cmd ) cmd_shutdown( h->cmd );
     if ( h->console ) qglMemFree( (long) (void far *) h->console );
     if ( h->keys ) qglMemFree( (long) (void far *) h->keys );
+    if ( h->menu ) qglMemFree( (long) (void far *) h->menu );
     if ( h->cmd ) qglMemFree( (long) (void far *) h->cmd );
     h->console = 0;
     h->keys = 0;
+    h->menu = 0;
     h->cmd = 0;
     v_shutdown( v );
     /* The ISRs out FIRST: INT 8 and INT 9 point into this program, and

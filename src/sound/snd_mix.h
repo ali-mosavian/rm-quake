@@ -36,7 +36,7 @@ typedef struct { unsigned char voice, vol; short x, y, z; } SndPoint;
 /* The mixer. The table and the channels live in dsp.asm's scratch block,
    beyond its ring; the codec table and one decoded run live here. */
 typedef struct {
-    short hnd, count, lastpos, under, loops, wraps;
+    short hnd, count, lastpos, under, loops, wraps, master;
     long  time;                     /* samples the DMA has played */
     long  painted;                  /* samples written */
     long  fade_acc;
@@ -117,5 +117,6 @@ unsigned long snd_mix_sum( SndMix *mix );
  *       underruns so far.
  */
 short snd_mix_frame( SndMix *mix, short pos, long adv, BspVec3 *ear, unsigned char amb );
+void snd_mix_volume( SndMix *mix, short volume );
 
 #endif

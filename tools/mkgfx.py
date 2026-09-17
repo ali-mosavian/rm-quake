@@ -34,6 +34,10 @@ SYMBOL_X = 48
 SYMBOL_Y = 216
 CHARS_Y = 288
 
+MENU_W = 256
+MENU_H = 368
+MENU_CHARS_Y = 320
+
 CELLS = [
     *(f"NUM_{d}" for d in range(10)), "NUM_MINUS",
     *(f"ANUM_{d}" for d in range(10)), "ANUM_MINUS",
@@ -82,9 +86,17 @@ def qpic(lumps: dict[str, bytes], name: str, width: int, height: int) -> bytes:
     return pixels
 
 
-def blit(atlas: bytearray, pixels: bytes, x: int, y: int, width: int, height: int) -> None:
+def blit(
+    atlas: bytearray,
+    pixels: bytes,
+    x: int,
+    y: int,
+    width: int,
+    height: int,
+    stride: int = ATLAS_W,
+) -> None:
     for row in range(height):
-        start = (y + row) * ATLAS_W + x
+        start = (y + row) * stride + x
         atlas[start : start + width] = pixels[row * width : (row + 1) * width]
 
 
@@ -145,6 +157,34 @@ def main() -> int:
     open(path, "wb").write(atlas)
     count = 8 + len(CELLS) + len(WEAPON_PICS) + len(ITEMS) + 256
     print(f"  sbar.raw       {len(atlas):,} B, {count} status elements")
+
+    menu = bytearray([255]) * (MENU_W * MENU_H)
+    menu_pics = (
+        ("gfx/mainmenu.lmp", 0, 0, 240, 112),
+        ("gfx/sp_menu.lmp", 0, 112, 232, 64),
+        ("gfx/qplaque.lmp", 0, 176, 32, 144),
+        ("gfx/ttl_main.lmp", 32, 176, 96, 24),
+        ("gfx/ttl_sgl.lmp", 128, 176, 128, 24),
+        ("gfx/p_option.lmp", 32, 200, 144, 24),
+        ("gfx/ttl_cstm.lmp", 32, 248, 184, 24),
+        ("gfx/p_load.lmp", 32, 272, 104, 24),
+        ("gfx/p_save.lmp", 136, 272, 88, 24),
+    )
+    for name, x, y, width, height in menu_pics:
+        blit(menu, pak_pic(name, width, height), x, y, width, height, MENU_W)
+    for frame in range(6):
+        blit(menu, pak_pic(f"gfx/menudot{frame + 1}.lmp", 16, 24),
+             32 + frame * 16, 224, 16, 24, MENU_W)
+    menu_codes = (*range(32, 128), *range(160, 256))
+    for index, code in enumerate(menu_codes):
+        pixels = b"".join(
+            chars[(code // 16 * 8 + row) * 128 + code % 16 * 8 :][:8]
+            for row in range(8)
+        )
+        pixels = bytes(255 if pixel == 0 else pixel for pixel in pixels)
+        blit(menu, pixels, index % 32 * 8, MENU_CHARS_Y + index // 32 * 8, 8, 8, MENU_W)
+    open(os.path.join(outdir, "menu.raw"), "wb").write(menu)
+    print(f"  menu.raw       {len(menu):,} B, swapped in only while a menu is open")
     return 0
 
 

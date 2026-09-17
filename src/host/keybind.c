@@ -244,7 +244,7 @@ void keybind_tick( KeyBindings KB_FAR *keys )
     for ( i = 0; i < KA_COUNT; i++ ) keys->pressed[i] = 0;
 }
 
-static short key_name( short key, char *name )
+short keybind_name( short key, char *name )
 {
     short i;
     char *ch;
@@ -257,13 +257,41 @@ static short key_name( short key, char *name )
     return 0;
 }
 
+void keybind_find_command( const KeyBindings KB_FAR *keys, const char *command,
+                           short *first, short *second )
+{
+    char bound[KB_TEXT];
+    short i;
+    *first = *second = -1;
+    for ( i = 0; i < KB_KEYS; i++ ) {
+        if ( !keys->binding[i][0] ) continue;
+        far_get( bound, keys->binding[i], sizeof(bound) );
+        if ( strcmp( bound, command ) ) continue;
+        if ( *first < 0 ) *first = i;
+        else { *second = i; return; }
+    }
+}
+
+void keybind_unbind_command( KeyBindings KB_FAR *keys, const char *command )
+{
+    char bound[KB_TEXT];
+    short i;
+    for ( i = 0; i < KB_KEYS; i++ ) {
+        if ( !keys->binding[i][0] ) continue;
+        far_get( bound, keys->binding[i], sizeof(bound) );
+        if ( strcmp( bound, command ) ) continue;
+        release_key( keys, i );
+        keys->binding[i][0] = 0;
+    }
+}
+
 short keybind_write( const KeyBindings KB_FAR *keys, FILE *file )
 {
     short i;
     char name[16], command[KB_TEXT];
     if ( fprintf( file, "unbindall\n" ) < 0 ) return 0;
     for ( i = 0; i < KB_KEYS; i++ ) {
-        if ( !keys->binding[i][0] || !key_name( i, name ) ) continue;
+        if ( !keys->binding[i][0] || !keybind_name( i, name ) ) continue;
         far_get( command, keys->binding[i], KB_TEXT );
         if ( fprintf( file, "bind \"%s\" \"%s\"\n", name, command ) < 0 ) return 0;
     }

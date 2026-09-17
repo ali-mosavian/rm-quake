@@ -40,6 +40,10 @@ short keybind_keynum( const char *name );
 short keybind_set( KeyBindings KB_FAR *keys, const char *name, const char *command,
                    char *error );
 short keybind_get( const KeyBindings KB_FAR *keys, const char *name, char *command );
+short keybind_name( short key, char *name );
+void  keybind_find_command( const KeyBindings KB_FAR *keys, const char *command,
+                            short *first, short *second );
+void  keybind_unbind_command( KeyBindings KB_FAR *keys, const char *command );
 void  keybind_unbind_all( KeyBindings KB_FAR *keys );
 void  keybind_event( KeyBindings KB_FAR *keys, CmdState CMD_FAR *cmd, short key, short down );
 void  keybind_mouse( KeyBindings KB_FAR *keys, CmdState CMD_FAR *cmd,

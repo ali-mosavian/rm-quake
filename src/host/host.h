@@ -23,6 +23,7 @@
 #include "cmd.h"
 #include "console.h"
 #include "keybind.h"
+#include "menu.h"
 
 /* host_advance's accumulator and tick counter: variable real frame time
    turned into a constant-rate simulation. */
@@ -59,11 +60,14 @@ typedef struct {
     CmdState far  *cmd;
     Console far   *console;
     KeyBindings far *keys;
+    Menu far       *menu;
     short          quit;
     long           console_frames;
     float          fov_applied;
     float          skill_cvar_seen;
     float          viewsize_applied;
+    float          forward_speed;
+    short          invert_mouse;
     Hud far       *hud;
     SurfCache far *sc;
     Mat4           mtx_prj;

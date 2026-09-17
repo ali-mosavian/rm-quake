@@ -11,7 +11,8 @@ int main( void )
     CmdState cmd;
     KeyBindings keys;
     CmdResult result;
-    char error[64], binding[KB_TEXT];
+    char error[64], binding[KB_TEXT], key_name[16];
+    short first, second;
     char saved[4096], temp[68], backup[68];
     FILE *file;
     size_t saved_len;
@@ -25,6 +26,16 @@ int main( void )
     assert( keybind_set( &keys, "CTRL", "+attack", error ) );
     assert( !keybind_set( &keys, "x", "+unknown", error ) );
     assert( keybind_get( &keys, "w", binding ) && !strcmp( binding, "+forward" ) );
+    assert( keybind_name( KEY_SPCBAR, key_name ) && !strcmp( key_name, "SPACE" ) );
+    keybind_find_command( &keys, "+forward", &first, &second );
+    assert( first == KEY_W && second < 0 );
+    assert( keybind_set( &keys, "UPARROW", "+forward", error ) );
+    keybind_find_command( &keys, "+forward", &first, &second );
+    assert( first == KEY_W && second == KEY_UP );
+    keybind_unbind_command( &keys, "+forward" );
+    keybind_find_command( &keys, "+forward", &first, &second );
+    assert( first < 0 && second < 0 );
+    assert( keybind_set( &keys, "w", "+forward", error ) );
 
     assert( keybind_set( &keys, "q", "+attack", error ) );
     keybind_event( &keys, &cmd, KEY_CTRL, 1 );

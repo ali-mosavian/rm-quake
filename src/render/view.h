@@ -29,6 +29,7 @@
  */
 void v_update_camera( Camera *cam, Player *player, World *world, Input *input,
                        const KeyBindings KB_FAR *keys, Fight *fight, Renderer *rdr,
-                       float dt, short x_res, short y_res );
+                       float dt, short x_res, short y_res,
+                       float forward_speed, short invert_mouse );
 
 #endif

@@ -12,7 +12,8 @@
 
 void v_update_camera( Camera *cam, Player *player, World *world, Input *input,
                        const KeyBindings KB_FAR *keys, Fight *fight, Renderer *rdr,
-                       float dt, short x_res, short y_res )
+                       float dt, short x_res, short y_res,
+                       float forward_speed, short invert_mouse )
 {
     int   tmx, tmy;
     float theta, phi;
@@ -29,6 +30,7 @@ void v_update_camera( Camera *cam, Player *player, World *world, Input *input,
 
     tmx = input->mouse.x + 1;
     tmy = input->mouse.y + 2;
+    if ( invert_mouse ) tmy = y_res - tmy;
 
     theta = 2.0f * PI * (float)( (x_res - 1) - tmx ) / (float) x_res;
     phi   = PI * (float) tmy / (float) y_res;
@@ -48,6 +50,8 @@ void v_update_camera( Camera *cam, Player *player, World *world, Input *input,
     if ( keybind_action( keys, KA_BACK ) )      fwd    -= 1.0f;
     if ( keybind_action( keys, KA_MOVELEFT ) )  strafe += 1.0f;
     if ( keybind_action( keys, KA_MOVERIGHT ) ) strafe -= 1.0f;
+    fwd *= forward_speed / PL_FWDSPEED;
+    strafe *= forward_speed / PL_FWDSPEED;
 
     if ( player->no_clip ) {
         /* the intermission holds still: the tally's camera is the

@@ -134,6 +134,13 @@ void snd_frame( Sound *snd, World *world, Player *player, float dt )
                                 world->leaves[ r_point_leaf( &eye, world ) ].amb );
 }
 
+void snd_volume( Sound *snd, float volume )
+{
+    if ( volume < 0.0f ) volume = 0.0f;
+    if ( volume > 1.0f ) volume = 1.0f;
+    snd_mix_volume( &snd->mix, (short) ( volume * 255.0f ) );
+}
+
 void snd_shutdown( Sound *snd )
 {
     if ( snd->on ) qglDspShutdown();

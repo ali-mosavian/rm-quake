@@ -112,7 +112,7 @@ BOSS_MDL = ('boss', 'rise,walk,death,attack,shocka,shockb,shockc')
 
 
 def build_sbar(pak: str, tmp: str) -> dict[str, bytes]:
-    """The packed single-player status-bar atlas from gfx.wad."""
+    """The packed single-player status and menu atlases from gfx.wad."""
     import subprocess
 
     if not pak or not os.path.exists(pak):
@@ -125,7 +125,8 @@ def build_sbar(pak: str, tmp: str) -> dict[str, bytes]:
                        capture_output=True, text=True)
     if r.returncode != 0:
         raise SystemExit(f"mkgfx: {r.stderr.strip() or r.stdout.strip()}")
-    return {"sbar.raw": open(os.path.join(tmp, "sbar.raw"), "rb").read()}
+    return {name: open(os.path.join(tmp, name), "rb").read()
+            for name in ("sbar.raw", "menu.raw")}
 
 
 def build_sounds(pak: str, tmp: str) -> dict[str, bytes]:

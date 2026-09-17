@@ -174,6 +174,7 @@ void snd_self( Sound *snd, Player *player, short chan, short id );
  *       fades the ambients of the leaf the eye is in.
  */
 void snd_frame( Sound *snd, World *world, Player *player, float dt );
+void snd_volume( Sound *snd, float volume );
 
 void snd_shutdown( Sound *snd );
 

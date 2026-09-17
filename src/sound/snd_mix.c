@@ -135,7 +135,15 @@ short snd_mix_setup( SndMix *mix, short hnd, unsigned char far *ring, void far *
 
     mix->time = mix->painted = 0;
     mix->lastpos = mix->under = 0;
+    mix->master = 255;
     return count;
+}
+
+void snd_mix_volume( SndMix *mix, short volume )
+{
+    if ( volume < 0 ) volume = 0;
+    if ( volume > 255 ) volume = 255;
+    mix->master = volume;
 }
 
 /* SND_Spatialize, mono: the player's own sounds at full volume */
@@ -359,6 +367,7 @@ short snd_mix_frame( SndMix *mix, short pos, long adv, BspVec3 *ear, unsigned ch
         for ( k = 0; k < n; k++ ) {
             v = paint[k] >> 5;
             if ( v > 127 ) v = 127; else if ( v < -128 ) v = -128;
+            if ( mix->master != 255 ) v = (int) ( (long) v * mix->master / 255L );
             ring[ringpos + k] = (unsigned char) ( v + 128 );
         }
         mix->painted += n;
