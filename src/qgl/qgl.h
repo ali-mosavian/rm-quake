@@ -30,6 +30,7 @@
 #define QGL_M_FLAT 1
 #define QGL_M_TEX  2
 #define QGL_M_PTEX 3
+#define QGL_M_ATEX 4
 
 /* Where a paged array store's records live. */
 #define QGL_AR_MEM 0

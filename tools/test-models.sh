@@ -32,6 +32,7 @@ mdl() { tr -d '\r' < "$OUT/cstep.txt" 2>/dev/null | sed -n 's/^frames=.* mdl=\([
 AT="-at 88 1420 -190 -yaw 270 -noai -ticks 4"
 run "e1m1.qmp -nostats $AT"        || true
 cp "$OUT/BENCH.BMP" "$OUT/mdl-on.bmp" 2>/dev/null || { echo "FAIL: no frame written" >&2; exit 1; }
+frame_md5=$(md5 -q "$OUT/mdl-on.bmp" 2>/dev/null || md5sum "$OUT/mdl-on.bmp" | cut -d' ' -f1)
 on=$(mdl)
 run "e1m1.qmp -nostats -nomdl $AT" || true
 off=$(mdl)
@@ -47,6 +48,10 @@ PY
 )
 
 fail=0
+if [[ "$frame_md5" != 2678e13aab6c1c8676d84a4329ecf8c7 ]]; then
+    echo "FAIL: model frame is $frame_md5; affine u/z projection changed" >&2
+    fail=1
+fi
 if [[ "${on:-0}" -lt 1 ]]; then
     echo "FAIL: mdl=$on triangles submitted with two monsters in front of the camera" >&2
     fail=1

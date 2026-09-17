@@ -158,7 +158,7 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
     short z_want, z_have = -1, lm_use, lm_on;
     short lm_tms, lm_tmt, lm_extw, lm_exth;
     long  lm_stag;
-    short lm_mip, lm_floor, lm_sw, lm_sh, lm_fw, lm_fh, lm_cm;
+    short lm_mip, lm_floor, lm_sw, lm_sh, lm_fw, lm_fh;
     short leaf_indx, leaf_end, p2;
     long  aim_ofs, lm_dc, src_dc, tex_dc, texofs;
 #if QR_PROF
@@ -412,8 +412,8 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
                 px[j] = dp->xresh + vt_x[j]*rw*dp->xresh;
                 py[j] = dp->yresh - vt_y[j]*rw*dp->yresh;
                 pw[j] = rw;
-                if ( dp->rend_mode == 0 ) { pu[j] = vt_u[j]*rw; pv[j] = vt_v[j]*rw; }
-                else                      { pu[j] = vt_u[j];    pv[j] = vt_v[j];    }
+                pu[j] = vt_u[j] * rw;
+                pv[j] = vt_v[j] * rw;
                 zsum += vt_w[j];
             }
             zl = zsum / cnt;
@@ -434,20 +434,6 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
                 lm_floor = SC_SHIFT( lm_extw ) + SC_SHIFT( lm_exth ) <= SC_MAXSUM
                          ? 0 : sc_mipfloor( lm_extw, lm_exth );
                 if ( lm_mip < lm_floor ) lm_mip = lm_floor;
-
-                /* Sticky mip: zl moves when the camera merely rotates,
-                   so a face near a threshold would flip mip -- and
-                   rebuild -- every few frames. One mip of error is
-                   invisible; the rebuild it saves is milliseconds.
-                   The generation has to match too, or a stale tag
-                   from before a flush pins the mip to a gone surface. */
-                lm_cm = sc_held( sc, i );
-                if ( lm_cm >= 0 ) {
-                    short d = (short)( lm_mip - lm_cm );
-                    if ( d < 0 ) d = (short) -d;
-                    if ( d <= 1 ) lm_mip = lm_cm;
-                    if ( lm_mip < lm_floor ) lm_mip = lm_floor;
-                }
 
                 lm_sw = (short)( lm_extw >> lm_mip );   if ( lm_sw < 1 ) lm_sw = 1;
                 lm_sh = (short)( lm_exth >> lm_mip );   if ( lm_sh < 1 ) lm_sh = 1;
@@ -484,7 +470,7 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
                        has to be scaled by w to match. */
                     lm_su = lm_recip[ lm_mip + SC_SHIFT( lm_sw ) ];
                     lm_sv = lm_recip[ lm_mip + SC_SHIFT( lm_sh ) ];
-                    if ( dp->rend_mode == 0 ) {
+                    if ( dp->rend_mode != 2 ) {
                         for ( j = 0; j < cnt; j++ ) {
                             pu[j] = ( pu[j] - lm_tms*pw[j] ) * lm_su;
                             pv[j] = ( pv[j] - lm_tmt*pw[j] ) * lm_sv;
@@ -545,16 +531,16 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
                                            (short) px[p2], (short) py[p2], 0 );
                 }
             } else {
-                /* pu/pv are u/z and pw is 1/z in perspective mode, which
-                   is the convention the perspective filler wants; the
-                   other mode hands it plain u and v. Nothing is
-                   converted here -- only the mode differs. */
-                if ( lm_on && dp->rend_mode == 0 ) {
+                /* Both textured paths carry u/z, v/z and 1/z down the
+                   edges. Affine divides only at the row endpoints and
+                   takes one constant step between them. */
+                if ( lm_on ) {
                     qglRsPolyBound( dp->h_dst_dc, (QVert far *) pvtx, cnt,
-                                    QGL_M_PTEX, src_dc, lm_sw, lm_sh );
+                                    dp->rend_mode == 0 ? QGL_M_PTEX : QGL_M_ATEX,
+                                    src_dc, lm_sw, lm_sh );
                 } else {
                     qglRsPoly( dp->h_dst_dc, (QVert far *) pvtx, cnt,
-                               dp->rend_mode == 0 ? QGL_M_PTEX : QGL_M_TEX,
+                               dp->rend_mode == 0 ? QGL_M_PTEX : QGL_M_ATEX,
                                src_dc );
                 }
             }

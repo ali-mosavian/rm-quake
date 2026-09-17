@@ -33,9 +33,9 @@
                            its 78 */
 #define SC_GRAN   256    /* smallest class, 16x16: the offset unit */
 
-#define SC_VARIANTS 4   /* surfaces one face may hold, one per light key:
-                           a flickering style's values each keep theirs,
-                           and world.qc's styles 1 and 6 have four */
+#define SC_VARIANTS 4   /* surfaces one face may hold at each mip, one per
+                           light key: a flickering style's values each keep
+                           theirs, and world.qc's styles 1 and 6 have four */
 
 #define SC_MINORD 8    /* log2(SC_GRAN) */
 #define SC_NORD   7    /* SC_MAXSUM - SC_MINORD + 1 */
@@ -192,9 +192,6 @@ QSurf   sc_alloc( SurfCache far *sc, short face, short mip, short w, short h, sh
 
 /* The face's most recent surface is no surface: the builder refused it. */
 void  sc_forget( SurfCache far *sc, short face );
-
-/* Which mip this face already has resident, or -1 for none. */
-short sc_held( SurfCache far *sc, short face );
 
 /* Fills a CacheStats with the current counters. */
 void  sc_stats( SurfCache far *sc, CacheStats *s );

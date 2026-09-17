@@ -167,7 +167,10 @@ endm
 GRADCHK         macro   fval:req, fxval:req, lbl:req
                 local   aff, done
                 cmp     qgl$mode, QGL_M_PTEX
+                je      @F
+                cmp     qgl$mode, QGL_M_ATEX
                 jne     aff
+@@:
                 fld     fval
                 fabs
                 fcomp   qgl$2gb
@@ -249,6 +252,7 @@ qgl$fdzdx       real4   0.0                     ;; only qgl$drawP reads them
 
                 public  qgl$dudx, qgl$dvdx, qgl$fcol, qgl$mode
                 public  qgl$fdudxn, qgl$fdvdxn, qgl$fdzdxn
+                public  qgl$fdudx, qgl$fdvdx, qgl$fdzdx
                 public  qgl$tshift, qgl$tumsk, qgl$tvmsk, qgl$tofs
                 public  qgl$tseg, qgl$zmode
                 public  qgl$bound, qgl$bumax, qgl$bvmax
@@ -780,7 +784,7 @@ qglRsPoly     proc    public uses bx cx dx si di ds es,\
                 ja      @@bad
 
                 mov     ax, mode
-                cmp     ax, QGL_M_PTEX
+                cmp     ax, QGL_M_ATEX
                 ja      @@bad
                 mov     qgl$mode, ax
 
@@ -837,7 +841,10 @@ qglRsPoly     proc    public uses bx cx dx si di ds es,\
                 ;; below is picked off the same answer.
                 xor     ax, ax
                 cmp     qgl$mode, QGL_M_PTEX
+                je      @@persp
+                cmp     qgl$mode, QGL_M_ATEX
                 jne     @F
+@@persp:
                 inc     ax
 @@:             mov     persp, ax
 
@@ -1108,7 +1115,10 @@ qglRsPolyBound proc public uses bx dx es,\
                         uw:word, vh:word
 
                 cmp     mode, QGL_M_PTEX
+                je      @F
+                cmp     mode, QGL_M_ATEX
                 jne     @@bad
+@@:
                 les     bx, src
                 mov     ax, es
                 or      ax, bx

@@ -55,6 +55,10 @@ n_end_low       db      'later endpoint clamps low $'
 n_end_draw      db      'endpoint quad draws pixels$'
 n_high_clamp    db      'endpoint clamps logical max$'
 n_high_draw     db      'upper clamp reaches far edge$'
+n_alow_wrap     db      'atex negative clamps zero$'
+n_alow_draw     db      'atex clamped quad draws $'
+n_ahigh_clamp   db      'atex clamps logical max$'
+n_ahigh_draw    db      'atex reaches far edge  $'
 
 quad            QVert   <8.0,  8.0,  1.0, 0.0,  0.0>
                 QVert   <56.0, 8.0,  1.0, 0.75, 0.0>
@@ -241,6 +245,14 @@ tmain           proc    far public uses bx cx dx si di es
                 NZ      ax
                 CHK     n_low_draw, ax, 1
 
+                invoke  qglDrFill, dst, 0, 0, DIM-1, DIM-1, 0
+                invoke  qglRsPolyBound, dst, quadp, 4, QGL_M_ATEX, cache, CORE, CORE
+                invoke  count_far
+                CHK     n_alow_wrap, ax, 0
+                invoke  count_good
+                NZ      ax
+                CHK     n_alow_draw, ax, 1
+
                 ;; The start is in range; only a later 16-pixel endpoint
                 ;; crosses below zero. Quake clamps before deriving the
                 ;; negative step so its last pixels cannot wrap.
@@ -267,6 +279,14 @@ tmain           proc    far public uses bx cx dx si di es
                 invoke  count_far
                 NZ      ax
                 CHK     n_high_draw, ax, 1
+
+                invoke  qglDrFill, dst, 0, 0, DIM-1, DIM-1, 0
+                invoke  qglRsPolyBound, dst, quadp, 4, QGL_M_ATEX, cache, CORE, CORE
+                invoke  count_poison
+                CHK     n_ahigh_clamp, ax, 0
+                invoke  count_far
+                NZ      ax
+                CHK     n_ahigh_draw, ax, 1
 
                 invoke  qglSfFree, dst
                 invoke  qglSfFree, cache
