@@ -237,6 +237,7 @@ void sys_parse_args( RunArgs *args )
     if ( argc < 1 ) {
         strcpy( args->map_name, "start.qmp" );
         strcpy( args->startup_cmd, "startdemos demo1 demo2 demo3" );
+        args->use_lm = -1;
         return;
     }
 

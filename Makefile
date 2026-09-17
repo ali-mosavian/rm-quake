@@ -170,6 +170,14 @@ $(foreach m,$(MAPS),data/$(m).bsp): data/%.bsp: $(PAK) tools/pakget.py
 data/maps/%/assets.zip: data/%.bsp data/base.dat $(MKASSETS)
 	@python3 tools/mkassets.py data/$*.bsp data/base.dat data/maps/$* $(PAK)
 
+# mkassets writes both outputs in one pass. Name the QMP side too, or title
+# can copy an old container even after a generator changed the ZIP stamp.
+define MAP_QMP_RULE
+data/maps/$(1)/$(1).qmp: data/maps/$(1)/assets.zip
+	@test -f $$@
+endef
+$(foreach m,$(MAPS),$(eval $(call MAP_QMP_RULE,$(m))))
+
 test:                           ## header deps, far-to-near pointers, then qgl's suite, native; needs `make assets`
 	@tools/depcheck.sh
 	@tools/test-dups.sh

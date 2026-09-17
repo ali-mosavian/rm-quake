@@ -63,4 +63,11 @@ else
     echo "FAIL: assetdeps: with$missed newer, make leaves e1m1's container as it is" >&2
     fail=1
 fi
+qmp_plan=$(make -C "$ROOT" -n -W tools/mkgfx.py data/maps/e1m4/e1m4.qmp 2>/dev/null)
+if grep -q "mkassets.py data/e1m4.bsp" <<< "$qmp_plan"; then
+    echo "ok: assetdeps: a newer UI generator rebuilds the named title-map container"
+else
+    echo "FAIL: assetdeps: a newer UI generator leaves the named title-map container stale" >&2
+    fail=1
+fi
 exit $fail
