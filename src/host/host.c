@@ -1277,11 +1277,17 @@ static void near host_present( Host *h )
         scr_sbar_draw( &h->fight, v->h_comp_dc, v->scr_x_res, v->scr_y_res );
         scr_draw_hud( &h->world, &h->rdr, &h->cam, &h->player, h->sc, h->hud,
                       v->h_comp_dc, v->scr_x_res, v->scr_y_res );
+        scr_draw_center( h->hud, &h->fight, v->h_comp_dc,
+                         v->scr_x_res, v->scr_y_res,
+                         (short) !con_open( h->console ) );
         scr_draw_msg( h->hud, &h->world, &h->fight, &h->rdr, v->h_comp_dc,
                       v->scr_x_res, v->scr_y_res );
         con_draw( h->console, h->hud, v->h_comp_dc, v->scr_x_res, v->scr_y_res );
         qglDrBlit( v->h_video_dc, 0, 0, v->h_comp_dc );
-    }
+    } else
+        scr_draw_center( h->hud, &h->fight, v->h_video_dc,
+                         v->scr_x_res, v->scr_y_res,
+                         (short) !con_open( h->console ) );
 #if QR_PROF
     pt_stop( h, t0, &h->pt.present_sum, 0 );
 #endif
@@ -1323,6 +1329,7 @@ void host_frame( Host *h )
 #endif
     }
 
+    ent_msg_frame( &h->fight, frame_dt );
     if ( con_open( h->console ) ) {
         h->console_frames++;
         h->clock.accum = 0.0f;
@@ -1345,8 +1352,9 @@ void host_frame( Host *h )
 
     qglDrFill( h->h_dst_dc, 0, 0, (short)(h->v.x_res - 1), (short)(h->v.y_res - 1), 0 );
     host_render( h );
-    in_screenshot_key( &h->input, h->h_dst_dc, h->v.x_res, h->v.y_res );
     host_present( h );
+    in_screenshot_key( &h->input, h->v.h_video_dc,
+                       h->v.scr_x_res, h->v.scr_y_res );
 
     /* the totals before scr_count_frame resets rdr's short counters */
     bench_frame_counts( &h->bs, &h->rdr, &h->pt );
@@ -1406,6 +1414,9 @@ static void near host_report( Host *h )
              fight->health, fight->shells, fight->nails, fight->rockets,
              fight->armor, fight->items, item_taken( &h->world ), fight->kills,
              fight->booms, fight->deaths, fight->cells );
+    mark( buf );
+    sprintf( buf, "center msg=%d ms=%ld", fight->msg != 0,
+             (long) ( fight->msg_time * 1000.0f ) );
     mark( buf );
 
     bench_mark_times( &h->bs, buf );

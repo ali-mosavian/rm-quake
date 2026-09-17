@@ -4,6 +4,7 @@
 #include "renderer.h"
 #include "world.h"
 #include "fight.h"
+#include "enttext.h"
 
 short ent_find_node( short m, World *world );
 short ent_point_leaf( BspVec3 *p, World *world );
@@ -13,8 +14,6 @@ void  ent_monster_teleport( World *world, float now, MdlEnt far *e );
 void  ent_place_models( World *world );
 char far *ent_msg( World *world, short id );
 
-/* A space-padded map name of up to 8 into a 9-byte C string. */
-void  ent_copy_map( char *dst, char far *src );
 short ent_box_touched( Player *player, BspVec3 far *mins, BspVec3 far *maxs, float slack );
 
 /* sound() on a mover: submodel m's own voice channel, from the middle
@@ -59,7 +58,7 @@ typedef struct {
     short   worldtype;
     short   ncrate;
     float   gravity;
-    short   nmsg;
+    short   msg_size;
     short   nlight;
     BspVec3 spawn2;         /* info_player_start2, or the start where a map has none */
     float   angle2;

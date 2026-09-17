@@ -181,7 +181,7 @@ SKILLS     = 4   # easy, normal, hard, nightmare: an ents<N>.bin each
 ENTS_HEAD  = '<4f3fff13hfhh3ffh'   # ent.h's EntsHead; the monsters follow it
 ENTS_MON   = '<hh3ffhh'          # ent.h's EntsMon
 
-QMAP_VER   = 2
+QMAP_VER   = 3
 QMAP_HEAD  = 64
 QMAP_NAME  = 16
 QMAP_ENT   = 24
@@ -874,10 +874,31 @@ def ent_name_id(e: Ents, s: str) -> int:
     return e.names.setdefault(s, len(e.names) + 1) if s else 0
 
 
+CENTERPRINT_MAX = 1023
+
+
+def message_bytes(text: str) -> bytes:
+    value = text.replace('\\n', '\n').encode('latin1')
+    if len(value) > CENTERPRINT_MAX:
+        raise ValueError(f"centerprint exceeds {CENTERPRINT_MAX} bytes")
+    return value
+
+
 def ent_msg(kv: dict[str, str]) -> bytes:
-    # the first line: a map's newline is a literal backslash-n, and the
-    # overlay draws one line of 40; only start's registered notice has more
-    return kv.get('message', '').split('\\n')[0][:40].encode('latin1').ljust(40)
+    return message_bytes(kv.get('message', ''))
+
+
+def message_pool(messages: list[bytes]) -> tuple[dict[bytes, int], bytes]:
+    offsets: dict[bytes, int] = {}
+    pool = bytearray(b'\0')
+    for message in messages:
+        if not message or message in offsets:
+            continue
+        offsets[message] = len(pool)
+        pool += message + b'\0'
+    if len(pool) > 32767:
+        raise ValueError("entity message pool exceeds 16-bit offsets")
+    return offsets, bytes(pool)
 
 
 def ent_movedir(angle: float) -> tuple[float, float, float]:
@@ -913,7 +934,7 @@ def ent_door(e: Ents, m: int, kv: dict[str, str], box: tuple[float, ...]) -> tup
     key = 1 if flags & 16 else 2 if flags & 8 else 0
     msg = ent_msg(kv)
     if key and not kv.get('message'):
-        msg = f"You need the {'silver' if key == 1 else 'gold'} {KEY_NAMES[e.worldtype]}".encode('latin1').ljust(40)
+        msg = message_bytes(f"You need the {'silver' if key == 1 else 'gold'} {KEY_NAMES[e.worldtype]}")
     return (m, travel, (0.0, 0.0, 0.0), speed, hold, 1 if flags & 1 else 0, 1 if flags & 4 else 0,
             ent_name_id(e, kv.get('targetname', '')), 0, 0, int(kv.get('sounds', '0')), key, msg)
 
@@ -954,7 +975,7 @@ def ent_trig(e: Ents, m: int, kv: dict[str, str]) -> tuple:
     if kind == TRIG_SECRET:
         snd = snd or 1
         if not kv.get('message'):
-            msg = b'You found a secret area!'.ljust(40)
+            msg = b'You found a secret area!'
     # delay: SUB_UseTargets' DelayThink, seconds before the target fires
     return (m, kind, ent_name_id(e, kv.get('target', '')), ent_name_id(e, kv.get('targetname', '')),
             ent_name_id(e, kv.get('killtarget', '')), count, wait, 0.0, (0.0, 0.0, 0.0), snd, msg,
@@ -1039,7 +1060,7 @@ def sp_spikeshooter(e: Ents, kv: dict[str, str]) -> bool:
     # SUPERSPIKE (1) bites 18 for 9. wait carries the damage
     e.uses.append((0, TRIG_SHOOTER, 0, ent_name_id(e, kv.get('targetname', '')), 0,
                    18 if int(kv.get('spawnflags', '0')) & 1 else 9, 0.0, 500.0,
-                   ent_movedir(float(kv.get('angle', '0'))), 0, b''.ljust(40), ent_vec(kv.get('origin', '0 0 0'))))
+                   ent_movedir(float(kv.get('angle', '0'))), 0, b'', ent_vec(kv.get('origin', '0 0 0'))))
     return True
 
 
@@ -1050,8 +1071,8 @@ def sp_changelevel(e: Ents, kv: dict[str, str]) -> bool:
     e.hides.append(m)
     # count carries the trigger's own map, a message id once packed: one next_map a
     # file kept the last read, and e1m4's main exit led to e1m8
-    e.uses.append((m, TRIG_EXIT, 0, 0, 0, kv.get('map', '')[:40].encode('latin1').ljust(40), -1.0, 0.0,
-                   (0.0, 0.0, 0.0), 0, e.title[:40].encode('latin1').ljust(40)))
+    e.uses.append((m, TRIG_EXIT, 0, 0, 0, kv.get('map', '')[:8].encode('latin1'), -1.0, 0.0,
+                   (0.0, 0.0, 0.0), 0, message_bytes(e.title)))
     return True
 
 
@@ -1066,7 +1087,7 @@ def sp_fireball(e: Ents, kv: dict[str, str]) -> bool:
     # speed as the map gives it: id's default is `self.speed == 1000`,
     # a compare, so an unset one leaves 0 and the ball rises 0..200
     e.uses.append((0, TRIG_FIREBALL, 0, 0, 0, 0, 0.0, float(kv.get('speed', '0')),
-                   (0.0, 0.0, 0.0), 0, b''.ljust(40), ent_vec(kv.get('origin', '0 0 0'))))
+                   (0.0, 0.0, 0.0), 0, b'', ent_vec(kv.get('origin', '0 0 0'))))
     return True
 
 
@@ -1078,7 +1099,7 @@ def sp_monsterjump(e: Ents, kv: dict[str, str]) -> bool:
     e.hides.append(m)
     speed, height = float(kv.get('speed', '0')) or 200.0, float(kv.get('height', '0')) or 200.0
     dx, dy, _ = ent_movedir(float(kv.get('angle', '0')))
-    e.uses.append((m, TRIG_MJUMP, 0, 0, 0, 0, 0.0, 0.0, (dx * speed, dy * speed, height), 0, b''.ljust(40)))
+    e.uses.append((m, TRIG_MJUMP, 0, 0, 0, 0, 0.0, 0.0, (dx * speed, dy * speed, height), 0, b''))
     return True
 
 
@@ -1088,7 +1109,7 @@ def sp_setskill(e: Ents, kv: dict[str, str]) -> bool:
         return False
     e.hides.append(m)
     skill = min(max(int(float(kv.get('message', '0') or '0')), 0), SKILLS - 1)
-    e.uses.append((m, TRIG_SKILL, 0, 0, 0, skill, 0.0, 0.0, (0.0, 0.0, 0.0), 0, b''.ljust(40)))
+    e.uses.append((m, TRIG_SKILL, 0, 0, 0, skill, 0.0, 0.0, (0.0, 0.0, 0.0), 0, b''))
     return True
 
 
@@ -1103,7 +1124,7 @@ def sp_boss(e: Ents, kv: dict[str, str]) -> bool:
     # Chthon: the rune wakes him, his health boss_awake's 1 on easy else 3,
     # a bolt a point, dead his target fires; his model ships as BOSS_MDL
     e.uses.append((0, TRIG_BOSS, ent_name_id(e, kv.get('target', '')), ent_name_id(e, kv.get('targetname', '')),
-                   0, 1 if e.skill == 0 else 3, 0.0, 0.0, (0.0, 0.0, 0.0), 0, b''.ljust(40),
+                   0, 1 if e.skill == 0 else 3, 0.0, 0.0, (0.0, 0.0, 0.0), 0, b'',
                    ent_vec(kv.get('origin', '0 0 0'))))
     return True
 
@@ -1112,7 +1133,7 @@ def sp_lightning(e: Ents, kv: dict[str, str]) -> bool:
     # lightning_use: a point off Chthon with both electrode doors up; travel
     # carries the doors' indices, patched once every door is read
     e.uses.append((0, TRIG_BOLT, 0, ent_name_id(e, kv.get('targetname', '')),
-                   0, 0, 0.0, 0.0, (0.0, 0.0, 0.0), 0, b''.ljust(40), ent_vec(kv.get('origin', '0 0 0'))))
+                   0, 0, 0.0, 0.0, (0.0, 0.0, 0.0), 0, b'', ent_vec(kv.get('origin', '0 0 0'))))
     return True
 
 
@@ -1304,23 +1325,25 @@ def pack_entities(e: Ents, nmodels: int, gravity: float, crates: CrateSet) -> by
         assert len(bolt_doors) == 2, bolt_doors
         uses = [(*u[:8], (float(bolt_doors[0]), float(bolt_doors[1]), 0.0), *u[9:]) if u[1] == TRIG_BOLT else u
                 for u in uses]
-    # messages are ids into one table after the crates, 0 none: 40 bytes a
-    # record was 3K on e1m4, whose 78 doors and triggers say two things
-    msgs: dict[bytes, int] = {}
+    # Message fields are 16-bit offsets into one NUL string pool. Offset zero
+    # is the empty string, so doors, centerprints and changelevel map names
+    # share storage without a fixed 1 KB slot per possible centerprint.
+    messages: list[bytes] = []
 
     def msg_id(b: bytes) -> int:
-        return msgs.setdefault(b, len(msgs) + 1) if b.strip() else 0
+        return msg_offsets.get(b, 0)
 
     for d in doors:
-        msg_id(d[-1])
+        messages.append(d[-1])
     for u in uses:
-        msg_id(u[10])
+        messages.append(u[10])
         if u[1] == TRIG_EXIT:
-            msg_id(u[5])
+            messages.append(u[5])
+    msg_offsets, msg_pool = message_pool(messages)
     buf = bytearray(struct.pack(ENTS_HEAD, *spawn, angle, *inter[0], inter[1], inter[2], nmodels,
                                 len(teles), len(plats), len(hides), len(items), len(doors), len(uses), len(mons),
                                 len(ambs), len(trains), len(corners), worldtype, len(crates.used), gravity,
-                                len(msgs), len(lights), *spawn2, angle2, len(e.gates)))
+                                len(msg_pool), len(lights), *spawn2, angle2, len(e.gates)))
     for kind, order, org, yaw, target, cruc in mons:
         buf += struct.pack(ENTS_MON, kind, order, *org, yaw, corner_at.get(target, -1), cruc)
     for m, org, yaw, name, only in teles:
@@ -1358,8 +1381,7 @@ def pack_entities(e: Ents, nmodels: int, gravity: float, crates: CrateSet) -> by
             buf += struct.pack('<hh12b', tex, frames, *(v for corner in corners4 for v in corner))
     for name, style, on in lights:
         buf += struct.pack('<3h', name, style, on)
-    for b in msgs:
-        buf += b
+    buf += msg_pool
     return bytes(buf)
 
 

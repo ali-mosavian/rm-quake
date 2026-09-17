@@ -82,7 +82,11 @@ void hud_graph( Hud far *hud, QSurf dc, short x, short y, short h, short *buf, s
 void scr_draw_hud( World *world, Renderer *rdr, Camera *cam, Player *player,
                     SurfCache far *sc, Hud far *hud, QSurf h_dst_dc, short w, short h );
 
-/* The centerprint, drawn whether or not the stats overlay is on. */
+/* The centerprint is drawn in final display coordinates. */
+void scr_draw_center( Hud far *hud, Fight *fight, QSurf dc,
+                      short w, short h, short enabled );
+
+/* End-state and intermission messages, drawn whether or not stats are on. */
 void scr_draw_msg( Hud far *hud, World *world, Fight *fight, Renderer *rdr,
                     QSurf h_dst_dc, short w, short h );
 

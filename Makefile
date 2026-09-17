@@ -164,6 +164,7 @@ test:                           ## header deps, far-to-near pointers, then qgl's
 	@tools/test-assetdeps.sh
 	@tools/test-console.sh
 	@tools/test-keybind.sh
+	@tools/test-centerprint.sh
 	@python3 tools/farnear.py
 	@tools/test-x87cmp.sh
 	@tools/test-bufcheck.sh

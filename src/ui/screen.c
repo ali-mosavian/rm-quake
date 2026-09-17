@@ -9,6 +9,7 @@
 #include <mem.h>       /* _fmemcpy */
 
 #include "screen.h"
+#include "center.h"
 #include "qgl.h"  /* qglSfPset/qglDrShade */
 #include "pal.h"  /* pal_bestfit/pal_current */
 #include "pak.h"
@@ -340,9 +341,26 @@ void scr_draw_hud( World *world, Renderer *rdr, Camera *cam, Player *player,
     }
 }
 
-/* Quake's centerprint, and it draws under -nostats too: a door or a
-   trigger that says something has to be readable in a reference frame,
-   which is what proves the message reached the screen at all. */
+void scr_draw_center( Hud far *hud, Fight *fight, QSurf dc,
+                      short w, short h, short enabled )
+{
+    const char far *text;
+    char line[CENTER_LINE + 1];
+    short i, len, lines, y;
+
+    if ( !enabled || !fight->msg || fight->msg_time <= 0.0f ) return;
+    text = fight->msg;
+    lines = center_count_lines( text );
+    y = center_y( lines, h );
+    for ( i = 0; i < lines; i++, y += center_step() ) {
+        text = center_next_line( text, line );
+        len = (short) strlen( line );
+        if ( len ) draw_string( hud, dc, (short) ( ( w - 4 * len ) / 2 ), y,
+                                line, hud->hc_text );
+    }
+}
+
+/* State text draws under -nostats too, as id's screen overlays do. */
 void scr_draw_msg( Hud far *hud, World *world, Fight *fight, Renderer *rdr,
                     QSurf h_dst_dc, short w, short h )
 {
@@ -364,13 +382,6 @@ void scr_draw_msg( Hud far *hud, World *world, Fight *fight, Renderer *rdr,
         "Elder World!"
     };
     short i, shown, n, y;
-
-    if ( rdr->anim_time < fight->msg_until ) {
-        len = (short) strlen( fight->msg );
-        if ( len )
-            draw_string( hud, h_dst_dc, (short) ( ( w - 4 * len ) / 2 ), (short) ( h / 3 ),
-                         fight->msg, hud->hc_text );
-    }
 
     if ( fight->state == GS_FINALE ) {
         shown = (short) ( ( rdr->anim_time - ( fight->state_until - 1.0f ) ) * 8.0f );

@@ -26,11 +26,16 @@
 #include "qgl.h"
 
 /* items.qc's netname for a key: silver or gold, then the worldtype's word */
-static void pl_key_name( char *out, short wt, short kind )
+static char far *pl_key_name( short wt, short kind )
 {
-    strcpy( out, "You got the " );
-    strcat( out, kind == ENT_ITEM_KEY2 ? "gold " : "silver " );
-    strcat( out, wt == 1 ? "runekey" : ( wt == 2 ? "keycard" : "key" ) );
+    if ( kind == ENT_ITEM_KEY2 ) {
+        if ( wt == 1 ) return (char far *) "You got the gold runekey";
+        if ( wt == 2 ) return (char far *) "You got the gold keycard";
+        return (char far *) "You got the gold key";
+    }
+    if ( wt == 1 ) return (char far *) "You got the silver runekey";
+    if ( wt == 2 ) return (char far *) "You got the silver keycard";
+    return (char far *) "You got the silver key";
 }
 
 typedef struct ItemInfo ItemInfo;
@@ -118,13 +123,9 @@ static short near item_take_armor( Fight *fight, Renderer *rdr, ItemEnt far *it,
 /* key_touch: one of each; the name and the sound are the worldtype's */
 static short near item_take_key( Fight *fight, Renderer *rdr, ItemEnt far *it, const ItemInfo far *inf )
 {
-    char line[ENT_MSG_LEN + 1];
-
     if ( fight->items & inf->bit ) return -1;
     fight->items |= inf->bit;
-    memset( line, 0, sizeof(line) );
-    pl_key_name( line, fight->worldtype, it->kind );
-    ent_say( fight, rdr, (char far *) line );
+    ent_say( fight, rdr, pl_key_name( fight->worldtype, it->kind ) );
     return (short) ( SND_KEY + ( fight->worldtype > 1 ? 1 : fight->worldtype ) );
 }
 

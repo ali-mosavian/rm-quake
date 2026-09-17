@@ -173,9 +173,12 @@ PAK0 and are left out.
 - [ ] Intermission screen
       id: `sbar.c` `Sbar_IntermissionOverlay`
       qcport (partial): one line of text, `src/ui/screen.c:364`
-- [ ] Multi-line centerprint
+- [x] Multi-line centerprint
       id: `screen.c` `SCR_CenterPrint`
-      qcport (partial): first line, 40 characters, `tools/mkassets.py:854`
+      qcport: source newlines and blank rows, id's 40-character clipping,
+      vertical anchors and two-second real-time expiry; messages share the
+      map's NUL string pool; `tools/test-centerprint.sh`,
+      `tools/test-centerprint-dos.sh`
 - [ ] Stereo sound
       id: `snd_dma.c` `SND_Spatialize`
       qcport: mono, `src/sound/snd.h:9`

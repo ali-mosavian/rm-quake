@@ -13,6 +13,7 @@ import sys
 
 HEAD = struct.Struct("<4slHlL16s")
 ENT = struct.Struct("<16sll")
+QMAP_VERSION = 3
 
 
 def members(path: str) -> dict[str, tuple[int, int]]:
@@ -20,8 +21,8 @@ def members(path: str) -> dict[str, tuple[int, int]]:
     magic, ver, n, dirofs, _sum, _name = HEAD.unpack_from(d, 0)
     if magic != b"QMAP":
         raise SystemExit(f"{path}: not a map container")
-    if ver != 2:
-        raise SystemExit(f"{path}: version {ver}, not 2")
+    if ver != QMAP_VERSION:
+        raise SystemExit(f"{path}: version {ver}, not {QMAP_VERSION}")
     out = {}
     for k in range(n):
         name, ofs, size = ENT.unpack_from(d, dirofs + k * ENT.size)

@@ -512,16 +512,17 @@ static void near ent_load_lights( World *world, unsigned char far *buf, long *of
 /* The message table is last, so what is left of the file is what it
    holds -- and a header that disagrees with that is the tell that some
    record above was skipped by the wrong size. */
-static void near ent_load_msgs( World *world, unsigned char far *buf, long *ofs, short count, long total )
+static void near ent_load_msgs( World *world, unsigned char far *buf, long *ofs,
+                                short size, long total )
 {
-    if ( *ofs + (long) count * ENT_MSG_LEN != total ) {
+    if ( size < 1 || *ofs + size != total || buf[*ofs] != 0 || buf[*ofs + size - 1] != 0 ) {
         sys_error( "ents: message table size does not match its header" );
     }
-    world->msg_count = count;
-    world->msgs = (char far *) qglMemAlloc( (long) ( count ? count : 1 ) * ENT_MSG_LEN );
+    world->msg_size = size;
+    world->msgs = (char far *) qglMemAlloc( size );
     if ( !world->msgs ) sys_error( "ents: no room for the messages" );
-    if ( count ) _fmemcpy( world->msgs, buf + *ofs, (long) count * ENT_MSG_LEN );
-    *ofs += (long) count * ENT_MSG_LEN;
+    _fmemcpy( world->msgs, buf + *ofs, size );
+    *ofs += size;
 }
 
 /* Every submodel draws and blocks unless something claims it as a
@@ -738,18 +739,17 @@ void ent_load_world( World *world )
     ent_load_corners( world, buf, &ofs, h.ncorner );
     ent_load_crates( world, buf, &ofs, h.ncrate );
     ent_load_lights( world, buf, &ofs, h.nlight );
-    ent_load_msgs( world, buf, &ofs, h.nmsg, n );
+    ent_load_msgs( world, buf, &ofs, h.msg_size, n );
     ent_settle( world );
 
     qglMemFree( (long) buf );
 }
 
-/* A message by its 1-based id, or a pointer to 40 spaces for none.
-   Not NUL-terminated on disk, so the length travels with it. */
+/* A message by its byte offset in the map's NUL string pool. */
 char far *ent_msg( World *world, short id )
 {
-    if ( id < 1 || id > world->msg_count || !world->msgs ) return 0;
-    return world->msgs + (long) ( id - 1 ) * ENT_MSG_LEN;
+    if ( id < 1 || id >= world->msg_size || !world->msgs ) return 0;
+    return world->msgs + id;
 }
 
 /* The player's box against one grown by slack. */
@@ -807,18 +807,7 @@ void ent_reset( World *world, Fight *fight )
     }
     world->light_clock = world->light_count;
 
-    fight->msg_until = 0.0f;
-    fight->msg[0] = '\0';
+    fight->msg_time = 0.0f;
+    fight->msg = 0;
     for ( k = 1; k < world->model_count; k++ ) world->brush[k].node = ENT_NODE_DIRTY;
-}
-
-void ent_copy_map( char *dst, char far *src )
-{
-    short i, last = -1;
-
-    for ( i = 0; i < 8; i++ ) {
-        dst[i] = src[i];
-        if ( src[i] != ' ' && src[i] != '\0' ) last = i;
-    }
-    dst[ last + 1 ] = '\0';
 }

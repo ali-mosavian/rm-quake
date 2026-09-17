@@ -14,19 +14,26 @@
 #include "snd.h"
 #include "qgl.h"
 #include "mdl_ai.h"
+#include "center.h"
 
 void ent_say( Fight *fight, Renderer *rdr, char far *msg )
 {
     short i, last = -1;
 
+    (void) rdr;
     if ( !msg ) return;
-    for ( i = 0; i < ENT_MSG_LEN; i++ )
+    for ( i = 0; i < CENTER_TEXT_MAX && msg[i]; i++ )
         if ( msg[i] != ' ' && msg[i] != '\0' ) last = i;
     if ( last < 0 ) return;             /* blank is not a message */
 
-    for ( i = 0; i <= last; i++ ) fight->msg[i] = msg[i];
-    fight->msg[last + 1] = '\0';
-    fight->msg_until = rdr->anim_time + ENT_MSG_TIME;
+    fight->msg = msg;
+    fight->msg_time = ENT_MSG_TIME;
+}
+
+void ent_msg_frame( Fight *fight, float frame_dt )
+{
+    if ( fight->msg_time > 0.0f && !center_advance( &fight->msg_time, frame_dt ) )
+        fight->msg = 0;
 }
 
 /* SUB_UseTargets and door_touch: the message, and misc/talk with it */
@@ -284,7 +291,7 @@ void ent_move_trigs( World *world, Player *player, Camera *cam, Fight *fight,
                 ent_say( fight, rdr, ent_msg( world, t->msg ) );
                 /* changelevel_touch: nextmap = self.map */
                 if ( ent_msg( world, t->count ) ) ent_copy_map( fight->next_map, ent_msg( world, t->count ) );
-                fight->msg_until  = rdr->anim_time + 3600.0f;
+                fight->msg_time = 3600.0f;
                 fight->state      = GS_EXIT;
                 fight->exit_time  = rdr->anim_time;
                 pl_intermission( player, cam, fight, scr_x_res, scr_y_res );

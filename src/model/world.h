@@ -131,10 +131,9 @@ typedef struct {
     /* Chthon's, loaded with a map that has monster_boss */
     MdlState    boss;
 
-    /* The message table, last in ents.bin: ENT_MSG_LEN bytes each, not
-       NUL-terminated. A door's or a trigger's msg is a 1-based id into
-       this, 0 for none. */
-    short       msg_count;
+    /* NUL string pool at the end of ents.bin. Entity message fields are
+       16-bit byte offsets into it; zero names the empty first byte. */
+    short       msg_size;
     char        far *msgs;
 
     /* Which submodel owns a face is Face.side >> 1, written by

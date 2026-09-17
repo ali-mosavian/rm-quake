@@ -34,6 +34,7 @@ void ent_trig_fire( World *world, Player *player, Fight *fight,
  */
 void ent_say( Fight *fight, Renderer *rdr, char far *msg );
 void ent_talk( Player *player, Sound *snd, Fight *fight, Renderer *rdr, char far *msg );
+void ent_msg_frame( Fight *fight, float frame_dt );
 
 /* misc_fireball: its first ball 0..5 s from now. ent_fireballs_sent
    counts every emitter's balls, for the run summary. */

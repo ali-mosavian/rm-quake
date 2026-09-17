@@ -29,7 +29,7 @@
 /* The .qmp's own header and directory. QMAP_NAME and QMAP_ENT are
    mkassets.py's write_qmap; the guard below is the other half. */
 #define QMAP_SIG   0x50414D51L      /* "QMAP" */
-#define QMAP_VER   2L
+#define QMAP_VER   3L
 #define QMAP_NAME  16
 #define QMAP_ENT   24
 /* Members a map may carry. 19 lumps, three atlases and the palette,

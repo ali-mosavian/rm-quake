@@ -91,6 +91,25 @@ void v_init( Video *v, long pal )
  * desc: Page flip or backbuffer blit, once per frame at the end of it.
  *       Returns the next work page; v itself never changes.
  */
+static void near v_clear_border( Video *v, QSurf target )
+{
+    short right = (short) ( v->view_x + v->x_res * v->view_scale );
+    short bottom = (short) ( v->view_y + v->y_res * v->view_scale );
+
+    if ( v->view_y > 0 )
+        qglDrFill( target, 0, 0, (short) ( v->scr_x_res - 1 ),
+                   (short) ( v->view_y - 1 ), 0L );
+    if ( bottom < v->scr_y_res )
+        qglDrFill( target, 0, bottom, (short) ( v->scr_x_res - 1 ),
+                   (short) ( v->scr_y_res - 1 ), 0L );
+    if ( v->view_x > 0 )
+        qglDrFill( target, 0, v->view_y, (short) ( v->view_x - 1 ),
+                   (short) ( bottom - 1 ), 0L );
+    if ( right < v->scr_x_res )
+        qglDrFill( target, right, v->view_y, (short) ( v->scr_x_res - 1 ),
+                   (short) ( bottom - 1 ), 0L );
+}
+
 short v_present( Video *v, QSurf h_dst_dc, short page )
 {
     /* qgl has no page flip, so there is one path: blit the backbuffer
@@ -98,6 +117,7 @@ short v_present( Video *v, QSurf h_dst_dc, short page )
        a scale factor -- same rectangle, stated the other way round. */
     QSurf target = v->comp ? v->h_comp_dc : v->h_video_dc;
 
+    v_clear_border( v, target );
     qglDrBlitScl( target, v->view_x, v->view_y,
                   (short) ( v->x_res * v->view_scale ),
                   (short) ( v->y_res * v->view_scale ),

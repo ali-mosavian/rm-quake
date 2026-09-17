@@ -123,7 +123,6 @@ typedef struct {
 } PlayerCarry;
 
 #define ENT_MSG_TIME 2.0f     /* scr_centertime */
-#define ENT_MSG_LEN  40       /* one line of the overlay's font */
 
 typedef struct {
     long  items;              /* PL_IT_* bits: the weapons owned and the keys */
@@ -132,8 +131,8 @@ typedef struct {
     short skill;              /* the map's, until trigger_setskill sets the next's */
     short serverflags;        /* the runes held: sigil_touch's bits */
     float gravity;            /* world.qc's sv_gravity for this map */
-    char  msg[ENT_MSG_LEN + 1];
-    float msg_until;          /* anim_time the centerprint clears at */
+    char far *msg;            /* map pool or a static pickup string */
+    float msg_time;           /* real-time seconds left, including console time */
 
     short health;
     short armor;
