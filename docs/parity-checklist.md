@@ -171,9 +171,10 @@ PAK0 and are left out.
       qcport: id's WAD art in one EMS atlas, 48/24/0-line layouts,
       pickup and pain faces, solo score hold and death scorebar;
       `tools/test-sbar.sh`
-- [ ] Intermission screen
+- [x] Intermission screen
       id: `sbar.c` `Sbar_IntermissionOverlay`
-      qcport (partial): one line of text, `src/ui/screen.c:364`
+      qcport: original `complete.lmp`/`inter.lmp` artwork and large time,
+      secrets and monsters tallies; `src/ui/sbar.c`
 - [x] Multi-line centerprint
       id: `screen.c` `SCR_CenterPrint`
       qcport: source newlines and blank rows, id's 40-character clipping,

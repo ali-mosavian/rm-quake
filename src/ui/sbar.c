@@ -57,8 +57,9 @@ void scr_sbar_load( Pak *pak )
     sbar_view48 = qglSfViewNew( sbar_atlas, SBARC_W, SBARC_H, SBARC_EMS_W );
     sbar_view24 = qglSfViewNew( sbar_atlas, SBARC_W, 24, SBARC_EMS_W );
     if ( !sbar_view48 || !sbar_view24 ) sys_error( "0x3007, no view for the status bar" );
-    if ( !qglSfViewAim( sbar_view48, (long) SBARC_WORK_Y * SBARC_EMS_W ) ||
-         !qglSfViewAim( sbar_view24, (long) ( SBARC_WORK_Y + 24 ) * SBARC_EMS_W ) )
+    if ( !qglSfViewAim( sbar_view48, (long) SBARC_WORK_Y * SBARC_EMS_W + SBARC_WORK_X ) ||
+         !qglSfViewAim( sbar_view24,
+                        (long) ( SBARC_WORK_Y + 24 ) * SBARC_EMS_W + SBARC_WORK_X ) )
         sys_error( "0x3008, the status bar view would not aim" );
 
     handle = pak_seek( pak, "sbar.raw", &bytes );
@@ -82,8 +83,9 @@ static void near sbar_copy_bar( short src_y, short dst_y )
 {
     short y;
     for ( y = 0; y < 24; y++ )
-        qglMemCopy( qglSfWrRow( sbar_atlas, (short) ( dst_y + y ) ),
-                    qglSfRdRow( sbar_atlas, (short) ( src_y + y ) ), SBARC_W );
+        qglMemCopy( qglSfWrRow( sbar_atlas, (short) ( dst_y + y ) ) + SBARC_WORK_X,
+                    qglSfRdRow( sbar_atlas, (short) ( src_y + y ) ) + SBARC_BAR_X,
+                    SBARC_W );
 }
 
 static void near sbar_pic( short sx, short sy, short sw, short sh,
@@ -95,7 +97,8 @@ static void near sbar_pic( short sx, short sy, short sw, short sh,
     for ( y = 0; y < sh; y++ ) {
         src = (unsigned char far *) qglSfRdRow( sbar_atlas, (short) ( sy + y ) ) + sx;
         dst = (unsigned char far *) qglSfWrRow( sbar_atlas,
-                                                (short) ( SBARC_WORK_Y + dy + y ) ) + dx;
+                                                (short) ( SBARC_WORK_Y + dy + y ) )
+                                                + SBARC_WORK_X + dx;
         for ( x = 0; x < sw; x++ ) if ( src[x] != 255 ) dst[x] = src[x];
     }
 }
@@ -328,4 +331,75 @@ void scr_sbar_draw( World *world, Fight *fight, float now, short showscores,
     }
     qglDrBlit( dst, (short) ( ( w - SBARC_W ) / 2 ),
                 (short) ( h - lines ), lines == 48 ? sbar_view48 : sbar_view24 );
+}
+
+static void near sbar_draw_pic( QSurf dst, short sx, short sy, short sw, short sh,
+                                short dx, short dy )
+{
+    unsigned char far *src, far *out;
+    unsigned char row[288];
+    short x, y;
+
+    for ( y = 0; y < sh; y++ ) {
+        src = (unsigned char far *) qglSfRdRow( sbar_atlas, (short) ( sy + y ) ) + sx;
+        qglMemCopy( (long) (void far *) row, (long) src, (long) sw );
+        out = (unsigned char far *) qglSfWrRow( dst, (short) ( dy + y ) ) + dx;
+        for ( x = 0; x < sw; x++ ) if ( row[x] != 255 ) out[x] = row[x];
+    }
+}
+
+static void near sbar_draw_cell( QSurf dst, short index, short x, short y )
+{
+    sbar_draw_pic( dst, (short) ( index % SBARC_CELL_COLS * CELL ),
+                    (short) ( SBARC_CELL_Y + index / SBARC_CELL_COLS * CELL ),
+                    CELL, CELL, x, y );
+}
+
+static void near sbar_inter_num( QSurf dst, short x, short y, short value )
+{
+    char text[8], *p;
+    short i, n;
+
+    sprintf( text, "%d", (int) value );
+    n = (short) strlen( text );
+    p = text;
+    if ( n > 3 ) { p += n - 3; n = 3; }
+    x = (short) ( x + ( 3 - n ) * CELL );
+    for ( i = 0; i < n; i++ )
+        sbar_draw_cell( dst, (short) ( p[i] == '-' ? 10 : p[i] - '0' ),
+                        (short) ( x + i * CELL ), y );
+}
+
+void scr_sbar_intermission( World *world, Fight *fight, QSurf dst, short w, short h )
+{
+    short x = (short) ( ( w - 320 ) / 2 );
+    short y = (short) ( ( h - 200 ) / 2 );
+    short seconds = (short) ( fight->exit_time - fight->level_start );
+    short minutes = (short) ( seconds / 60 );
+
+    sbar_draw_pic( dst, SBARC_COMPLETE_X, SBARC_COMPLETE_Y, 192, 24,
+                    (short) ( x + 64 ), (short) ( y + 24 ) );
+    sbar_draw_pic( dst, SBARC_INTER_X, SBARC_INTER_Y, 160, 144,
+                    x, (short) ( y + 56 ) );
+    sbar_inter_num( dst, (short) ( x + 160 ), (short) ( y + 64 ), minutes );
+    sbar_draw_pic( dst, SBARC_SYMBOL_X, SBARC_SYMBOL_Y, 16, 24,
+                    (short) ( x + 234 ), (short) ( y + 64 ) );
+    sbar_draw_cell( dst, (short) ( seconds / 10 % 6 ),
+                    (short) ( x + 246 ), (short) ( y + 64 ) );
+    sbar_draw_cell( dst, (short) ( seconds % 10 ),
+                    (short) ( x + 266 ), (short) ( y + 64 ) );
+    sbar_inter_num( dst, (short) ( x + 160 ), (short) ( y + 104 ), fight->secrets );
+    sbar_draw_pic( dst, (short) ( SBARC_SYMBOL_X + 16 ), SBARC_SYMBOL_Y, 16, 24,
+                    (short) ( x + 232 ), (short) ( y + 104 ) );
+    sbar_inter_num( dst, (short) ( x + 240 ), (short) ( y + 104 ), fight->secret_total );
+    sbar_inter_num( dst, (short) ( x + 160 ), (short) ( y + 144 ), fight->kills );
+    sbar_draw_pic( dst, (short) ( SBARC_SYMBOL_X + 16 ), SBARC_SYMBOL_Y, 16, 24,
+                    (short) ( x + 232 ), (short) ( y + 144 ) );
+    sbar_inter_num( dst, (short) ( x + 240 ), (short) ( y + 144 ), world->mon_count );
+}
+
+void scr_sbar_finale( QSurf dst, short w )
+{
+    sbar_draw_pic( dst, SBARC_FINALE_X, SBARC_FINALE_Y, 288, 24,
+                    (short) ( ( w - 288 ) / 2 ), 16 );
 }

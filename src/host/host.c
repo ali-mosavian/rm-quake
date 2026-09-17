@@ -515,7 +515,7 @@ static void near host_render_overlay( Host *h )
 #if QR_PROF
     float t0 = sys_now( &h->sysclk );
 #endif
-    if ( !h->v.comp ) {
+    if ( !h->v.comp && h->fight.state != GS_EXIT && h->fight.state != GS_FINALE ) {
         scr_draw_hud( &h->world, &h->rdr, &h->cam, &h->player, h->sc, h->hud,
                       h->h_dst_dc, h->v.x_res, h->v.y_res );
     }
@@ -1287,24 +1287,33 @@ static void near host_present( Host *h )
 {
     Video *v = &h->v;
     QSurf target;
+    short special;
 #if QR_PROF
     float t0 = sys_now( &h->sysclk );
 #endif
 
     v_present( v, h->h_dst_dc, 0 );
     target = v->comp ? v->h_comp_dc : v->h_video_dc;
+    special = (short) ( h->fight.state == GS_EXIT || h->fight.state == GS_FINALE );
     if ( v->comp ) {
-        scr_draw_hud( &h->world, &h->rdr, &h->cam, &h->player, h->sc, h->hud,
-                      target, v->scr_x_res, v->scr_y_res );
+        if ( !special )
+            scr_draw_hud( &h->world, &h->rdr, &h->cam, &h->player, h->sc, h->hud,
+                          target, v->scr_x_res, v->scr_y_res );
     }
-    scr_draw_center( h->hud, &h->fight, target,
-                     v->scr_x_res, v->scr_y_res,
-                     (short) !con_open( h->console ) );
-    scr_draw_msg( h->hud, &h->world, &h->fight, &h->rdr, target,
-                  v->scr_x_res, v->scr_y_res );
-    scr_sbar_draw( &h->world, &h->fight, h->rdr.anim_time,
-                   keybind_action( h->keys, KA_SHOWSCORES ), v->sbar_lines, target,
-                   v->scr_x_res, v->scr_y_res );
+    if ( h->fight.state == GS_EXIT )
+        scr_sbar_intermission( &h->world, &h->fight, target, v->scr_x_res, v->scr_y_res );
+    else {
+        if ( h->fight.state == GS_FINALE ) scr_sbar_finale( target, v->scr_x_res );
+        scr_draw_center( h->hud, &h->fight, target,
+                         v->scr_x_res, v->scr_y_res,
+                         (short) !con_open( h->console ) );
+        scr_draw_msg( h->hud, &h->world, &h->fight, &h->rdr, target,
+                      v->scr_x_res, v->scr_y_res );
+        if ( h->fight.state != GS_FINALE )
+            scr_sbar_draw( &h->world, &h->fight, h->rdr.anim_time,
+                           keybind_action( h->keys, KA_SHOWSCORES ), v->sbar_lines,
+                           target, v->scr_x_res, v->scr_y_res );
+    }
     con_draw( h->console, h->hud, target, v->scr_x_res, v->scr_y_res );
     if ( v->comp ) {
         qglDrBlit( v->h_video_dc, 0, 0, v->h_comp_dc );

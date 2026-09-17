@@ -11,14 +11,28 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mdlview as mdl  # noqa: E402
 
 ATLAS_W = 512
-ATLAS_H = 272
+ATLAS_H = 320
 CELL = 24
-CELL_Y = 120
+INTER_X = 0
+INTER_Y = 0
+COMPLETE_X = 160
+COMPLETE_Y = 0
+FINALE_X = 160
+FINALE_Y = 24
+BAR_X = 160
+SBAR_Y = 48
+IBAR_Y = 72
+SCORE_Y = 96
+WORK_X = 160
+WORK_Y = 120
+CELL_Y = 168
 CELL_COLS = 21
-WEAPON_Y = 192
+WEAPON_Y = 240
 WEAPON_COLS = 21
-ITEM_Y = 224
-CHARS_Y = 240
+ITEM_Y = 272
+SYMBOL_X = 48
+SYMBOL_Y = 216
+CHARS_Y = 288
 
 CELLS = [
     *(f"NUM_{d}" for d in range(10)), "NUM_MINUS",
@@ -83,9 +97,18 @@ def main() -> int:
     lumps = wad_lumps(mdl.pak_read(blob, entries, "gfx.wad"))
     atlas = bytearray([255]) * (ATLAS_W * ATLAS_H)
 
-    blit(atlas, qpic(lumps, "SBAR", 320, 24), 0, 0, 320, 24)
-    blit(atlas, qpic(lumps, "IBAR", 320, 24), 0, 24, 320, 24)
-    blit(atlas, qpic(lumps, "SCOREBAR", 320, 24), 0, 48, 320, 24)
+    def pak_pic(name: str, width: int, height: int) -> bytes:
+        data = mdl.pak_read(blob, entries, name)
+        if struct.unpack_from("<ii", data) != (width, height):
+            raise ValueError(f"{name}: wrong dimensions")
+        return data[8:]
+
+    blit(atlas, pak_pic("gfx/inter.lmp", 160, 144), INTER_X, INTER_Y, 160, 144)
+    blit(atlas, pak_pic("gfx/complete.lmp", 192, 24), COMPLETE_X, COMPLETE_Y, 192, 24)
+    blit(atlas, pak_pic("gfx/finale.lmp", 288, 24), FINALE_X, FINALE_Y, 288, 24)
+    blit(atlas, qpic(lumps, "SBAR", 320, 24), BAR_X, SBAR_Y, 320, 24)
+    blit(atlas, qpic(lumps, "IBAR", 320, 24), BAR_X, IBAR_Y, 320, 24)
+    blit(atlas, qpic(lumps, "SCOREBAR", 320, 24), BAR_X, SCORE_Y, 320, 24)
 
     for index, name in enumerate(CELLS):
         x = index % CELL_COLS * CELL
@@ -103,6 +126,9 @@ def main() -> int:
         blit(atlas, qpic(lumps, name, width, 16), x, ITEM_Y, width, 16)
         x += width
 
+    blit(atlas, qpic(lumps, "NUM_COLON", 16, 24), SYMBOL_X, SYMBOL_Y, 16, 24)
+    blit(atlas, qpic(lumps, "NUM_SLASH", 16, 24), SYMBOL_X + 16, SYMBOL_Y, 16, 24)
+
     chars = lumps["CONCHARS"]
     if len(chars) != 128 * 128:
         raise ValueError(f"CONCHARS: {len(chars)}, wanted 16384")
@@ -117,7 +143,7 @@ def main() -> int:
     os.makedirs(outdir, exist_ok=True)
     path = os.path.join(outdir, "sbar.raw")
     open(path, "wb").write(atlas)
-    count = 3 + len(CELLS) + len(WEAPON_PICS) + len(ITEMS) + 256
+    count = 8 + len(CELLS) + len(WEAPON_PICS) + len(ITEMS) + 256
     print(f"  sbar.raw       {len(atlas):,} B, {count} status elements")
     return 0
 
