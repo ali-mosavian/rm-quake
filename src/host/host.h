@@ -61,6 +61,7 @@ typedef struct {
     Console far   *console;
     KeyBindings far *keys;
     Menu far       *menu;
+    short          pending_load;
     short          quit;
     long           console_frames;
     float          fov_applied;

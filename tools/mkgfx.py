@@ -35,7 +35,7 @@ SYMBOL_Y = 216
 CHARS_Y = 288
 
 MENU_W = 256
-MENU_H = 368
+MENU_H = 384
 MENU_CHARS_Y = 320
 
 CELLS = [
@@ -175,14 +175,13 @@ def main() -> int:
     for frame in range(6):
         blit(menu, pak_pic(f"gfx/menudot{frame + 1}.lmp", 16, 24),
              32 + frame * 16, 224, 16, 24, MENU_W)
-    menu_codes = (*range(32, 128), *range(160, 256))
-    for index, code in enumerate(menu_codes):
+    for code in range(256):
         pixels = b"".join(
             chars[(code // 16 * 8 + row) * 128 + code % 16 * 8 :][:8]
             for row in range(8)
         )
         pixels = bytes(255 if pixel == 0 else pixel for pixel in pixels)
-        blit(menu, pixels, index % 32 * 8, MENU_CHARS_Y + index // 32 * 8, 8, 8, MENU_W)
+        blit(menu, pixels, code % 32 * 8, MENU_CHARS_Y + code // 32 * 8, 8, 8, MENU_W)
     open(os.path.join(outdir, "menu.raw"), "wb").write(menu)
     print(f"  menu.raw       {len(menu):,} B, swapped in only while a menu is open")
     return 0

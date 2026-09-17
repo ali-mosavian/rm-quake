@@ -8,7 +8,7 @@
 #include "sys.h"
 
 #define MENU_W       256
-#define MENU_H       368
+#define MENU_H       384
 #define MENU_CHARS_Y 320
 
 typedef struct { char *command, *label; } BindRow;
@@ -44,9 +44,9 @@ static void near menu_char( Menu MENU_FAR *menu, QSurf dst,
                             short x, short y, unsigned char code, short brown )
 {
     short index;
-    if ( code < 32 || code > 127 ) code = '?';
+    if ( code < 32 && code != 12 && code != 13 ) code = '?';
     if ( brown ) code = (unsigned char) ( code + 128 );
-    index = code < 128 ? (short) ( code - 32 ) : (short) ( 96 + code - 160 );
+    index = code;
     menu_pic( menu, dst, (short) ( index % 32 * 8 ),
               (short) ( MENU_CHARS_Y + index / 32 * 8 ), 8, 8, x, y );
 }
@@ -104,6 +104,8 @@ short menu_open( Menu MENU_FAR *menu, Pak *pak, MenuPage page )
     menu->cursor = 0;
     menu->bind_grab = 0;
     menu->notice[0] = 0;
+    if ( page == MENU_LOAD || page == MENU_SAVE )
+        savegame_scan( menu->slots, menu->loadable );
     return -1;
 }
 
@@ -169,12 +171,16 @@ MenuAction menu_key( Menu MENU_FAR *menu, short key,
     if ( key == KEY_ESC ) {
         if ( menu->page == MENU_MAIN ) menu_close( menu );
         else if ( menu->page == MENU_KEYS ) { menu->page = MENU_OPTIONS; menu->cursor = 0; }
+        else if ( menu->page == MENU_LOAD || menu->page == MENU_SAVE ) {
+            menu->page = MENU_SINGLE; menu->cursor = 0;
+        }
         else { menu->page = MENU_MAIN; menu->cursor = 0; }
         return MENU_ACTION_NONE;
     }
     max = menu->page == MENU_MAIN ? 5 : menu->page == MENU_SINGLE ? 3
           : menu->page == MENU_OPTIONS ? 8
-          : menu->page == MENU_KEYS ? (short) ( sizeof(bind_rows) / sizeof(bind_rows[0]) ) : 1;
+          : menu->page == MENU_KEYS ? (short) ( sizeof(bind_rows) / sizeof(bind_rows[0]) )
+          : SG_SLOTS;
     if ( key == KEY_UP || ( key == KEY_LEFT && menu->page != MENU_OPTIONS ) ) {
         menu->cursor = (short) ( menu->cursor ? menu->cursor - 1 : max - 1 );
         return MENU_ACTION_NONE;
@@ -212,6 +218,10 @@ MenuAction menu_key( Menu MENU_FAR *menu, short key,
         keybind_find_command( keys, bind_rows[menu->cursor].command, &first, &second );
         if ( second >= 0 ) keybind_unbind_command( keys, bind_rows[menu->cursor].command );
         menu->bind_grab = -1;
+    } else if ( menu->page == MENU_LOAD ) {
+        if ( menu->loadable[menu->cursor] ) return MENU_ACTION_LOAD;
+    } else if ( menu->page == MENU_SAVE ) {
+        return MENU_ACTION_SAVE;
     }
     return MENU_ACTION_NONE;
 }
@@ -284,6 +294,23 @@ static void near menu_draw_keys( Menu MENU_FAR *menu, const KeyBindings KB_FAR *
                menu->bind_grab ? '=' : '>', 0 );
 }
 
+static void near menu_draw_slots( Menu MENU_FAR *menu, QSurf dst, float now )
+{
+    short i;
+    char line[37];
+    menu_pic( menu, dst, menu->page == MENU_LOAD ? 32 : 136, 272,
+              menu->page == MENU_LOAD ? 104 : 88, 24,
+              menu->page == MENU_LOAD ? 108 : 116, 4 );
+    for ( i = 0; i < SG_SLOTS; i++ ) {
+        strncpy( line, menu->slots[i], 36 );
+        line[36] = 0;
+        menu_text( menu, dst, 16, (short) ( 32 + i * 8 ), line, -1 );
+    }
+    menu_char( menu, dst, 8, (short) ( 32 + menu->cursor * 8 ),
+               (unsigned char) ( 12 + ( (long) ( now * 4.0f ) & 1L ) ), 0 );
+    if ( menu->notice[0] ) menu_center( menu, dst, 144, menu->notice );
+}
+
 void menu_draw( Menu MENU_FAR *menu, const KeyBindings KB_FAR *keys,
                 const CmdState far *cmd, float now, QSurf dst, short w, short h )
 {
@@ -305,7 +332,6 @@ void menu_draw( Menu MENU_FAR *menu, const KeyBindings KB_FAR *keys,
     else if ( menu->page == MENU_SINGLE ) menu_draw_single( menu, view, now );
     else if ( menu->page == MENU_OPTIONS ) menu_draw_options( menu, (CmdState far *) cmd, view );
     else if ( menu->page == MENU_KEYS ) menu_draw_keys( menu, keys, view );
-    else menu_center( menu, view, 80, menu->page == MENU_LOAD
-                      ? "Load games will be available next" : "Save games will be available next" );
+    else menu_draw_slots( menu, view, now );
     if ( view != dst ) qglDelView( view );
 }

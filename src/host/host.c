@@ -44,6 +44,7 @@
 #include "cmd.h"
 #include "console.h"
 #include "fov.h"
+#include "savegame.h"
 
 /* q_scr.bi's HOST_DT#/HOST_MAXSTEPS. */
 #define HOST_DT       0.0166666f
@@ -54,6 +55,8 @@
 static void near host_apply_cvars( Host *h );
 static void near host_input_events( Host *h );
 static void near host_console_result( Host *h, CmdKind kind, CmdResult *result );
+static short near host_save_slot( Host *h, short slot, char *error );
+static short near host_load_slot( Host *h, short slot, char *error );
 
 static float near host_view_aspect( const Host *h )
 {
@@ -79,6 +82,15 @@ static short near host_command_add( char *commands, short size, const char *text
     while ( *text ) commands[used++] = *text++;
     commands[used] = 0;
     return -1;
+}
+
+static void near host_map_base( const Host *h, char *map )
+{
+    short len = (short) strlen( h->args.map_name );
+    if ( len > 4 && !stricmp( h->args.map_name + len - 4, ".qmp" ) ) len -= 4;
+    if ( len > 8 ) len = 8;
+    memcpy( map, h->args.map_name, len );
+    map[len] = 0;
 }
 
 #if QR_PROF
@@ -969,6 +981,7 @@ void host_init( Host *h )
     cmd_init( h->cmd );
     keybind_init( h->keys );
     menu_init( h->menu );
+    h->pending_load = -1;
     initial_skill = h->carried ? h->carry.skill : h->args.skill;
     if ( initial_skill < 0 ) initial_skill = 0;
     if ( initial_skill > 3 ) initial_skill = 3;
@@ -1082,8 +1095,8 @@ static void near host_console_result( Host *h, CmdKind kind, CmdResult *result )
     if ( kind == CMD_CLEAR ) { con_clear( h->console ); return; }
     if ( kind == CMD_CMDLIST ) {
         con_print( h->console,
-                   "bind clear cmdlist cvarlist echo exec impulse map menu_keys menu_main "
-                   "menu_options quit set sizedown sizeup togglemenu unbind unbindall wait "
+                   "bind clear cmdlist cvarlist echo exec impulse load map menu_keys menu_main "
+                   "menu_options quit save set sizedown sizeup togglemenu unbind unbindall wait "
                    "writeconfig" );
         return;
     }
@@ -1135,6 +1148,18 @@ static void near host_console_result( Host *h, CmdKind kind, CmdResult *result )
     }
     if ( !strcmp( result->name, "impulse" ) ) {
         pl_select_weapon( &h->fight, (short) atoi( result->text ) );
+        return;
+    }
+    if ( !strcmp( result->name, "save" ) ) {
+        short slot = savegame_slot( result->text );
+        char error[CMD_TEXT];
+        if ( !host_save_slot( h, slot, error ) ) con_print( h->console, error );
+        return;
+    }
+    if ( !strcmp( result->name, "load" ) ) {
+        short slot = savegame_slot( result->text );
+        char error[CMD_TEXT];
+        if ( !host_load_slot( h, slot, error ) ) con_print( h->console, error );
         return;
     }
     if ( !strcmp( result->name, "sizeup" ) || !strcmp( result->name, "sizedown" ) ) {
@@ -1243,6 +1268,7 @@ static void near host_apply_cvars( Host *h )
 
 static void near host_menu_action( Host *h, MenuAction action )
 {
+    char error[CMD_TEXT];
     if ( action == MENU_ACTION_NONE ) return;
     if ( action == MENU_ACTION_CONSOLE ) {
         menu_close( h->menu );
@@ -1253,6 +1279,16 @@ static void near host_menu_action( Host *h, MenuAction action )
         cmd_enqueue( h->cmd, "exec default.cfg" );
         return;
     }
+    if ( action == MENU_ACTION_SAVE ) {
+        if ( host_save_slot( h, h->menu->cursor, error ) ) menu_close( h->menu );
+        else strcpy( h->menu->notice, error );
+        return;
+    }
+    if ( action == MENU_ACTION_LOAD ) {
+        if ( !host_load_slot( h, h->menu->cursor, error ) )
+            strcpy( h->menu->notice, error );
+        return;
+    }
     menu_close( h->menu );
     if ( action == MENU_ACTION_QUIT ) { h->quit = -1; return; }
     if ( action == MENU_ACTION_NEW ) {
@@ -1260,6 +1296,38 @@ static void near host_menu_action( Host *h, MenuAction action )
         h->carried = 0;
         h->fight.state = GS_NEXT;
     }
+}
+
+static short near host_save_slot( Host *h, short slot, char *error )
+{
+    char map[9], buf[128];
+    if ( h->fight.state != GS_PLAY || h->fight.health <= 0 ) {
+        strcpy( error, "You cannot save right now" );
+        return 0;
+    }
+    host_map_base( h, map );
+    if ( !savegame_save( slot, map, &h->world, &h->player, &h->cam, &h->fight,
+                         &h->rdr, h->input.mouse.x, h->input.mouse.y, error ) ) return 0;
+    sprintf( buf, "savegame wrote s%d map %s pos %ld,%ld,%ld", (int) slot, map,
+             (long) h->player.pos.x, (long) h->player.pos.y, (long) h->player.pos.z );
+    mark( buf );
+    return -1;
+}
+
+static short near host_load_slot( Host *h, short slot, char *error )
+{
+    char map[9], value[8], cvar_error[CMD_TEXT];
+    short skill;
+    if ( !savegame_header( slot, map, &skill, error ) ) return 0;
+    sprintf( value, "%d", (int) skill );
+    cvar_set( h->cmd, "skill", value, cvar_error );
+    host_apply_cvars( h );
+    strcpy( h->fight.next_map, map );
+    h->pending_load = slot;
+    h->carried = 0;
+    h->fight.state = GS_NEXT;
+    menu_close( h->menu );
+    return -1;
 }
 
 static void near host_input_events( Host *h )
@@ -1601,7 +1669,8 @@ static void near host_change_args( RunArgs *args, char *map )
 
 short host_changelevel( Host *h )
 {
-    char map[64];
+    char map[64], base[9], error[CMD_TEXT], buf[128];
+    short mouse_x, mouse_y, slot;
 
     if ( h->quit ) return 0;
     if ( h->fight.state != GS_NEXT ) return 0;
@@ -1609,7 +1678,28 @@ short host_changelevel( Host *h )
     host_map_finish( h );
     host_map_release( h );
     host_change_args( &h->args, map );
+    if ( h->pending_load >= 0 ) h->args.carry = 0;
     host_map_init( h );
+    slot = h->pending_load;
+    if ( slot >= 0 ) {
+        h->pending_load = -1;
+        host_map_base( h, base );
+        if ( savegame_load( slot, base, &h->world, &h->player, &h->cam, &h->fight,
+                            &h->rdr, &mouse_x, &mouse_y, error ) ) {
+            qglMousePos( mouse_x, mouse_y );
+            ent_place_models( &h->world );
+            ent_lights_sync( &h->world, &h->ls );
+            ls_animate( &h->ls, h->rdr.anim_time );
+            sprintf( buf, "savegame loaded s%d map %s pos %ld,%ld,%ld", (int) slot, base,
+                     (long) h->player.pos.x, (long) h->player.pos.y, (long) h->player.pos.z );
+            mark( buf );
+        } else {
+            strcpy( buf, "savegame load failed: " );
+            strncat( buf, error, sizeof(buf) - strlen(buf) - 1 );
+            mark( buf );
+            con_print( h->console, error );
+        }
+    }
     return -1;
 }
 

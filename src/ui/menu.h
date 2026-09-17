@@ -5,6 +5,7 @@
 #include "keybind.h"
 #include "pak.h"
 #include "qgltypes.h"
+#include "savegame.h"
 
 #ifdef __BORLANDC__
 #define MENU_FAR far
@@ -27,6 +28,8 @@ typedef enum {
     MENU_ACTION_NEW,
     MENU_ACTION_CONSOLE,
     MENU_ACTION_DEFAULTS,
+    MENU_ACTION_LOAD,
+    MENU_ACTION_SAVE,
     MENU_ACTION_QUIT
 } MenuAction;
 
@@ -34,6 +37,8 @@ typedef struct {
     QSurf atlas;
     short page, cursor, bind_grab;
     char notice[40];
+    char slots[SG_SLOTS][SG_COMMENT];
+    unsigned char loadable[SG_SLOTS];
 } Menu;
 
 void menu_init( Menu MENU_FAR *menu );

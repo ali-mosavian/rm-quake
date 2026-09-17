@@ -149,12 +149,12 @@ PAK0 and are left out.
       id: `cl_demo.c` `CL_PlayDemo_f`, `cl_main.c` `CL_NextDemo`;
       `demo1..3.dem` are in PAK0
       qcport: no `.dem` playback; `-record`/`-play` are this port's input log
-- [ ] Menus, save and load
+- [x] Menus, save and load
       id: `menu.c` `M_Menu_Main_f`, `M_Menu_Options_f`, `M_Menu_Keys_f`,
       `M_Menu_Load_f`, `M_Menu_Save_f`; `host_cmd.c` `Host_Savegame_f`,
       `Host_Loadgame_f`
-      qcport (partial): original main and single-player art, options and
-      interactive key rebinding; save/load slots remain
+      qcport: original main, single-player, options, keys and twelve-slot
+      load/save menus; binary snapshots preserve the port's mutable world
 - [x] Console and cvars
       id: `console.c` `Con_Init`, `cvar.c` `Cvar_RegisterVariable`
       qcport: queued keyboard input, scrollback/history/completion, bounded
