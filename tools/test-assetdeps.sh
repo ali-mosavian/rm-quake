@@ -64,10 +64,32 @@ else
     fail=1
 fi
 qmp_plan=$(make -C "$ROOT" -n -W tools/mkgfx.py data/maps/e1m4/e1m4.qmp 2>/dev/null)
-if grep -q "mkassets.py data/e1m4.bsp" <<< "$qmp_plan"; then
-    echo "ok: assetdeps: a newer UI generator rebuilds the named title-map container"
+qmp_builds=$(grep -c "mkassets.py data/e1m4.bsp" <<< "$qmp_plan")
+if [[ "$qmp_builds" -ge 2 ]]; then
+    echo "ok: assetdeps: a stale or missing title-map container is regenerated after its ZIP"
 else
-    echo "FAIL: assetdeps: a newer UI generator leaves the named title-map container stale" >&2
+    echo "FAIL: assetdeps: the title-map QMP recipe cannot recover after its ZIP was written" >&2
+    fail=1
+fi
+
+mkdir -p "$T/maps/e1m4"
+zip="$T/maps/e1m4/assets.zip"
+qmp="$T/maps/e1m4/e1m4.qmp"
+stub="sh -c 'touch -t 205001010000 \"$qmp\"' ignored"
+touch -t 203001010000 "$zip"
+make -s -C "$ROOT" MAP_ROOT="$T/maps" MKASSETS_CMD="$stub" "$qmp"
+[[ -f "$qmp" ]] || { echo "FAIL: assetdeps: missing QMP was not regenerated" >&2; fail=1; }
+touch -t 202001010000 "$qmp"
+make -s -C "$ROOT" MAP_ROOT="$T/maps" MKASSETS_CMD="$stub" "$qmp"
+[[ "$qmp" -nt "$zip" ]] || { echo "FAIL: assetdeps: QMP older than its ZIP was not regenerated" >&2; fail=1; }
+touch -t 204001010000 "$qmp"
+before=$(stat -f %m "$qmp")
+make -s -C "$ROOT" MAP_ROOT="$T/maps" MKASSETS_CMD="$stub" "$qmp"
+after=$(stat -f %m "$qmp")
+if [[ "$before" == "$after" ]]; then
+    echo "ok: assetdeps: QMP recovery handles missing, stale, and current outputs"
+else
+    echo "FAIL: assetdeps: current QMP was needlessly regenerated" >&2
     fail=1
 fi
 exit $fail

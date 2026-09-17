@@ -150,9 +150,11 @@ $(EXE): $(OBJS)
 
 # dm3ish: assets.zip for qgl's suite, dm3ish.qmp for the gates.
 ASSETS     := data/assets/assets.zip
-MAP_ASSETS := $(if $(wildcard $(PAK)),$(foreach m,$(MAPS),data/maps/$(m)/assets.zip))
+MAP_ROOT   ?= data/maps
+MAP_ASSETS := $(if $(wildcard $(PAK)),$(foreach m,$(MAPS),$(MAP_ROOT)/$(m)/assets.zip))
 MKASSETS   := tools/mkassets.py tools/mkportals.py tools/mksnd.py tools/texquant.py tools/fsdither.c \
               tools/mkmdl.py tools/mkgfx.py tools/mdlview.py
+MKASSETS_CMD ?= python3 tools/mkassets.py
 
 assets: $(ASSETS)               ## dm3ish's assets and .qmp
 maps: $(MAP_ASSETS)             ## e1m1..e1m8 and start, a .qmp each
@@ -167,14 +169,16 @@ $(ASSETS): data/$(MAP) data/base.dat $(MKASSETS)
 $(foreach m,$(MAPS),data/$(m).bsp): data/%.bsp: $(PAK) tools/pakget.py
 	@python3 tools/pakget.py $(PAK) maps/$*.bsp $@
 
-data/maps/%/assets.zip: data/%.bsp data/base.dat $(MKASSETS)
-	@python3 tools/mkassets.py data/$*.bsp data/base.dat data/maps/$* $(PAK)
+$(MAP_ROOT)/%/assets.zip: data/%.bsp data/base.dat $(MKASSETS)
+	@$(MKASSETS_CMD) data/$*.bsp data/base.dat $(MAP_ROOT)/$* $(PAK)
 
 # mkassets writes both outputs in one pass. Name the QMP side too, or title
 # can copy an old container even after a generator changed the ZIP stamp.
 define MAP_QMP_RULE
-data/maps/$(1)/$(1).qmp: data/maps/$(1)/assets.zip
-	@test -f $$@
+$(MAP_ROOT)/$(1)/$(1).qmp: $(MAP_ROOT)/$(1)/assets.zip
+	@if [ ! -f "$$@" ] || [ "$$<" -nt "$$@" ]; then \
+	  $(MKASSETS_CMD) data/$(1).bsp data/base.dat $(MAP_ROOT)/$(1) $(PAK); \
+	fi
 endef
 $(foreach m,$(MAPS),$(eval $(call MAP_QMP_RULE,$(m))))
 
