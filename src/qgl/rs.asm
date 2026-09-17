@@ -144,7 +144,7 @@ endm
 CHK2GB          macro   lbl:req
                 fld     st(0)
                 fabs
-                fcomp   qgl$2gb
+                fcomp   cs:qgl$2gb
                 FJGE    lbl
 endm
 
@@ -173,7 +173,7 @@ GRADCHK         macro   fval:req, fxval:req, lbl:req
 @@:
                 fld     fval
                 fabs
-                fcomp   qgl$2gb
+                fcomp   cs:qgl$2gb
                 FJGE    lbl
                 fstp    st(0)                   ;; the 16.16, unconverted
                 jmp     done
@@ -186,13 +186,6 @@ endm
 .data
 qgl$65536       real4   65536.0
 qgl$half        real4   0.5
-
-;; mgl's _2gb and _l1sqr (uglplxtp.asm), real8 as they are there. The
-;; second is an AREA test: denom is twice the triangle's signed area, so
-;; 2.0 refuses anything under one square pixel -- and its SIGN is the
-;; polygon's winding.
-qgl$2gb         real8   2147483647.0
-qgl$l1sqr       real8   2.0
 
 ;; The gradients come off the FPU already multiplied by 65536 and the
 ;; perspective filler wants them unscaled -- per pixel to carry the span
@@ -393,6 +386,12 @@ endm
 
                 externdef qgl$Fixup:near
                 externdef b8_span:near
+
+;; mgl's immutable _2gb and _l1sqr constants. Keeping read-only values in
+;; qgl_text preserves DGROUP without making the dynamic core invalidate
+;; translated rasterizer code on per-polygon state writes.
+qgl$2gb         real8   2147483647.0
+qgl$l1sqr       real8   2.0
 
 ;;::::::::::::::
 ;; qgl$F2fxA -- one vertex into the walk's form, AFFINE.
@@ -950,7 +949,7 @@ qglRsPoly     proc    public uses bx cx dx si di ds es,\
                 ;;
                 fld     st(0)
                 fabs
-                fcomp   qgl$l1sqr
+                fcomp   cs:qgl$l1sqr
                 FJGE    @F
                 fstp    st(0)                   ;; pop denom
                 jmp     @@done
