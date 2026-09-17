@@ -26,7 +26,9 @@ PAK0 and are left out.
       qcport: neither, `src/render/view.c`
 - [ ] Alias model lighting
       id: `r_alias.c` `R_AliasSetupLighting`
-      qcport: skins draw unshaded, `src/render/d_alias.c:180`, `:273`
+      qcport (partial): face-normal colormap shading, copied before the
+      triangle page remaps its EMS slot; no per-vertex normal interpolation,
+      lightmap probe, or dynamic-light contribution; `src/render/d_alias.c`
 - [ ] Particles: blood, gunshots, explosions, trails, teleport and lava
       splashes
       id: `r_part.c` `R_ParticleExplosion`, `R_RocketTrail`,

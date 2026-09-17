@@ -18,6 +18,7 @@
 #include "weapons.h"
 #include "item.h"
 #include "qgl.h"
+#include "mod.h"
 #include "mod_tex.h"
 
 /* The EMS slots a model reads through: PAGE_SLOT is what nodes,
@@ -69,7 +70,46 @@ static long near bf_bad;
 
 long mdl_bf_bad( void ) { return bf_bad; }
 
+/* id's alias light points along world -x. qgl's alias path has no light
+   vertex attribute yet, so this is one colormap row from the face normal. */
+static short near mdl_lit_row( const MdlTri *t, unsigned char far *vb,
+                               BspVec3 *scale, BspVec3 *origin,
+                               float cyaw, float syaw )
+{
+    short i[3], k;
+    float x[3], y[3], z[3], ax, ay, az, bx, by, bz, nx, ny, nz, len, bright;
+
+    i[0] = t->a; i[1] = t->b; i[2] = t->c;
+    for ( k = 0; k < 3; k++ ) {
+        ax = (float) vb[i[k]*3] * scale->x + origin->x;
+        ay = (float) vb[i[k]*3 + 1] * scale->y + origin->y;
+        z[k] = (float) vb[i[k]*3 + 2] * scale->z + origin->z;
+        x[k] = ax * cyaw - ay * syaw;
+        y[k] = ax * syaw + ay * cyaw;
+    }
+    ax = x[1] - x[0]; ay = y[1] - y[0]; az = z[1] - z[0];
+    bx = x[2] - x[0]; by = y[2] - y[0]; bz = z[2] - z[0];
+    nx = ay * bz - az * by;
+    ny = az * bx - ax * bz;
+    nz = ax * by - ay * bx;
+    len = (float) sqrt( nx * nx + ny * ny + nz * nz );
+    bright = 96.0f;
+    if ( len > 0.001f && -nx / len < 0.0f ) bright += 64.0f * ( -nx / len );
+    if ( bright < 0.0f ) bright = 0.0f;
+    if ( bright > 128.0f ) bright = 128.0f;
+    return (short) ( ( 128.0f - bright ) * 0.5f );
+}
+
+static short near mdl_lit_map( World *world, short row )
+{
+    unsigned char far *cmap = mod_cm_map( world );
+
+    if ( !cmap ) return 0;
+    return qglRsLitMap( (void far *) ( cmap + (long) row * 256L ) );
+}
+
 static short mdl_draw_tris(
+    World      *world,
     short     ntri,
     short     nvert,
     short     frame,
@@ -90,9 +130,9 @@ static short mdl_draw_tris(
     short     zmode )           /* QGL_Z_TEST for a soldier, OFF for the view weapon */
 {
     MdlTri far *tri;
-    MdlTri far *t;
+    MdlTri t;
     unsigned char far *vb;
-    short v, j, k, k2, cp, nin, nout, ns, nd, drawn = 0;
+    short v, j, k, k2, cp, nin, nout, ns, nd, drawn = 0, lit;
     short bf_pre;
     ClipV *cs, *cw, *ct;
     short ia[3];
@@ -103,11 +143,6 @@ static short mdl_draw_tris(
        the frame. qglGemMap's own record makes this free when nobody else
        has taken the slot since the last model. */
     vb = mdl_frame_verts( ms, frame, PAGE_SLOT );
-    /* The triangles, through the colormap's slot -- nothing maps that
-       while a model draws, and the next surface build re-maps it for
-       itself. */
-    tri = mdl_tris( ms, CM_SLOT );
-
     for ( v = 0; v < nvert; v++ ) {
         rx = (float) vb[v*3]     * scale->x + origin->x;
         ry = (float) vb[v*3 + 1] * scale->y + origin->y;
@@ -146,12 +181,14 @@ static short mdl_draw_tris(
        Off for us by qglSfZMode itself when dst has no depth buffer. */
     qglSfZMode( dst, zmode );
 
-    /* One walking far pointer, and each corner's index read once: the
-       record is 18 bytes, so tri[j].a costs a multiply and a fresh
-       es:bx every field. e1m6 walks 580 of these a frame and refuses
-       most of them on the first test. */
-    for ( t = tri, j = 0; j < ntri; j++, t++ ) {
-        short a = t->a, b = t->b, c = t->c;
+    for ( j = 0; j < ntri; j++ ) {
+        short a, b, c;
+
+        /* CM_SLOT alternates between this page and the colormap. The
+           record survives that remap because it is copied before it. */
+        tri = mdl_tris( ms, CM_SLOT );
+        _fmemcpy( &t, tri + j, sizeof(t) );
+        a = t.a; b = t.b; c = t.c;
 
         ia[0] = a; ia[1] = b; ia[2] = c;
         if ( !( okv[a] || okv[b] || okv[c] ) ) continue;
@@ -172,13 +209,14 @@ static short mdl_draw_tris(
              * map, a gradient and a clip first.
              */
             if ( area > -2.0f ) continue;
-            qv[0].u = (float) t->u1 / MDL_UV_SCALE * srw[a];
-            qv[0].v = (float) t->v1 / MDL_UV_SCALE * srw[a];
-            qv[1].u = (float) t->u2 / MDL_UV_SCALE * srw[b];
-            qv[1].v = (float) t->v2 / MDL_UV_SCALE * srw[b];
-            qv[2].u = (float) t->u3 / MDL_UV_SCALE * srw[c];
-            qv[2].v = (float) t->v3 / MDL_UV_SCALE * srw[c];
-            qglRsPoly( dst, (void far *) qv, 3, QGL_M_ATEX, skin );
+            qv[0].u = (float) t.u1 / MDL_UV_SCALE * srw[a];
+            qv[0].v = (float) t.v1 / MDL_UV_SCALE * srw[a];
+            qv[1].u = (float) t.u2 / MDL_UV_SCALE * srw[b];
+            qv[1].v = (float) t.v2 / MDL_UV_SCALE * srw[b];
+            qv[2].u = (float) t.u3 / MDL_UV_SCALE * srw[c];
+            qv[2].v = (float) t.v3 / MDL_UV_SCALE * srw[c];
+            lit = mdl_lit_map( world, mdl_lit_row( &t, vb, scale, origin, cyaw, syaw ) );
+            qglRsPoly( dst, (void far *) qv, 3, lit ? QGL_M_ALIT : QGL_M_ATEX, skin );
             drawn++;
             continue;
         }
@@ -210,12 +248,12 @@ static short mdl_draw_tris(
             cs[k].y = vy[ia[k]];
             cs[k].w = vw[ia[k]];
         }
-        cs[0].u = (float) t->u1 / MDL_UV_SCALE;
-        cs[1].u = (float) t->u2 / MDL_UV_SCALE;
-        cs[2].u = (float) t->u3 / MDL_UV_SCALE;
-        cs[0].v = (float) t->v1 / MDL_UV_SCALE;
-        cs[1].v = (float) t->v2 / MDL_UV_SCALE;
-        cs[2].v = (float) t->v3 / MDL_UV_SCALE;
+        cs[0].u = (float) t.u1 / MDL_UV_SCALE;
+        cs[1].u = (float) t.u2 / MDL_UV_SCALE;
+        cs[2].u = (float) t.u3 / MDL_UV_SCALE;
+        cs[0].v = (float) t.v1 / MDL_UV_SCALE;
+        cs[1].v = (float) t.v2 / MDL_UV_SCALE;
+        cs[2].v = (float) t.v3 / MDL_UV_SCALE;
 
         /* Sutherland-Hodgman against the five clip-space planes. The
            plane is chosen ONCE and then the whole ring measured, rather
@@ -270,7 +308,8 @@ static short mdl_draw_tris(
              - ( qv[2].x - qv[0].x ) * ( qv[1].y - qv[0].y );
         if ( bf_pre && area >= 0.0f ) bf_bad++;
         if ( area < 0.0f ) {
-            qglRsPoly( dst, (void far *) qv, nout, QGL_M_ATEX, skin );
+            lit = mdl_lit_map( world, mdl_lit_row( &t, vb, scale, origin, cyaw, syaw ) );
+            qglRsPoly( dst, (void far *) qv, nout, lit ? QGL_M_ALIT : QGL_M_ATEX, skin );
             drawn++;
         }
     }
@@ -589,7 +628,7 @@ short d_draw_models( World *world, Renderer *rdr, DiskPlane far *frustum,
 
         a = e->yaw * 3.14159265f / 180.0f;
         drawn = (short) ( drawn + mdl_draw_tris(
-            ms->ntri, ms->nvert, frame, &org,
+            world, ms->ntri, ms->nvert, frame, &org,
             (float) cos( a ), (float) sin( a ), 1.0f, 0.0f,
             &ms->scale, &ms->origin, ms, ms->skin,
             m, xresh, yresh, z_near, dst, QGL_Z_TEST ) );
@@ -645,7 +684,7 @@ short d_draw_view( World *world, Renderer *rdr, Camera *cam, Player *player,
     }
     if ( frame >= ms->nframe ) frame = (short) ( ms->nframe - 1 );
 
-    return mdl_draw_tris( ms->ntri, ms->nvert, frame, &eye,
+    return mdl_draw_tris( world, ms->ntri, ms->nvert, frame, &eye,
                           dx / len, dz / len, len, -dy,
                           &ms->scale, &ms->origin, ms, ms->skin,
                           (float *) mtx_fin, xresh, yresh, z_near, dst, QGL_Z_OFF );

@@ -242,12 +242,14 @@ qgl$fdzdxn      real4   0.0
 qgl$fdudx       real4   0.0                     ;; per PIXEL, for the span
 qgl$fdvdx       real4   0.0                     ;; start; fdzdx's pair, and
 qgl$fdzdx       real4   0.0                     ;; only qgl$drawP reads them
+qgl$litmap      db      256 dup (?)             ;; one copied colormap row
 
                 public  qgl$dudx, qgl$dvdx, qgl$fcol, qgl$mode
                 public  qgl$fdudxn, qgl$fdvdxn, qgl$fdzdxn
                 public  qgl$fdudx, qgl$fdvdx, qgl$fdzdx
                 public  qgl$tshift, qgl$tumsk, qgl$tvmsk, qgl$tofs
                 public  qgl$tseg, qgl$zmode
+                public  qgl$litmap
                 public  qgl$bound, qgl$bumax, qgl$bvmax
 
 
@@ -765,7 +767,7 @@ qglRsPoly     proc    public uses bx cx dx si di ds es,\
                 ja      @@bad
 
                 mov     ax, mode
-                cmp     ax, QGL_M_ATEX
+                cmp     ax, QGL_M_ALIT
                 ja      @@bad
                 mov     qgl$mode, ax
 
@@ -822,6 +824,8 @@ qglRsPoly     proc    public uses bx cx dx si di ds es,\
                 ;; below is picked off the same answer.
                 xor     ax, ax
                 cmp     qgl$mode, QGL_M_PTEX
+                je      @@persp
+                cmp     qgl$mode, QGL_M_ALIT
                 je      @@persp
                 cmp     qgl$mode, QGL_M_ATEX
                 jne     @F
@@ -1082,6 +1086,33 @@ qglRsPoly     proc    public uses bx cx dx si di ds es,\
 @@bad:          mov     ax, -1
                 ret
 qglRsPoly     endp
+
+;; qglRsLitMap ( lut:far ptr ) -> ax nonzero
+;;
+;; Copies one 256-entry colormap row while its EMS mapping is live. The
+;; alias rasterizer may remap that physical slot for its triangle page on
+;; the next instruction, so the fillers read this conventional snapshot,
+;; never the caller's EMS pointer.
+qglRsLitMap   proc    public uses cx si di ds es, lut:dword
+
+                mov     ax, W lut+0
+                mov     dx, W lut+2
+                or      ax, dx
+                jz      @@bad
+
+                lds     si, lut
+                mov     ax, @data
+                mov     es, ax
+                mov     di, O qgl$litmap
+                mov     cx, 128
+                cld
+                rep     movsw
+                mov     ax, 1
+                ret
+
+@@bad:          xor     ax, ax
+                ret
+qglRsLitMap   endp
 
 ;;::::::::::::::
 ;; qglRsPolyBound ( d:far ptr Surface, v:far ptr QVert, n:word,

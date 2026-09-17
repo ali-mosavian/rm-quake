@@ -45,6 +45,7 @@
                 externdef qgl$bound:word
                 externdef qgl$bumax:dword
                 externdef qgl$bvmax:dword
+                externdef qgl$litmap:byte
 
                 public  qgl$Fixup, b8_span, qglB8Selftest
 
@@ -145,6 +146,16 @@ endm
 TEX_FETCH       macro   ?p
 ?p&_ofs:        mov     al, ds:[si+bx+__IMM16__]
                 ZEND    ?p&_ofs
+endm
+
+;; FS is qgl's data segment throughout a filler. This lookup therefore
+;; does not compete with DS=texture, ES=destination, or GS=depth.
+TEX_LIT         macro
+                push    bx
+                xor     bx, bx
+                mov     bl, al
+                mov     al, fs:qgl$litmap[bx]
+                pop     bx
 endm
 
 ;;:::::::::::::: u and v to the next pixel, v wrapped
@@ -855,7 +866,7 @@ AMKSTEP         macro
                 mov     W fs:qgl$psdv+2, dx
 endm
 
-ATEX_BODY       macro   ?p, ?zwrite, ?ztest
+ATEX_BODY       macro   ?p, ?zwrite, ?ztest, ?lit
 
                 PS      ebx, bp
                 add     di, ax
@@ -892,6 +903,9 @@ ATEX_BODY       macro   ?p, ?zwrite, ?ztest
 ?p&_zofs:       mov     gs:[ebp*2+__IMM32__], ax
                 ZEND    ?p&_zofs
                 TEX_FETCH ?p
+        ifnb    <?lit>
+                TEX_LIT
+        endif
                 mov     es:[di+bp], al
 @@behind:       PSTEPPX ?p
 ?p&_umsk:       and     bx, __IMM16__
@@ -899,6 +913,9 @@ ATEX_BODY       macro   ?p, ?zwrite, ?ztest
                 Z_STEP  ?p
         else
                 TEX_FETCH ?p
+        ifnb    <?lit>
+                TEX_LIT
+        endif
                 PSTEPPX ?p
                 mov     es:[di+bp], al
 ?p&_umsk:       and     bx, __IMM16__
@@ -948,6 +965,18 @@ qgl$AtexT      proc    near
                 ATEX_BODY at, 1, 1
 qgl$AtexT      endp
 
+qgl$AlitO      proc    near
+                ATEX_BODY alo, , , LIT
+qgl$AlitO      endp
+
+qgl$AlitW      proc    near
+                ATEX_BODY alw, 1, , LIT
+qgl$AlitW      endp
+
+qgl$AlitT      proc    near
+                ATEX_BODY alt, 1, 1, LIT
+qgl$AlitT      endp
+
 
 qgl$Fixup       proc    near uses ax bx cx dx si di bp
 
@@ -964,6 +993,9 @@ qgl$Fixup       proc    near uses ax bx cx dx si di bp
                 FIX_TEX ao
                 FIX_TEX aw
                 FIX_TEX at
+                FIX_TEX alo
+                FIX_TEX alw
+                FIX_TEX alt
 
                 ;; dvdx_int IS NOT THE PLAIN INTEGER HALF. si carries v
                 ;; already shifted by tshift, so its step must be shifted
@@ -1004,6 +1036,8 @@ qgl$Fixup       proc    near uses ax bx cx dx si di bp
                 FIX_Z   pt
                 FIX_Z   aw
                 FIX_Z   at
+                FIX_Z   alw
+                FIX_Z   alt
                 FIX_Z   fw
                 FIX_Z   ft
 
@@ -1041,7 +1075,18 @@ b8_span         proc    near
                 ;; baked into values that also cross into BASIC.
                 mov     ax, qgl$mode
                 cmp     ax, QGL_M_ATEX
+                je      @@atex
+                cmp     ax, QGL_M_ALIT
                 jne     @@table
+                mov     ax, O qgl$AlitO
+                cmp     qgl$zmode, QGL_Z_OFF
+                je      @@done
+                mov     ax, O qgl$AlitW
+                cmp     qgl$zmode, QGL_Z_SET
+                je      @@done
+                mov     ax, O qgl$AlitT
+                jmp     short @@done
+@@atex:
                 mov     ax, O qgl$AtexO
                 cmp     qgl$zmode, QGL_Z_OFF
                 je      @@done
