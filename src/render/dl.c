@@ -381,7 +381,7 @@ short dl_selftest( void )
     short result;
 
     memset( &r, 0, sizeof(r) );
-    r.frame_dc = qglSfNew( RDR_FRAME_BYTES, 1, QGL_SURF_EMS );
+    r.frame_dc = qglSfNew( RDR_PART_BYTES, RDR_FRAME_ROWS, QGL_SURF_EMS );
     if ( !r.frame_dc ) return -25;
     lights = dl_map( &r );
     if ( !lights ) {

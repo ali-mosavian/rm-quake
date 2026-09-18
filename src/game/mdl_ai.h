@@ -26,6 +26,8 @@
 #define MDL_ST_ATTACK  4      /* the knight's sword, charging */
 #define MDL_ST_LEAP    5      /* the dog in the air, on its velocity */
 #define MDL_ST_DEMO    6      /* anim_frame is an absolute recorded frame */
+#define MDL_ST_GIBBED  7      /* the body is gone; gib.c owns what remains */
+#define MDL_IS_DEAD(e) ( (e)->state == MDL_ST_DEAD || (e)->state == MDL_ST_GIBBED )
 
 #define MDL_HEALTH      30    /* monster_army's */
 #define MDL_PELLETS     4     /* army_fire: FireBullets(4, '0.1 0.1 0') */

@@ -61,9 +61,14 @@ PAK0 and are left out.
       qcport: normal and super spikes, wizard spikes, grenades, rockets,
       lava balls and zombie chunks use their original EMS-backed alias
       models; `effects.bin`, `src/render/d_alias.c`
-- [ ] Gib and head models
+- [x] Gib and head models
       id: `player.qc`; the `.mdl` files are in PAK0
-      qcport: no player or monster death gibs or heads
+      qcport: overkill replaces players and all supported monsters with
+      their original head and three original gib models. Velocity scaling,
+      bounce, spin, blood trails and 10--20 second gib lifetime match
+      `ThrowHead`/`ThrowGib`; transient state shares the renderer's existing
+      EMS frame page and survives save/load; `src/game/gib.c`,
+      `tools/test-gibs.sh`
 - [ ] Full monster animation sets
       id: each monster's `.qc` (`soldier.qc`, `dog.qc`, ...) steps every
       frame by name
@@ -139,10 +144,11 @@ PAK0 and are left out.
 - [ ] `air_bubbles` (2, e1m4)
       id: `misc.qc` `air_bubbles`, `make_bubbles`
       qcport: no case, dropped
-- [ ] Player death animation, gibs and head
+- [ ] Player death animation
       id: `player.qc` `PlayerDie`, `player_diea1`, `GibPlayer`, `ThrowGib`;
       `client.qc` `respawn`
-      qcport (partial): "YOU DIED" and a reset respawn, no frames or gibs,
+      qcport (partial): "YOU DIED", original overkill gibs/head and a reset
+      respawn, but no ordinary death frames,
       `src/host/host.c:139`, `:142`
 - [x] Water jump
       id: `client.qc` `CheckWaterJump`

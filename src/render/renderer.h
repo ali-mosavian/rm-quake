@@ -38,11 +38,14 @@ typedef struct {
 } DynLight;
 
 /* One EMS page shared by frame-sized renderer state. Particles occupy the
-   first 4 KB; dynamic lights follow. Both are mapped only while their own
-   pass is using them, and qglGemMap makes a repeated map a no-op. */
+   first 4 KB, dynamic lights the next 4 KB and gibs the next 4 KB. Each is
+   mapped only while its own pass uses it. */
 #define RDR_PART_BYTES   4096
 #define RDR_DLIGHT_OFS   RDR_PART_BYTES
-#define RDR_FRAME_BYTES  8192
+#define RDR_GIB_OFS      8192
+#define RDR_GIB_BYTES    4096
+#define RDR_FRAME_BYTES  ( RDR_GIB_OFS + RDR_GIB_BYTES )
+#define RDR_FRAME_ROWS   3
 
 #define PART_PENDING_MAX 16
 typedef struct {
@@ -67,7 +70,7 @@ typedef struct {
     short polys;
     short tris;
     float anim_time;
-    QSurf frame_dc;           /* particles and dynamic lights, one EMS page */
+    QSurf frame_dc;           /* particles, dlights and gibs; one EMS page */
     short dl_tick;            /* dl_stag's clock */
     unsigned short dl_seed;   /* the flicker's LCG */
     short no_dlight;          /* -nodlight */
@@ -160,6 +163,8 @@ typedef struct {
     short mdl_drawn;      /* monster triangles submitted this frame */
     short item_mdl_drawn; /* pickup alias triangles submitted this frame */
     short projectile_mdl_drawn; /* projectile alias triangles this frame */
+    short gib_mdl_drawn;  /* ThrowGib/ThrowHead triangles this frame */
+    short gib_count;      /* transient GibEnt records in frame_dc */
     short boss_drawn;     /* Chthon triangles submitted this frame */
     short ents_last;      /* brush entities after the world walk: with depth
                               unless -entinsert, or -badorder */

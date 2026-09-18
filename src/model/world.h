@@ -121,7 +121,10 @@ typedef struct {
     signed char far *item_skin;     /* armor.mdl's green/yellow/red skin */
 
     short       fx_mdl_count;
-    AliasModel  far *fx_mdl;        /* effects.bin's projectile models */
+    EffectModel far *fx_mdl;        /* effects.bin's shared-bank models */
+    short       fx_geom_hnd;
+    QSurf       fx_skin_atlas, fx_skin_view;
+    short       fx_skin_aim;
 
     short       crate_count;
     CrateModel  far *crate;

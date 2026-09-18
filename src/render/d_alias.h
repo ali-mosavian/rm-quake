@@ -56,4 +56,9 @@ short d_draw_spikes( World *world, Renderer *rdr, Fight *fight,
                       Mat4 *mtx_fin, float xresh, float yresh,
                       float z_near, QSurf dst );
 
+/* ThrowGib/ThrowHead alias models, after their bounce tick. */
+short d_draw_gibs( World *world, Renderer *rdr, DiskPlane far *frustum,
+                    Mat4 *mtx_fin, float xresh, float yresh,
+                    float z_near, QSurf dst );
+
 #endif

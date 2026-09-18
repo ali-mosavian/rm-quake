@@ -57,6 +57,26 @@ static short near mdl_sets_ok( const MdlHead *h, short need )
     return sum == h->nframe;
 }
 
+static void near mdl_from_head( MdlState *m, const MdlHead *h )
+{
+    float ex, ey;
+
+    m->ntri = h->ntri; m->nvert = h->nvert; m->nframe = h->nframe;
+    m->scale = h->scale; m->origin = h->origin;
+    memcpy( m->set_n, h->set_n, MDL_NSETS );
+    m->vpages = h->vpages; m->page_frames = h->page_frames;
+
+    ex = (float) fabs( m->origin.x );
+    if ( (float) fabs( m->origin.x + 255.0f * m->scale.x ) > ex )
+        ex = (float) fabs( m->origin.x + 255.0f * m->scale.x );
+    ey = (float) fabs( m->origin.y );
+    if ( (float) fabs( m->origin.y + 255.0f * m->scale.y ) > ey )
+        ey = (float) fabs( m->origin.y + 255.0f * m->scale.y );
+    m->radius = (float) sqrt( ex * ex + ey * ey );
+    m->zlo = m->origin.z;
+    m->zhi = m->origin.z + 255.0f * m->scale.z;
+}
+
 static short near mdl_load_stream( Pak *pak, MdlState *m, char *name, short need,
                                    short fh, short split, QSurf *more, short nskins )
 {
@@ -64,7 +84,6 @@ static short near mdl_load_stream( Pak *pak, MdlState *m, char *name, short need
     MdlHead h;
     short page, p, left;
     long  n, bytes;
-    float ex, ey;
 
     m->loaded = 0;
     m->vtx_hnd = 0;
@@ -89,24 +108,9 @@ static short near mdl_load_stream( Pak *pak, MdlState *m, char *name, short need
         mdl_refuse( msg );
         return 0;
     }
-    m->ntri = h.ntri; m->nvert = h.nvert; m->nframe = h.nframe;
-    m->scale = h.scale; m->origin = h.origin;
-    memcpy( m->set_n, h.set_n, MDL_NSETS );
-    m->vpages = h.vpages; m->page_frames = h.page_frames;
-
     /* Vertex bytes span 0..255, so this is the box every frame fits in;
-       the yaw turns about the origin, so the horizontal reach is a
-       radius. What the visibility test asks about instead of 170
-       vertices. */
-    ex = (float) fabs( m->origin.x );
-    if ( (float) fabs( m->origin.x + 255.0f * m->scale.x ) > ex )
-        ex = (float) fabs( m->origin.x + 255.0f * m->scale.x );
-    ey = (float) fabs( m->origin.y );
-    if ( (float) fabs( m->origin.y + 255.0f * m->scale.y ) > ey )
-        ey = (float) fabs( m->origin.y + 255.0f * m->scale.y );
-    m->radius = (float) sqrt( ex * ex + ey * ey );
-    m->zlo = m->origin.z;
-    m->zhi = m->origin.z + 255.0f * m->scale.z;
+       the yaw turns about the origin, so the horizontal reach is a radius. */
+    mdl_from_head( m, &h );
 
     if ( m->nvert > MDL_MAXV + 1 || m->ntri < 1 || m->nvert < 1 || m->nframe < 1 ||
          m->vpages < 1 || m->page_frames < 1 ||
@@ -310,68 +314,138 @@ void mdl_unload_items( World *world )
     world->backpack_mdl = -1;
 }
 
-typedef struct { char name[8]; long size; } FxModelEnt;
-typedef char rec_fxmodel_ok[ sizeof(FxModelEnt) == 12 ? 1 : -1 ];
+typedef struct {
+    char magic[4];
+    short count, skin_w, skin_h;
+    long geom_bytes;
+} FxBankHead;
 
-static char *fx_mdl_name[MDL_FX_N] = {
-    "spike", "s_spike", "grenade", "missile", "lavaball", "w_spike", "zom_gib"
-};
+typedef struct {
+    char name[8];
+    MdlHead head;
+    unsigned short vtx_ofs, tri_ofs;
+    long skin_ofs;
+} FxBankEnt;
+
+typedef char rec_fxhead_ok[ sizeof(FxBankHead) == 14 ? 1 : -1 ];
+typedef char rec_fxmodel_ok[ sizeof(FxBankEnt) == 68 ? 1 : -1 ];
 
 void mdl_load_effects( World *world )
 {
-    struct { char magic[4]; short count; } head;
-    FxModelEnt ent;
-    AliasModel model;
-    char name[9], msg[80];
-    short fh, i;
-    long bytes, left;
+    FxBankHead head;
+    FxBankEnt ent;
+    EffectModel model;
+    short fh, i, page, seg;
+    long bytes, left, chunk, skin_bytes;
 
     fh = pak_seek( &world->pak, "effects.bin", &bytes );
     if ( qglFileRead( fh, (long) (void far *) &head, sizeof(head) ) != sizeof(head) ||
-         memcmp( head.magic, "QFX1", 4 ) || head.count != MDL_FX_N )
+         memcmp( head.magic, "QFX2", 4 ) || head.count != MDL_FX_N ||
+         head.skin_w < 1 || head.skin_h < 1 || head.geom_bytes < 1 )
         sys_error( "effects.bin: bad header" );
 
-    left = bytes - sizeof(head);
+    skin_bytes = (long) head.skin_w * head.skin_h;
+    if ( bytes != sizeof(head) + (long) head.count * sizeof(ent) +
+                  head.geom_bytes + skin_bytes )
+        sys_error( "effects.bin: bad size" );
+
     world->fx_mdl_count = head.count;
-    world->fx_mdl = (AliasModel far *) qglMemAlloc( (long) head.count * sizeof(AliasModel) );
+    world->fx_mdl = (EffectModel far *) qglMemAlloc( (long) head.count * sizeof(EffectModel) );
     if ( !world->fx_mdl ) sys_error( "effects.bin: out of memory for models" );
 
     for ( i = 0; i < head.count; i++ ) {
-        if ( left < sizeof(ent) ||
-             qglFileRead( fh, (long) (void far *) &ent, sizeof(ent) ) != sizeof(ent) )
+        if ( qglFileRead( fh, (long) (void far *) &ent, sizeof(ent) ) != sizeof(ent) )
             sys_error( "effects.bin: directory short read" );
-        left -= sizeof(ent);
-        memcpy( name, ent.name, 8 ); name[8] = 0;
-        if ( strcmp( name, fx_mdl_name[i] ) || ent.size < sizeof(MdlHead) || ent.size > left )
+        if ( !ent.name[0] || !mdl_sets_ok( &ent.head, 1 ) ||
+             ent.head.nvert < 1 || ent.head.nvert > MDL_MAXV + 1 || ent.head.ntri < 1 ||
+             (long) ent.vtx_ofs + (long) ent.head.nvert * ent.head.nframe * 3 > head.geom_bytes ||
+             (long) ent.tri_ofs + (long) ent.head.ntri * MDL_TRI_BYTES > head.geom_bytes ||
+             ent.vtx_ofs / MDL_PAGE !=
+                 ( ent.vtx_ofs + (long) ent.head.nvert * ent.head.nframe * 3 - 1 ) / MDL_PAGE ||
+             ent.tri_ofs / MDL_PAGE !=
+                 ( ent.tri_ofs + (long) ent.head.ntri * MDL_TRI_BYTES - 1 ) / MDL_PAGE ||
+             ent.skin_ofs < 0 || ent.skin_ofs + (long) ent.head.skin_w * ent.head.skin_h > skin_bytes ||
+             ent.skin_ofs % MDL_PAGE + (long) ent.head.skin_w * ent.head.skin_h > MDL_PAGE )
             sys_error( "effects.bin: bad model record" );
         memset( &model, 0, sizeof(model) );
-        model.id = i;
-        if ( !mdl_load_stream( &world->pak, &model.state, name, 1, fh, 0, 0, 1 ) ) {
-            sprintf( msg, "effects.bin: %s would not load", name );
-            sys_error( msg );
-        }
+        mdl_from_head( &model.state, &ent.head );
+        model.state.page_frames = 0;
+        /* A bank model owns neither field: vpages holds its vertex byte
+           offset and skin its triangle byte offset while page_frames=0. */
+        model.state.vpages = (short) ent.vtx_ofs;
+        model.state.skin = (QSurf) ent.tri_ofs;
+        model.skin_ofs = ent.skin_ofs;
+        model.skin_w = ent.head.skin_w;
+        model.skin_h = ent.head.skin_h;
         _fmemcpy( &world->fx_mdl[i], &model, sizeof(model) );
-        left -= ent.size;
     }
-    if ( left ) sys_error( "effects.bin: trailing bytes" );
+
+    world->fx_geom_hnd = qglGemAlloc( head.geom_bytes );
+    if ( !world->fx_geom_hnd ) sys_error( "effects.bin: no EMS for geometry" );
+    left = head.geom_bytes;
+    for ( page = 0; left > 0; page++ ) {
+        chunk = left > MDL_PAGE ? MDL_PAGE : left;
+        seg = qglGemMap( world->fx_geom_hnd, page, PAGE_SLOT );
+        if ( !seg || qglFileRead( fh, (long) seg << 16, chunk ) != chunk )
+            sys_error( "effects.bin: geometry short read" );
+        left -= chunk;
+    }
+    for ( i = 0; i < head.count; i++ ) world->fx_mdl[i].state.vtx_hnd = world->fx_geom_hnd;
+
+    world->fx_skin_atlas = qglSfNewEx( head.skin_w, head.skin_h, head.skin_w, QGL_SURF_EMS );
+    if ( !world->fx_skin_atlas || !qglSfLoadFh( world->fx_skin_atlas, fh ) )
+        sys_error( "effects.bin: skin atlas would not load" );
+    world->fx_skin_view = 0;
+    world->fx_skin_aim = -1;
+    for ( i = 0; i < head.count; i++ ) world->fx_mdl[i].state.loaded = 1;
 }
 
 void mdl_unload_effects( World *world )
 {
-    short i;
-    for ( i = 0; i < world->fx_mdl_count; i++ ) {
-        AliasModel model;
-        _fmemcpy( &model, &world->fx_mdl[i], sizeof(model) );
-        mdl_unload( &model.state );
-    }
+    if ( world->fx_skin_view ) qglDelView( world->fx_skin_view );
+    if ( world->fx_skin_atlas ) qglSfFree( world->fx_skin_atlas );
+    if ( world->fx_geom_hnd ) qglGemFree( world->fx_geom_hnd );
     if ( world->fx_mdl ) qglMemFree( (long) world->fx_mdl );
     world->fx_mdl = 0;
     world->fx_mdl_count = 0;
+    world->fx_geom_hnd = 0;
+    world->fx_skin_atlas = world->fx_skin_view = 0;
+    world->fx_skin_aim = -1;
+}
+
+QSurf mdl_effect_skin( World *world, short id )
+{
+    EffectModel model;
+
+    if ( id < 0 || id >= world->fx_mdl_count ) return 0;
+    _fmemcpy( &model, &world->fx_mdl[id], sizeof(model) );
+    if ( !world->fx_skin_view ) {
+        world->fx_skin_view = qglSfViewNew( world->fx_skin_atlas,
+                                             model.skin_w, model.skin_h, model.skin_w );
+        if ( !world->fx_skin_view ) return 0;
+        world->fx_skin_aim = -1;
+    }
+    if ( world->fx_skin_aim != id ) {
+        if ( !qglSfViewResize( world->fx_skin_view, world->fx_skin_atlas,
+                               model.skin_w, model.skin_h, model.skin_w ) ||
+             !qglSfViewAim( world->fx_skin_view, model.skin_ofs ) ) return 0;
+        world->fx_skin_aim = id;
+    }
+    return world->fx_skin_view;
 }
 
 unsigned char far *mdl_frame_verts( const MdlState *m, short frame, short slot )
 {
-    unsigned char far *vb = (unsigned char far *)
+    unsigned char far *vb;
+    long ofs;
+
+    if ( !m->page_frames ) {
+        ofs = (long) (unsigned short) m->vpages + (long) frame * m->nvert * 3;
+        vb = (unsigned char far *) ((unsigned long)
+            qglGemMap( m->vtx_hnd, (short) ( ofs / MDL_PAGE ), slot ) << 16);
+        return vb + (unsigned short) ( ofs % MDL_PAGE );
+    }
+    vb = (unsigned char far *)
         ((unsigned long) qglGemMap( m->vtx_hnd, (short) ( frame / m->page_frames ), slot ) << 16);
 
     return vb + (long) ( frame % m->page_frames ) * m->nvert * 3;
@@ -379,6 +453,12 @@ unsigned char far *mdl_frame_verts( const MdlState *m, short frame, short slot )
 
 MdlTri far *mdl_tris( const MdlState *m, short slot )
 {
+    if ( !m->page_frames ) {
+        unsigned long ofs = (unsigned long) m->skin;
+        unsigned char far *base = (unsigned char far *) ((unsigned long)
+            qglGemMap( m->vtx_hnd, (short) ( ofs / MDL_PAGE ), slot ) << 16);
+        return (MdlTri far *) ( base + ofs % MDL_PAGE );
+    }
     return (MdlTri far *) ((unsigned long) qglGemMap( m->vtx_hnd, m->vpages, slot ) << 16);
 }
 

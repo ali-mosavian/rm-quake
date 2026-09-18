@@ -13,6 +13,7 @@
 #include "host.h"
 #include "mdl_ai.h"
 #include "weapons.h"
+#include "gib.h"
 #include "d_poly.h"
 #include "d_faces.h"
 #include "ent.h"
@@ -270,9 +271,10 @@ static void near host_state( Host *h, short fire, short advance )
             /* PlayerDie: GibPlayer's gib or udeath under -40, else
                DeathSound's h2odeath under water or one of five,
                rint(random() * 4 + 1) */
-            if ( fight->health < -40 )
+            if ( fight->health < -40 ) {
                 i = (short) ( rng_int( &world->rng ) & 1 ? SND_GIB : SND_UDEATH );
-            else if ( player->water_level == 3 )
+                gib_spawn_player( world, rdr, player, fight, rdr->anim_time );
+            } else if ( player->water_level == 3 )
                 i = SND_H2ODEATH;
             else if ( ( ndead = (short) ( (float) rng_int( &world->rng ) / RNG_MAX * 4.0f + 0.5f ) ) == 0 )
                 i = SND_DEATH;
@@ -286,7 +288,7 @@ static void near host_state( Host *h, short fire, short advance )
         for ( i = 0; i < world->mon_count; i++ ) {
             if ( world->mon[i].cruc ) continue;
             nmon++;
-            if ( world->mon[i].state == MDL_ST_DEAD ) ndead++;
+            if ( MDL_IS_DEAD( &world->mon[i] ) ) ndead++;
         }
         if ( nmon > 0 && ndead == nmon ) fight->state = GS_WON;
         break;
@@ -395,6 +397,7 @@ static void near host_tick( Host *h, float dt )
     host_view_load( world, fight->weapon );
     pl_traps_tick( world, player, fight, rdr );
     pl_spikes_tick( world, player, fight, rdr, dt );
+    gib_tick( world, rdr, dt );
 
     host_state( h, fire, advance );
 
@@ -593,6 +596,8 @@ static void near host_render_models( Host *h, RenderView *rv, Camera *cam )
     rdr->mdl_drawn = (short) ( rdr->mdl_drawn + rdr->boss_drawn );
     d_draw_spikes( world, rdr, &h->fight, &rv->mtx_fin,
                     rv->xresh, rv->yresh, z_near, dst );
+    d_draw_gibs( world, rdr, rv->frustum, &rv->mtx_fin,
+                  rv->xresh, rv->yresh, z_near, dst );
     part_frame( rdr, &rv->mtx_fin, rv->xresh, rv->yresh, z_near, dst, h->z_dc );
     /* the weapon in hand LAST, with depth off inside d_draw_view: it is
        not in the world and nothing may hide it */
@@ -1752,6 +1757,9 @@ static void near host_report( Host *h )
     sprintf( buf, "pickup mdl=%d", (int) h->rdr.item_mdl_drawn );
     mark( buf );
     sprintf( buf, "projectile mdl=%d", (int) h->rdr.projectile_mdl_drawn );
+    mark( buf );
+    sprintf( buf, "gib mdl=%d live=%d", (int) h->rdr.gib_mdl_drawn,
+             (int) h->rdr.gib_count );
     mark( buf );
 
     sprintf( buf, "fight=health %d shells %d nails %d rockets %d armor %d items %ld took %d kills %d booms %d deaths %d cells %d",

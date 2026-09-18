@@ -6,6 +6,7 @@
 #include <math.h>
 
 #include "combat.h"
+#include "gib.h"
 #include "part.h"
 #include "snd.h"
 #include "mdl_ai.h"
@@ -138,9 +139,10 @@ void combat_damage_monster( World *world, Player *player, Fight *fight, Renderer
     if ( ent->health <= 0 ) {
         ent->state = MDL_ST_DEAD;
         ent->anim_frame = 0;
-        if ( ent->health < f->gib_below )
+        if ( ent->health < f->gib_below ) {
             mdl_voice( player, &world->snd, ent, CHAN_VOICE, SND_UDEATH, ATTN_NORM );
-        else {
+            gib_spawn_monster( world, rdr, ent, rdr->anim_time );
+        } else {
             mdl_say( player, &world->snd, ent, 3 );
             if ( f->drop_amount )
                 pl_backpack_add( world, ent, f->drop_kind, f->drop_amount, rdr->anim_time );
@@ -269,7 +271,7 @@ void combat_radius( World *world, Player *player, Fight *fight, Renderer *rdr,
         model = 0;
         if ( kind == 0 ) {
             MdlEnt far *e = &world->mon[index];
-            if ( e->state == MDL_ST_DEAD || e->cruc ) continue;
+            if ( MDL_IS_DEAD( e ) || e->cruc ) continue;
             center = target = e->pos;
             center.z += ( e->kind == MDL_KIND_OGRE || e->kind == MDL_KIND_DEMON ||
                           e->kind == MDL_KIND_SHAMBLER ) ? 20.0f : 8.0f;

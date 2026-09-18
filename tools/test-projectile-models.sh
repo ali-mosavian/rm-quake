@@ -18,26 +18,16 @@ members = qmapread.members(sys.argv[2])
 if "effects.bin" not in members:
     raise SystemExit("FAIL: map has no effects.bin projectile bundle")
 data = qmapread.read(sys.argv[2], "effects.bin")
-if data[:4] != b"QFX1":
-    raise SystemExit("FAIL: effects.bin has no QFX1 header")
+if data[:4] != b"QFX2":
+    raise SystemExit("FAIL: effects.bin has no QFX2 shared-bank header")
 count = struct.unpack_from("<H", data, 4)[0]
-if count != 7:
-    raise SystemExit(f"FAIL: effects.bin carries {count} projectile models, wanted 7")
-
-names = []
-pos = 6
-for _ in range(count):
-    name, size = struct.unpack_from("<8sL", data, pos)
-    pos += 12
-    names.append(name.rstrip(b"\0").decode())
-    if data[pos:pos + 4] != b"QMD3":
-        raise SystemExit(f"FAIL: {names[-1]} is not a bundled alias model")
-    pos += size
+names = [struct.unpack_from("<8s", data, 14 + i * 68)[0].rstrip(b"\0").decode()
+         for i in range(count)]
 
 wanted = {"spike", "s_spike", "grenade", "missile", "lavaball", "w_spike", "zom_gib"}
-if set(names) != wanted or pos != len(data):
-    raise SystemExit(f"FAIL: projectile bundle contains {names}, wanted {sorted(wanted)}")
-print("ok: projectile bundle carries all seven original models")
+if not wanted.issubset(names):
+    raise SystemExit(f"FAIL: effect bank contains {names}, wanted projectiles {sorted(wanted)}")
+print("ok: shared effect bank carries all seven original projectile models")
 PY
 
 TIMEOUT="${TIMEOUT:-200}" "${RUN_SH:-$HERE/run.sh}" "$OUT" \

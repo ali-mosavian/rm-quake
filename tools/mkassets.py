@@ -122,7 +122,15 @@ KEY_MODELS = (
     ("m_s_key", "m_g_key"),
     ("b_s_key", "b_g_key"),
 )
-EFFECT_MODELS = ("spike", "s_spike", "grenade", "missile", "lavaball", "w_spike", "zom_gib")
+EFFECT_MODELS = (
+    "spike", "s_spike", "grenade", "missile", "lavaball", "w_spike", "zom_gib",
+    "gib1", "gib2", "gib3", "h_player", "h_guard", "h_knight", "h_dog",
+    "h_ogre", "h_demon", "h_zombie", "h_wizard", "h_shams",
+)
+EFFECT_PAGE = 16384
+EFFECT_SKIN_W = 256
+MDL_HEAD_FMT = "<4s5h6fh8B2h"
+MDL_HEAD_SIZE = struct.calcsize(MDL_HEAD_FMT)
 
 
 def build_sbar(pak: str, tmp: str) -> dict[str, bytes]:
@@ -215,11 +223,56 @@ def build_effect_models(pak: str, tmp: str) -> dict[str, bytes]:
     if not pak or not os.path.exists(pak):
         return {}
     models = [(name, build_bundled_model(pak, name, tmp)) for name in EFFECT_MODELS]
-    data = bytearray(struct.pack("<4sH", b"QFX1", len(models)))
+    geom = bytearray()
+    skins = bytearray()
+    records: list[tuple[str, bytes, int, int, int]] = []
+
+    def page_place(payload: bytes) -> int:
+        used = len(geom) % EFFECT_PAGE
+        if used + len(payload) > EFFECT_PAGE:
+            geom.extend(bytes(EFFECT_PAGE - used))
+        offset = len(geom)
+        geom.extend(payload)
+        return offset
+
+    def skin_place(payload: bytes) -> int:
+        used = len(skins) % EFFECT_PAGE
+        if used + len(payload) > EFFECT_PAGE:
+            skins.extend(bytes(EFFECT_PAGE - used))
+        offset = len(skins)
+        skins.extend(payload)
+        return offset
+
     for name, model in models:
-        data += struct.pack("<8sL", name.encode(), len(model))
-        data += model
-    print(f"  effect models: {len(models)} in one member")
+        if len(model) < MDL_HEAD_SIZE:
+            raise SystemExit(f"{name}: bundled model has no complete header")
+        head = model[:MDL_HEAD_SIZE]
+        magic, ntri, nvert, nframe, sw, sh, *_ = struct.unpack(MDL_HEAD_FMT, head)
+        tri_n = ntri * 18
+        vtx_n = nvert * nframe * 3
+        skin_n = sw * sh
+        if magic != b"QMD3" or MDL_HEAD_SIZE + tri_n + vtx_n + skin_n != len(model):
+            raise SystemExit(f"{name}: bundled model layout is not one header, geometry and skin")
+        if tri_n > EFFECT_PAGE or vtx_n > EFFECT_PAGE:
+            raise SystemExit(f"{name}: effect geometry crosses an EMS page")
+        tri = model[MDL_HEAD_SIZE:MDL_HEAD_SIZE + tri_n]
+        vtx = model[MDL_HEAD_SIZE + tri_n:MDL_HEAD_SIZE + tri_n + vtx_n]
+        vtx_ofs = page_place(vtx)
+        tri_ofs = page_place(tri)
+        skin_ofs = skin_place(model[-skin_n:])
+        records.append((name[:8], head, vtx_ofs, tri_ofs, skin_ofs))
+
+    if len(geom) > 65535:
+        raise SystemExit(f"effect geometry is {len(geom)} bytes; its offsets are 16-bit")
+    skin_h = -(-len(skins) // EFFECT_SKIN_W)
+    skins.extend(bytes(skin_h * EFFECT_SKIN_W - len(skins)))
+    data = bytearray(struct.pack("<4sHHHI", b"QFX2", len(records), EFFECT_SKIN_W,
+                                 skin_h, len(geom)))
+    for name, head, vtx_ofs, tri_ofs, skin_ofs in records:
+        data += struct.pack("<8s", name.encode()) + head
+        data += struct.pack("<HHI", vtx_ofs, tri_ofs, skin_ofs)
+    data += geom + skins
+    print(f"  effect models: {len(models)}, {len(geom)} B geometry, {len(skins)} B skin atlas")
     return {"effects.bin": bytes(data)}
 
 

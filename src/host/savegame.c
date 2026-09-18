@@ -7,9 +7,11 @@
 #include "savegame.h"
 #include "qgl.h"
 #include "dl.h"
+#include "gib.h"
 
 #define SG_MAGIC   0x31565351L
 #define SG_VERSION 1
+#define SG_GIB_MAGIC 0x31424947L
 
 typedef struct {
     long magic;
@@ -20,6 +22,11 @@ typedef struct {
     short model_count, tele_count, plat_count, door_count;
     short trig_count, light_count, item_count, mon_count;
 } SaveHead;
+
+/* Optional trailer: version-1 saves from before gibs end at the monster
+   block and still load with an empty pool. */
+typedef struct { long magic; short count; } SaveGibs;
+typedef char rec_savegibs_ok[ sizeof(SaveGibs) == 6 ? 1 : -1 ];
 
 typedef struct {
     Rng rng;
@@ -120,6 +127,8 @@ static short near savegame_write( short file, SaveHead *head, World *world,
 {
     SaveWorld sw;
     SaveRender sr;
+    SaveGibs sg;
+    GibEnt far *gib;
 
     sw.rng = world->rng;
     sw.mon_teles = world->mon_teles;
@@ -140,8 +149,8 @@ static short near savegame_write( short file, SaveHead *head, World *world,
          !savegame_write_block( file, (long) (void far *) fight, sizeof(*fight) ) ||
          !savegame_write_block( file, (long) (void far *) &sw, sizeof(sw) ) ||
          !savegame_write_block( file, (long) (void far *) &sr, sizeof(sr) ) ) return 0;
-    return savegame_write_block( file, (long) world->brush,
-                                 (long) world->model_count * sizeof(BrushModel) ) &&
+    if ( !( savegame_write_block( file, (long) world->brush,
+                                  (long) world->model_count * sizeof(BrushModel) ) &&
            savegame_write_block( file, (long) world->tele,
                                  (long) world->tele_count * sizeof(Teleporter) ) &&
            savegame_write_block( file, (long) world->plat,
@@ -155,7 +164,14 @@ static short near savegame_write( short file, SaveHead *head, World *world,
            savegame_write_block( file, (long) world->item,
                                  (long) world->item_count * sizeof(ItemEnt) ) &&
            savegame_write_block( file, (long) world->mon,
-                                 (long) world->mon_count * sizeof(MdlEnt) );
+                                 (long) world->mon_count * sizeof(MdlEnt) ) ) ) return 0;
+    sg.magic = SG_GIB_MAGIC;
+    sg.count = rdr->gib_count;
+    if ( !savegame_write_block( file, (long) (void far *) &sg, sizeof(sg) ) ) return 0;
+    if ( !sg.count ) return -1;
+    gib = gib_map( rdr, 2 );
+    return gib && savegame_write_block( file, (long) gib,
+                                        (long) sg.count * sizeof(GibEnt) );
 }
 
 short savegame_save( short slot, const char *map, World *world, Player *player,
@@ -226,9 +242,12 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
     SaveHead head;
     SaveWorld sw;
     SaveRender sr;
+    SaveGibs sg;
     char name[16];
     short file;
-    short i, ok;
+    short i, ok, gib_count = 0;
+    long got;
+    GibEnt far *gib = 0;
 
     savegame_name( slot, "sav", name );
     file = qglFileOpen( name );
@@ -265,6 +284,19 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
                                       (long) head.item_count * sizeof(ItemEnt) ) &&
                    savegame_read_block( file, (long) world->mon,
                                       (long) world->mon_count * sizeof(MdlEnt) ) );
+    if ( ok ) {
+        got = qglFileRead( file, (long) (void far *) &sg, sizeof(sg) );
+        if ( got ) {
+            if ( got != sizeof(sg) || sg.magic != SG_GIB_MAGIC ||
+                 sg.count < 0 || sg.count > GIB_MAX ) ok = 0;
+            else if ( sg.count ) {
+                gib = gib_map( rdr, 2 );
+                ok = (short) ( gib && savegame_read_block( file, (long) gib,
+                                             (long) sg.count * sizeof(GibEnt) ) );
+                if ( ok ) gib_count = sg.count;
+            }
+        }
+    }
     qglFileClose( file );
     if ( !ok ) { strcpy( error, "Save file is truncated" ); return 0; }
 
@@ -279,6 +311,7 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
     dl_import( rdr, sr.dlights );
     rdr->dl_tick = sr.dl_tick;
     rdr->dl_seed = sr.dl_seed;
+    rdr->gib_count = gib_count;
     rdr->pvs_leaf = 0;
     if ( rdr->item_lc )
         for ( i = 0; i < world->item_count; i++ ) rdr->item_lc[i].ok = 0;

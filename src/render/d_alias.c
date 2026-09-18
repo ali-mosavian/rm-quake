@@ -17,6 +17,7 @@
 #include "mdl_ai.h"
 #include "weapons.h"
 #include "item.h"
+#include "gib.h"
 #include "qgl.h"
 #include "mod.h"
 #include "mod_tex.h"
@@ -244,8 +245,8 @@ static short mdl_draw_tris(
             lit = mdl_lit_map( world, mdl_lit_row( &t, vb, scale, origin,
                                                    cyaw, syaw, cpitch, spitch,
                                                    croll, sroll, yaw_only ) );
-            qglRsPoly( dst, (void far *) qv, 3, lit ? QGL_M_ALIT : QGL_M_ATEX, skin );
-            drawn++;
+            if ( qglRsPoly( dst, (void far *) qv, 3,
+                            lit ? QGL_M_ALIT : QGL_M_ATEX, skin ) > 0 ) drawn++;
             continue;
         }
 
@@ -339,8 +340,8 @@ static short mdl_draw_tris(
             lit = mdl_lit_map( world, mdl_lit_row( &t, vb, scale, origin,
                                                    cyaw, syaw, cpitch, spitch,
                                                    croll, sroll, yaw_only ) );
-            qglRsPoly( dst, (void far *) qv, nout, lit ? QGL_M_ALIT : QGL_M_ATEX, skin );
-            drawn++;
+            if ( qglRsPoly( dst, (void far *) qv, nout,
+                            lit ? QGL_M_ALIT : QGL_M_ATEX, skin ) > 0 ) drawn++;
         }
     }
     return drawn;
@@ -644,13 +645,15 @@ short d_draw_models( World *world, Renderer *rdr, DiskPlane far *frustum,
 
     for ( i = 0; i < world->mon_count; i++ ) {
         MdlEnt far *e = &world->mon[i];
-        MdlState *ms = mdl_of( world, e->kind );
+        MdlState *ms;
         /* near: `world->mon` is far, and a far-to-near cast drops the
            segment silently -- the box would be read out of DS. */
         BspVec3 org;
         float a;
         short frame;
 
+        if ( e->state == MDL_ST_GIBBED ) continue;
+        ms = mdl_of( world, e->kind );
         if ( !ms ) continue;
         org = e->pos;
         if ( !d_mdl_visible( world, rdr, frustum, &org,
@@ -677,6 +680,48 @@ short d_draw_models( World *world, Renderer *rdr, DiskPlane far *frustum,
             &ms->scale, &ms->origin, ms, ms->skin,
             m, xresh, yresh, z_near, dst, QGL_Z_TEST ) );
     }
+    return drawn;
+}
+
+short d_draw_gibs( World *world, Renderer *rdr, DiskPlane far *frustum,
+                    Mat4 *mtx_fin, float xresh, float yresh,
+                    float z_near, QSurf dst )
+{
+    float *m = (float *) mtx_fin;
+    short i, drawn = 0;
+
+    rdr->gib_mdl_drawn = 0;
+    for ( i = 0; i < rdr->gib_count; i++ ) {
+        GibEnt gib;
+        GibEnt far *pool;
+        EffectModel model;
+        QSurf skin;
+        float pitch, yaw, roll;
+        short n;
+
+        /* Model geometry and triangles consume the other EMS mappings,
+           so re-map the state page before copying each small record. */
+        pool = gib_map( rdr, PAGE_SLOT );
+        if ( !pool ) break;
+        _fmemcpy( &gib, &pool[i], sizeof(gib) );
+        if ( !gib.model || gib.model >= world->fx_mdl_count ) continue;
+        _fmemcpy( &model, &world->fx_mdl[gib.model], sizeof(model) );
+        if ( !d_mdl_visible( world, rdr, frustum, &gib.pos,
+                              model.state.radius, model.state.zlo, model.state.zhi, 0 ) ) continue;
+        skin = mdl_effect_skin( world, gib.model );
+        if ( !skin ) continue;
+        pitch = gib.ang.x * 3.14159265f / 180.0f;
+        yaw   = gib.ang.y * 3.14159265f / 180.0f;
+        roll  = gib.ang.z * 3.14159265f / 180.0f;
+        n = mdl_draw_tris( world, model.state.ntri, model.state.nvert, 0, &gib.pos,
+                            (float) cos(yaw), (float) sin(yaw),
+                            (float) cos(pitch), (float) sin(pitch),
+                            (float) cos(roll), (float) sin(roll),
+                            &model.state.scale, &model.state.origin, &model.state,
+                            skin, m, xresh, yresh, z_near, dst, QGL_Z_TEST );
+        drawn = (short) ( drawn + n );
+    }
+    rdr->gib_mdl_drawn = drawn;
     return drawn;
 }
 
@@ -832,9 +877,10 @@ short d_draw_spikes( World *world, Renderer *rdr, Fight *fight,
 
     for ( i = 0; i < PL_NAILS_MAX; i++ ) {
         Spike *s = &fight->nail[i];
-        AliasModel model;
+        EffectModel model;
         BspVec3 at;
         float h, len, a, cyaw, syaw, cpitch, spitch, croll, sroll;
+        QSurf skin;
         short id, frame, n;
 
         if ( !s->alive ) continue;
@@ -842,6 +888,8 @@ short d_draw_spikes( World *world, Renderer *rdr, Fight *fight,
         if ( id < 0 || id >= world->fx_mdl_count ) continue;
         _fmemcpy( &model, &world->fx_mdl[id], sizeof(model) );
         if ( !model.state.loaded ) continue;
+        skin = mdl_effect_skin( world, id );
+        if ( !skin ) continue;
         at = s->pos;
 
         cyaw = cpitch = croll = 1.0f;
@@ -871,7 +919,7 @@ short d_draw_spikes( World *world, Renderer *rdr, Fight *fight,
         n = mdl_draw_tris( world, model.state.ntri, model.state.nvert, frame, &at,
                             cyaw, syaw, cpitch, spitch, croll, sroll,
                             &model.state.scale, &model.state.origin,
-                            &model.state, model.state.skin, m, xresh, yresh,
+                            &model.state, skin, m, xresh, yresh,
                             z_near, dst, QGL_Z_TEST );
         drawn = (short) ( drawn + n );
         rdr->projectile_mdl_drawn = (short) ( rdr->projectile_mdl_drawn + n );

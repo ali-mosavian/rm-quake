@@ -49,7 +49,9 @@ short part_init( Renderer *rdr )
     unsigned char far *bytes;
     short i;
 
-    rdr->frame_dc = qglSfNew( RDR_FRAME_BYTES, 1, QGL_SURF_EMS );
+    /* Three rows stay inside one 16 KB EMS page; qgl surfaces cap a row
+       at 8192 pixels, so the frame store cannot be expressed as one row. */
+    rdr->frame_dc = qglSfNew( RDR_PART_BYTES, RDR_FRAME_ROWS, QGL_SURF_EMS );
     if ( !rdr->frame_dc ) return 0;
     bytes = (unsigned char far *) qglSfAccessWrEx( rdr->frame_dc, 0, PART_EMS_SLOT );
     if ( !bytes ) {
@@ -62,6 +64,7 @@ short part_init( Renderer *rdr )
     rdr->part_next = 0;
     rdr->part_pending_n = 0;
     rdr->part_live = rdr->part_drawn = 0;
+    rdr->gib_count = rdr->gib_mdl_drawn = 0;
     rdr->part_last = rdr->anim_time;
     return -1;
 }

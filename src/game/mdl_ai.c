@@ -1196,6 +1196,7 @@ void mdl_think( World *world, Player *player, Fight *fight, Renderer *rdr,
     ent->next_think = rdr->anim_time + 0.1f;
 
     /* Dead: the death frames once, then a corpse. */
+    if ( ent->state == MDL_ST_GIBBED ) return;
     if ( ent->state == MDL_ST_DEAD ) {
         if ( ent->anim_frame < m->set_n[MDL_SET_DEATH] - 1 ) ent->anim_frame++;
         return;
@@ -1248,7 +1249,7 @@ short mdl_ai_visible_selftest( World *world, Player *player )
 
     for ( i = 0; i < world->mon_count; i++ ) {
         MdlEnt far *e = &world->mon[i];
-        if ( e->cruc || e->state == MDL_ST_DEAD ) continue;
+        if ( e->cruc || MDL_IS_DEAD( e ) ) continue;
         if ( e->kind == MDL_KIND_DEMON ) { best = e; break; }
         dx = e->pos.x - player->pos.x; dy = e->pos.y - player->pos.y; dz = e->pos.z - player->pos.z;
         d = dx*dx + dy*dy + dz*dz;
@@ -1272,7 +1273,7 @@ void mdl_tick( World *world, Player *player, Fight *fight, Renderer *rdr )
         MdlState *m = mdl_of( world, world->mon[i].kind );
         was = world->mon[i].pos;
         if ( m ) mdl_think( world, player, fight, rdr, &world->mon[i], m, -1 );
-        if ( world->mon[i].state != MDL_ST_DEAD && !world->mon[i].cruc ) {
+        if ( !MDL_IS_DEAD( &world->mon[i] ) && !world->mon[i].cruc ) {
             ent_monster_teleport( world, rdr, rdr->anim_time, &world->mon[i] );
             /* SV_LinkEdict's touches: only a monster that moved */
             if ( world->mon[i].pos.x != was.x || world->mon[i].pos.y != was.y ||

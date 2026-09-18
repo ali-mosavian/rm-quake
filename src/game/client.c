@@ -3,6 +3,7 @@
  */
 
 #include "client.h"
+#include "gib.h"
 #include "mdl_ai.h"
 #include "item.h"
 #include "qgl.h"
@@ -136,6 +137,7 @@ void pl_game_reset( World *world, Player *player, Camera *cam, Fight *fight,
     world->item_count = (short) ( world->item_max - world->mon_count );
     for ( i = 0; i < world->item_count; i++ ) world->item[i].gone = 0;
     for ( i = 0; i < PL_NAILS_MAX; i++ ) fight->nail[i].alive = 0;
+    gib_clear( rdr );
 
     pl_reset_player( player, fight, rdr );
     /* on foot, facing the map's way: the camera reads its angle from

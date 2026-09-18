@@ -94,6 +94,13 @@ typedef struct {
     short    id;
 } AliasModel;
 
+/* One model in effects.bin's shared geometry and skin banks. */
+typedef struct {
+    MdlState state;
+    long     skin_ofs;
+    short    skin_w, skin_h;
+} EffectModel;
+
 /* effects.bin order. Every projectile selects one from its existing
    gameplay flags, so Spike gains no render-only state. */
 #define MDL_FX_SPIKE     0
@@ -103,7 +110,19 @@ typedef struct {
 #define MDL_FX_LAVABALL  4
 #define MDL_FX_WSPIKE    5
 #define MDL_FX_ZOMGIB    6
-#define MDL_FX_N         7
+#define MDL_FX_GIB1      7
+#define MDL_FX_GIB2      8
+#define MDL_FX_GIB3      9
+#define MDL_FX_HPLAYER  10
+#define MDL_FX_HGUARD   11
+#define MDL_FX_HKNIGHT  12
+#define MDL_FX_HDOG     13
+#define MDL_FX_HOGRE    14
+#define MDL_FX_HDEMON   15
+#define MDL_FX_HZOMBIE  16
+#define MDL_FX_HWIZARD  17
+#define MDL_FX_HSHAMS   18
+#define MDL_FX_N        19
 
 /* One spawned monster: everything mdl_think owns, separate from the
    MdlState a whole kind shares. BSP space, Z up, like Player.pos, so it
