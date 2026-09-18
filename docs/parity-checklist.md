@@ -62,8 +62,9 @@ PAK0 and are left out.
       run cycle, `src/render/d_alias.c:584`
 - [ ] Chthon drawn
       id: `boss.qc` `monster_boss`, `boss_missile`, `lightning_use`
-      qcport (partial): an unseen trigger that counts bolts and fires the
-      exit, `tools/mkassets.py:1003`
+      qcport (partial): the loaded alias model rises from an id-style lava
+      splash, faces the player, and animates rise, attack, shock and death;
+      the trigger counts bolts and fires the exit. Missing: lava-ball attacks.
 - [x] Runtime view size and fov
       id: `screen.c` `scr_viewsize`, `SCR_SizeUp_f`, `scr_fov`
       qcport: archived `viewsize`/`fov` cvars and `sizeup`/`sizedown`, with

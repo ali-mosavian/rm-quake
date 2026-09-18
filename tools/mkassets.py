@@ -1132,8 +1132,9 @@ def sp_relay(e: Ents, kv: dict[str, str]) -> bool:
 def sp_boss(e: Ents, kv: dict[str, str]) -> bool:
     # Chthon: the rune wakes him, his health boss_awake's 1 on easy else 3,
     # a bolt a point, dead his target fires; his model ships as BOSS_MDL
+    yaw = float(kv.get('angle', '0'))
     e.uses.append((0, TRIG_BOSS, ent_name_id(e, kv.get('target', '')), ent_name_id(e, kv.get('targetname', '')),
-                   0, 1 if e.skill == 0 else 3, 0.0, 0.0, (0.0, 0.0, 0.0), 0, b'',
+                   0, 1 if e.skill == 0 else 3, yaw, yaw, (0.0, 0.0, 0.0), 0, b'',
                    ent_vec(kv.get('origin', '0 0 0'))))
     return True
 

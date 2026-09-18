@@ -152,6 +152,7 @@ typedef struct {
     short demo_view_frame;/* recorded QDS1 frame, -1 outside demo playback */
     short no_ai;          /* -noai: the monsters stand where they spawned */
     short mdl_drawn;      /* monster triangles submitted this frame */
+    short boss_drawn;     /* Chthon triangles submitted this frame */
     short ents_last;      /* brush entities after the world walk: with depth
                               unless -entinsert, or -badorder */
 

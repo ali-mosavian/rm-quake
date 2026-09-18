@@ -591,6 +591,9 @@ static void near host_render_models( Host *h, RenderView *rv, Camera *cam )
                    rv->xresh, rv->yresh, z_near, dst );
     rdr->mdl_drawn = d_draw_models( world, rdr, rv->frustum, &rv->mtx_fin,
                                      rv->xresh, rv->yresh, z_near, dst );
+    rdr->boss_drawn = d_draw_boss( world, rdr, rv->frustum, &rv->mtx_fin,
+                                    rv->xresh, rv->yresh, z_near, dst );
+    rdr->mdl_drawn = (short) ( rdr->mdl_drawn + rdr->boss_drawn );
     d_draw_spikes( &h->fight, &rv->mtx_fin, rv->xresh, rv->yresh, z_near, dst );
     part_frame( rdr, &rv->mtx_fin, rv->xresh, rv->yresh, z_near, dst, h->z_dc );
     /* the weapon in hand LAST, with depth off inside d_draw_view: it is
@@ -1740,6 +1743,8 @@ static void near host_report( Host *h )
     mark( buf );
     sprintf( buf, "particles live=%d drawn=%d", (int) h->rdr.part_live,
              (int) h->rdr.part_drawn );
+    mark( buf );
+    sprintf( buf, "boss drawn=%d", (int) h->rdr.boss_drawn );
     mark( buf );
 
     sprintf( buf, "fight=health %d shells %d nails %d rockets %d armor %d items %ld took %d kills %d booms %d deaths %d cells %d",

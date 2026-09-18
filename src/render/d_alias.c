@@ -636,6 +636,80 @@ short d_draw_models( World *world, Renderer *rdr, DiskPlane far *frustum,
     return drawn;
 }
 
+static short near boss_frame( TrigEnt far *t, MdlState *ms, float now )
+{
+    float elapsed;
+    short set, frame;
+
+    if ( t->state == ENT_TRIG_READY ||
+         ( t->state == ENT_TRIG_DONE && t->delay_left <= 0.0f ) ) return -1;
+
+    if ( t->state == ENT_TRIG_DONE ) {
+        elapsed = ENT_BOSS_DYING - t->delay_left;
+        if ( elapsed < 1.0f ) {
+            set = MDL_BOSS_SHOCKC;
+            frame = (short) ( elapsed * 10.0f );
+        } else {
+            set = MDL_BOSS_DEATH;
+            frame = (short) ( ( elapsed - 1.0f ) * 10.0f );
+            if ( frame >= ms->set_n[set] ) frame = (short) ( ms->set_n[set] - 1 );
+        }
+        return mdl_set_frame( ms, set, frame );
+    }
+
+    elapsed = now - t->wait_left;
+    if ( elapsed < 0.0f ) elapsed = 0.0f;
+    set = t->snd;
+    if ( set == MDL_BOSS_RISE ) {
+        float rise = (float) ms->set_n[set] * 0.1f;
+        if ( elapsed < rise )
+            return mdl_set_frame( ms, set, (short) ( elapsed * 10.0f ) );
+        elapsed -= rise;
+        set = MDL_BOSS_ATTACK;
+    } else if ( set == MDL_BOSS_SHOCKA || set == MDL_BOSS_SHOCKB ) {
+        if ( elapsed < 1.0f ) {
+            frame = (short) ( elapsed * 10.0f );
+            if ( frame >= ms->set_n[set] ) frame -= ms->set_n[set];
+            return mdl_set_frame( ms, set, frame );
+        }
+        elapsed -= 1.0f;
+        set = MDL_BOSS_ATTACK;
+    } else {
+        set = MDL_BOSS_ATTACK;
+    }
+    frame = (short) ( elapsed * 10.0f ) % ms->set_n[set];
+    return mdl_set_frame( ms, set, frame );
+}
+
+short d_draw_boss( World *world, Renderer *rdr, DiskPlane far *frustum,
+                    Mat4 *mtx_fin, float xresh, float yresh, float z_near,
+                    QSurf dst )
+{
+    MdlState *ms = &world->boss;
+    TrigEnt far *t;
+    BspVec3 org;
+    float a;
+    short k, frame;
+
+    if ( rdr->no_mdl || !ms->loaded ) return 0;
+    for ( k = 0; k < world->trig_count; k++ ) {
+        t = &world->trig[k];
+        if ( t->kind != ENT_TRIG_BOSS ) continue;
+        frame = boss_frame( t, ms, rdr->anim_time );
+        if ( frame < 0 ) return 0;
+        org = t->mins;
+        if ( !d_mdl_visible( world, rdr, frustum, &org,
+                              ms->radius, ms->zlo, ms->zhi, 0 ) ) return 0;
+        a = t->speed * 3.14159265f / 180.0f;
+        return mdl_draw_tris( world, ms->ntri, ms->nvert, frame, &org,
+                              (float) cos( a ), (float) sin( a ), 1.0f, 0.0f,
+                              &ms->scale, &ms->origin, ms, ms->skin,
+                              (float *) mtx_fin, xresh, yresh, z_near, dst,
+                              QGL_Z_TEST );
+    }
+    return 0;
+}
+
 /*
  * The view weapon: the model in hand at the eye, turned by the view's
  * own yaw and pitch and drawn last with depth OFF, which is what Quake

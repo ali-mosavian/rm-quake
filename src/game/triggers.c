@@ -4,6 +4,7 @@
  */
 
 #include <string.h>
+#include <math.h>
 
 #include "triggers.h"
 #include "doors.h"
@@ -84,7 +85,12 @@ static void ent_lightning( World *world, Player *player, Renderer *rdr, short k 
         org = boss->mins;
         snd_start( &world->snd, player, (short) ( SND_ENT_TRIG + j ), CHAN_VOICE, SND_BOSS_PAIN, &org, ATTN_NORM );
         boss->left--;
-        if ( boss->left > 0 ) return;
+        boss->wait_left = now;
+        if ( boss->left > 0 ) {
+            boss->snd = (short) ( boss->left >= 2 ? MDL_BOSS_SHOCKA : MDL_BOSS_SHOCKB );
+            return;
+        }
+        boss->snd = MDL_BOSS_SHOCKC;
         boss->state = ENT_TRIG_DONE;
         boss->delay_left = ENT_BOSS_DYING;
         return;
@@ -140,6 +146,9 @@ void ent_use_targets( World *world, Player *player, Fight *fight,
                 org = world->trig[k].mins;
                 snd_start( &world->snd, player, (short) ( SND_ENT_TRIG + k ), CHAN_WEAPON, SND_BOSS_OUT, &org, ATTN_NORM );
                 snd_start( &world->snd, player, (short) ( SND_ENT_TRIG + k ), CHAN_VOICE, SND_BOSS_SIGHT, &org, ATTN_NORM );
+                part_lava( rdr, &org );
+                world->trig[k].snd = MDL_BOSS_RISE;
+                world->trig[k].wait_left = rdr->anim_time;
             }
             /* fall through */
         case ENT_TRIG_SHOOTER:
@@ -228,6 +237,18 @@ void ent_move_trigs( World *world, Player *player, Camera *cam, Fight *fight,
         b = &world->brush[ t->model ];
         was = b->ofs;
         before = t->delay_left;
+
+        if ( t->kind == ENT_TRIG_BOSS && t->state == ENT_TRIG_ARMED ) {
+            float want = (float) ( atan2( player->pos.y - t->mins.y,
+                                           player->pos.x - t->mins.x ) * 57.29577951 );
+            float turn = want - t->speed;
+            float step = 200.0f * dt;
+            while ( turn > 180.0f ) turn -= 360.0f;
+            while ( turn < -180.0f ) turn += 360.0f;
+            if ( turn > step ) turn = step;
+            if ( turn < -step ) turn = -step;
+            t->speed += turn;
+        }
 
         if ( t->delay_left > 0.0f ) {
             t->delay_left -= dt;

@@ -286,9 +286,9 @@ typedef struct {
 typedef struct {
     short   model, kind, target, name, kill;
     short   state, left, count;
-    float   wait, wait_left, speed;
+    float   wait, wait_left, speed; /* Chthon: spawn yaw, phase time, yaw */
     BspVec3 ofs_out;     /* a button's pressed offset */
-    short   snd;
+    short   snd;            /* Chthon's animation set: he owns no trigger sound */
     BspVec3 mins, maxs;  /* the volume, or the button's brush */
     short   msg;
     float   delay, delay_left;
