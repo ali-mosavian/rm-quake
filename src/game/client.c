@@ -8,6 +8,82 @@
 #include "item.h"
 #include "qgl.h"
 #include <stdio.h>
+#include <string.h>
+
+static short death_counts[] = { 11, 9, 15, 9, 9, 9 };
+
+short pl_death_choose( short weapon, float random )
+{
+    short set;
+
+    if ( weapon == PL_IT_AXE ) return PL_DEATH_AXE;
+    set = (short) ( random * 6.0f );
+    if ( set > PL_DEATH_E ) set = PL_DEATH_E;
+    return set;
+}
+
+void pl_death_reset( PlayerDeath *death )
+{
+    memset( death, 0, sizeof(*death) );
+}
+
+void pl_death_begin( PlayerDeath *death, Player *player, Fight *fight,
+                     short set, float kick, float now )
+{
+    death->set = set;
+    death->frame = 0;
+    death->phase = set >= 0 ? PL_DEATH_DYING : PL_DEATH_RELEASE;
+    death->next_frame = now + 0.1f;
+
+    fight->quad_until = fight->suit_until = fight->pent_until = 0.0f;
+    fight->invis_until = 0.0f;
+    player->no_clip = 0;
+    player->on_ground = 0;
+    player->water_until = 0.0f;
+    if ( player->vel.z < 10.0f ) player->vel.z += kick;
+}
+
+short pl_death_tick( PlayerDeath *death, float now, short advance )
+{
+    short count = death->set >= 0 ? death_counts[death->set] : 0;
+    short was_dying = (short) ( death->phase == PL_DEATH_DYING );
+
+    while ( death->phase == PL_DEATH_DYING && now >= death->next_frame ) {
+        death->frame++;
+        death->next_frame += 0.1f;
+        if ( death->frame >= count - 1 ) death->phase = PL_DEATH_RELEASE;
+    }
+    /* PlayerDeathThink runs before the animation think that sets DEAD_DEAD.
+       Buttons cannot acknowledge release until the following tick. */
+    if ( was_dying && death->phase == PL_DEATH_RELEASE ) return 0;
+    if ( death->phase == PL_DEATH_RELEASE ) {
+        if ( !advance ) death->phase = PL_DEATH_READY;
+        return 0;
+    }
+    return (short) ( death->phase == PL_DEATH_READY && advance );
+}
+
+short pl_death_selftest( void )
+{
+    PlayerDeath death;
+    Player player;
+    Fight fight;
+
+    memset( &player, 0, sizeof(player) );
+    memset( &fight, 0, sizeof(fight) );
+    player.no_clip = -1;
+    fight.quad_until = fight.suit_until = fight.pent_until = fight.invis_until = 9.0f;
+    pl_death_begin( &death, &player, &fight, PL_DEATH_C, 150.0f, 1.0f );
+    if ( player.vel.z != 150.0f || fight.quad_until != 0.0f || player.no_clip ) return 0;
+    if ( pl_death_tick( &death, 2.39f, 0 ) || death.frame != 13 ) return 0;
+    if ( pl_death_tick( &death, 2.40f, 0 ) || death.frame != 14 ||
+         death.phase != PL_DEATH_RELEASE ) return 0;
+    if ( pl_death_tick( &death, 2.50f, -1 ) || death.phase != PL_DEATH_RELEASE ) return 0;
+    if ( pl_death_tick( &death, 2.60f, 0 ) || death.phase != PL_DEATH_READY ) return 0;
+    if ( !pl_death_tick( &death, 2.70f, -1 ) ) return 0;
+    return (short) ( pl_death_choose( PL_IT_AXE, 0.0f ) == PL_DEATH_AXE &&
+                     pl_death_choose( PL_IT_SHOTGUN, 0.99f ) == PL_DEATH_E );
+}
 
 void pl_weapon_flash( Fight *fight, float now )
 {
@@ -46,12 +122,6 @@ void pl_reset_player( Player *player, Fight *fight, Renderer *rdr )
     player->fall_vz = 0.0f;
     player->water_dir.x = player->water_dir.y = player->water_dir.z = 0.0f;
     player->water_until = 0.0f;
-}
-
-void pl_respawn( Player *player, Fight *fight, Renderer *rdr )
-{
-    fight->deaths++;
-    pl_reset_player( player, fight, rdr );
 }
 
 /* SetChangeParms: keys and powerups are the level's own and do not travel. */

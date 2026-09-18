@@ -271,27 +271,40 @@ static void near host_state( Host *h, short fire, short advance )
     short scr_x_res  = h->v.scr_x_res;
     short i, ndead, nmon;
 
-    switch ( fight->state ) {
-    case GS_PLAY:
-        if ( fight->health <= 0 ) {
-            fight->state = GS_DEAD;
-            /* PlayerDie: GibPlayer's gib or udeath under -40, else
-               DeathSound's h2odeath under water or one of five,
-               rint(random() * 4 + 1) */
-            if ( fight->health < -40 ) {
-                i = (short) ( rng_int( &world->rng ) & 1 ? SND_GIB : SND_UDEATH );
-                gib_spawn_player( world, rdr, player, fight, rdr->anim_time );
-            } else if ( player->water_level == 3 ) {
+    if ( ( fight->state == GS_PLAY || fight->state == GS_WON ) &&
+         fight->health <= 0 ) {
+        short set = -1;
+        float kick = player->vel.z < 10.0f ? rng_float( &world->rng ) * 300.0f : 0.0f;
+
+        fight->state = GS_DEAD;
+        /* PlayerDie: GibPlayer's gib or udeath under -40, else
+           DeathSound's h2odeath under water or one of five. */
+        if ( fight->health < -40 ) {
+            float old_z = player->pos.z;
+            gib_spawn_player( world, rdr, player, fight, rdr->anim_time );
+            cam->pos.y += player->pos.z - old_z;
+            cam->look_at.y += player->pos.z - old_z;
+            i = rng_float( &world->rng ) < 0.5f ? SND_GIB : SND_UDEATH;
+        } else {
+            if ( player->water_level == 3 ) {
                 i = SND_H2ODEATH;
                 d_sprite_bubbles( rdr, 20 );
-            } else if ( ( ndead = (short) ( (float) rng_int( &world->rng ) / RNG_MAX * 4.0f + 0.5f ) ) == 0 )
+            } else if ( ( ndead = (short) ( rng_float( &world->rng ) * 4.0f + 0.5f ) ) == 0 )
                 i = SND_DEATH;
             else
                 i = (short) ( SND_DEATH2 + ndead - 1 );
-            snd_start( &h->world.snd, player, SND_ENT_PLAYER, CHAN_VOICE, i, &player->pos, ATTN_NONE );
-            fight->state_until = rdr->anim_time + PL_DEATH_PAUSE;
-            break;
+            set = fight->weapon == PL_IT_AXE
+                ? PL_DEATH_AXE
+                : pl_death_choose( fight->weapon, rng_float( &world->rng ) );
         }
+        snd_start( &world->snd, player, SND_ENT_PLAYER, CHAN_VOICE, i,
+                   &player->pos, ATTN_NONE );
+        pl_death_begin( &h->death, player, fight, set, kick, rdr->anim_time );
+        return;
+    }
+
+    switch ( fight->state ) {
+    case GS_PLAY:
         ndead = nmon = 0;
         for ( i = 0; i < world->mon_count; i++ ) {
             if ( world->mon[i].cruc ) continue;
@@ -302,9 +315,13 @@ static void near host_state( Host *h, short fire, short advance )
         break;
 
     case GS_DEAD:
-        if ( rdr->anim_time >= fight->state_until ) {
-            pl_respawn( player, fight, rdr );
-            fight->state = GS_PLAY;
+        if ( pl_death_tick( &h->death, rdr->anim_time, advance ) ) {
+            char map[9];
+            host_map_base( h, map );
+            strcpy( fight->next_map, map );
+            h->carried = -1;
+            h->pending_load = -1;
+            fight->state = GS_NEXT;
         }
         break;
 
@@ -373,26 +390,36 @@ static void near host_tick( Host *h, float dt )
     short scr_x_res  = h->v.scr_x_res;
     short scr_y_res  = h->v.scr_y_res;
     short fire = keybind_action( h->keys, KA_ATTACK );
-    short advance = (short) ( fire || keybind_action( h->keys, KA_JUMP ) );
+    short advance = (short) ( fire || keybind_action( h->keys, KA_JUMP ) ||
+                              keybind_action( h->keys, KA_USE ) );
+    short live;
+    short rider_kind;
 
     v_update_camera( cam, player, world, input, h->keys, fight, rdr,
                      dt, scr_x_res, scr_y_res, h->forward_speed, h->invert_mouse );
+    /* Water, lava and landing damage happen during player movement. */
+    live = (short) ( fight->health > 0 );
+    rider_kind = live ? ENT_RIDER_LIVE
+               : fight->health < -40 ? ENT_RIDER_HEAD : ENT_RIDER_DEAD;
 
-    ent_check_teleport( player, world, rdr, rdr->anim_time, scr_x_res );
-    ent_fog_tick( world, player, rdr->anim_time );
+    if ( live ) {
+        ent_check_teleport( player, world, rdr, rdr->anim_time, scr_x_res );
+        ent_fog_tick( world, player, rdr->anim_time );
+    }
 
     /* Doors before triggers: a button's target is a door, and a door
        fired this tick should start moving on it. */
-    ent_move_plats( world, player, dt );
+    ent_move_plats( world, player, dt, rider_kind );
     ent_move_doors( world, player, fight, rdr, dt );
-    ent_move_trigs( world, player, cam, fight, rdr, dt, scr_x_res, scr_y_res );
-    ent_move_trains( world, player, dt );
+    ent_move_trigs( world, player, cam, fight, rdr, dt, scr_x_res, scr_y_res, live );
+    ent_move_trains( world, player, dt, rider_kind );
 
     /* after the movers: a plat can carry an item's floor out from under
        the player */
     pl_items_tick( world, fight, rdr, dt );
-    pl_items_touch( world, player, fight, rdr, host_item_notice,
-                    (void far *) h->console );
+    if ( live )
+        pl_items_touch( world, player, fight, rdr, host_item_notice,
+                        (void far *) h->console );
 
     /* after the player has moved: FindTarget sees where they are now */
     if ( fight->state == GS_PLAY || fight->state == GS_WON || fight->state == GS_DEAD )
@@ -401,7 +428,7 @@ static void near host_tick( Host *h, float dt )
     /* The shot goes after the monsters' think so it hits them where this
        frame drew them. A dead player fires nothing, but what is already
        in the air keeps flying. */
-    if ( fight->state == GS_PLAY ) {
+    if ( fight->state == GS_PLAY && fight->health > 0 ) {
         if ( fire ) pl_fire( world, player, cam, fight, rdr );
     }
     host_view_load( world, fight->weapon );
@@ -633,13 +660,17 @@ static void near host_render( Host *h )
     RenderView rv;
     Camera view;
     Vec3 up;
+    short dead = (short) ( h->fight.health <= 0 );
+    float dead_height = h->demo.camera ? PL_EYE
+                      : h->fight.health < -40 ? 8.0f : -8.0f;
 #if QR_PROF
     float t0 = sys_now( &h->sysclk );
 #endif
 
     rv.xresh = (float) h->v.x_res / 2.0f;
     rv.yresh = (float) h->v.y_res / 2.0f;
-    v_render_effects( &view, &up, &h->cam, &h->player, h->rdr.anim_time );
+    v_render_effects( &view, &up, &h->cam, &h->player, dead, PL_EYE,
+                      dead_height, h->rdr.anim_time );
     host_render_walk( h, &rv, &view, &up );
 #if QR_PROF
     pt_stop( h, t0, &h->pt.cull_sum, &h->pt.cull_max );
@@ -743,6 +774,10 @@ static void near host_selftests( void )
     sprintf( buf, "combat_selftest %d", combat_selftest() );
     mark( buf );
     sprintf( buf, "mdl_anim_selftest %d", mdl_anim_selftest() );
+    mark( buf );
+    sprintf( buf, "pl_death_selftest %d", pl_death_selftest() );
+    mark( buf );
+    sprintf( buf, "gib_selftest %d", gib_selftest() );
     mark( buf );
     sprintf( buf, "d_alias_selftest %d", d_alias_selftest() );
     mark( buf );
@@ -959,6 +994,7 @@ static void near host_spawn( Host *h )
         mark( buf );
     }
     pl_weapon_flash( &h->fight, h->rdr.anim_time );
+    pl_carry_capture( &h->carry, &h->fight );
     /* The camera reads its angle from the mouse, so aiming is moving the
        mouse. v_update_camera reads phi as PI*(mouse.y+2)/y_res; y 110 is
        100.8 degrees, a little below the horizon, what every headless
@@ -1041,6 +1077,7 @@ static void near host_map_init( Host *h )
     memset( &h->cam, 0, sizeof(h->cam) );
     memset( &h->player, 0, sizeof(h->player) );
     memset( &h->fight, 0, sizeof(h->fight) );
+    pl_death_reset( &h->death );
     memset( &h->ls, 0, sizeof(h->ls) );
     memset( &h->sysclk, 0, sizeof(h->sysclk) );
     memset( &h->clock, 0, sizeof(h->clock) );
@@ -1449,7 +1486,8 @@ static short near host_save_slot( Host *h, short slot, char *error )
     }
     host_map_base( h, map );
     if ( !savegame_save( slot, map, &h->world, &h->player, &h->cam, &h->fight,
-                         &h->rdr, h->input.mouse.x, h->input.mouse.y, error ) ) return 0;
+                         &h->carry, &h->rdr, h->input.mouse.x,
+                         h->input.mouse.y, error ) ) return 0;
     sprintf( buf, "savegame wrote s%d map %s pos %ld,%ld,%ld", (int) slot, map,
              (long) h->player.pos.x, (long) h->player.pos.y, (long) h->player.pos.z );
     mark( buf );
@@ -1538,6 +1576,7 @@ static void near host_legacy_input( Host *h )
         keybind_replay_state( h->keys, KA_MOVERIGHT, h->demo.rec.in[7] );
         keybind_replay_state( h->keys, KA_JUMP, h->demo.rec.in[8] );
         keybind_replay_state( h->keys, KA_ATTACK, h->demo.rec.in[2] );
+        keybind_replay_state( h->keys, KA_USE, h->demo.rec.in[3] );
         return;
     }
     keybind_force( h->keys, KA_FORWARD,
@@ -1755,6 +1794,9 @@ static void near host_report( Host *h )
              (int) fight->state, h->args.map_name, fight->next_map,
              (int) fight->secrets, (int) fight->secret_total, (int) fight->skill );
     mark( buf );
+    sprintf( buf, "death set=%d frame=%d phase=%d",
+             (int) h->death.set, (int) h->death.frame, (int) h->death.phase );
+    mark( buf );
     sprintf( buf, "water level %d type %d peak %ld jump %d vel %ld,%ld,%ld",
              (int) h->player.water_level, (int) h->player.water_type,
              (long) h->player.peak_z,
@@ -1903,7 +1945,7 @@ short host_changelevel( Host *h )
         h->pending_load = -1;
         host_map_base( h, base );
         if ( savegame_load( slot, base, &h->world, &h->player, &h->cam, &h->fight,
-                            &h->rdr, &mouse_x, &mouse_y, error ) ) {
+                            &h->carry, &h->rdr, &mouse_x, &mouse_y, error ) ) {
             qglMousePos( mouse_x, mouse_y );
             ent_place_models( &h->world );
             ent_lights_sync( &h->world, &h->ls );

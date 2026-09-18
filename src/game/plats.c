@@ -6,6 +6,7 @@
 #include "ent.h"
 #include "mathlib.h"
 #include "pl_move.h"
+#include "pl_trace.h"
 #include "snd.h"
 
 /*
@@ -15,24 +16,75 @@
  *       this; the box is close enough and needs nothing from the
  *       compiler.
  */
-short ent_plat_touched( Player *player, World *world, short p )
+static short near ent_mover_xy( Player *player, PlatEnt far *plt,
+                                BrushModel far *br )
 {
-    PlatEnt far *plt = &world->plat[p];
+    if ( player->pos.x + 16.0f < plt->mins.x + br->ofs.x ) return 0;
+    if ( player->pos.x - 16.0f > plt->maxs.x + br->ofs.x ) return 0;
+    if ( player->pos.y + 16.0f < plt->mins.y + br->ofs.y ) return 0;
+    if ( player->pos.y - 16.0f > plt->maxs.y + br->ofs.y ) return 0;
+    return 1;
+}
+
+/* The plat trigger is a column above the brush. It starts the lift, but
+   is not evidence that a TOSS/BOUNCE body is supported by the lift. */
+static short near ent_plat_activated( Player *player, PlatEnt far *plt,
+                                      BrushModel far *br )
+{
     float top;
 
-    if ( player->pos.x + 16.0f < plt->mins.x ) return 0;
-    if ( player->pos.x - 16.0f > plt->maxs.x ) return 0;
-    if ( player->pos.y + 16.0f < plt->mins.y ) return 0;
-    if ( player->pos.y - 16.0f > plt->maxs.y ) return 0;
+    if ( !ent_mover_xy( player, plt, br ) ) return 0;
 
     /* Above its surface and within a body's height of it. Anything
        higher is someone on a walkway over the shaft, not a passenger. */
-    top = plt->maxs.z + world->brush[plt->model].ofs.z;
+    top = plt->maxs.z + br->ofs.z;
 
     if ( player->pos.z - PL_FEET < top - 8.0f  ) return 0;
     if ( player->pos.z - PL_FEET > top + 64.0f ) return 0;
 
     return 1;
+}
+
+/* We do not retain groundentity, so support is reconstructed from the
+   grounded flag and the feet being at the mover's top. */
+static short near ent_mover_supported( Player *player, PlatEnt far *plt,
+                                       BrushModel far *br, short head )
+{
+    float bottom, top;
+
+    if ( !player->on_ground || !ent_mover_xy( player, plt, br ) ) return 0;
+    bottom = player->pos.z - ( head ? 0.0f : PL_FEET );
+    top = plt->maxs.z + br->ofs.z;
+    return (short) ( bottom >= top - 8.0f && bottom <= top + 8.0f );
+}
+
+/* SV_PushMove also moves an entity caught by the pusher's final box,
+   even when it was not standing on it before the move. */
+static short near ent_mover_intersects( World *world, Player *player,
+                                        PlatEnt far *plt, BrushModel far *br,
+                                        short head )
+{
+    float bottom, top;
+    BspVec3 org;
+    TraceResult tr;
+
+    if ( !ent_mover_xy( player, plt, br ) ) return 0;
+    bottom = player->pos.z - ( head ? 0.0f : PL_FEET );
+    top = player->pos.z + ( head ? 56.0f : 32.0f );
+    if ( top < plt->mins.z + br->ofs.z ) return 0;
+    if ( bottom > plt->maxs.z + br->ofs.z ) return 0;
+
+    org = player->pos;
+    /* HeadPlayer's 0..56 box is hull 1's -24..32 shifted up 24. */
+    if ( head ) org.z += PL_FEET;
+    pl_trace( world, &org, &org, &tr );
+    return tr.all_solid;
+}
+
+short ent_plat_touched( Player *player, World *world, short p )
+{
+    PlatEnt far *plt = &world->plat[p];
+    return ent_plat_activated( player, plt, &world->brush[plt->model] );
 }
 
 /*
@@ -48,19 +100,21 @@ short ent_plat_touched( Player *player, World *world, short p )
  *       the mover touches and telefrags what it cannot push; this
  *       carries the one entity that exists.
  */
-void ent_move_plats( World *world, Player *player, float dt )
+void ent_move_plats( World *world, Player *player, float dt, short rider_kind )
 {
     short p, snd;
 
     for ( p = 0; p < world->plat_count; p++ ) {
         PlatEnt far *plt = &world->plat[p];
         BrushModel far *br = &world->brush[plt->model];
-        short riding = ent_plat_touched( player, world, p );
+        short head = (short) ( rider_kind == ENT_RIDER_HEAD );
+        short activated = ent_plat_activated( player, plt, br );
+        short riding = ent_mover_supported( player, plt, br, head );
         float goal, step_z, moved, was;
 
         if ( plt->kind != ENT_PLAT_KIND_PLAT ) continue;   /* a train is ent_move_trains' */
 
-        plt->state = riding ? ENT_PLAT_UP : ENT_PLAT_DOWN;
+        plt->state = rider_kind == ENT_RIDER_LIVE && activated ? ENT_PLAT_UP : ENT_PLAT_DOWN;
         goal = ( plt->state == ENT_PLAT_UP ) ? 0.0f : -plt->travel;
 
         was = br->ofs.z;
@@ -84,31 +138,17 @@ void ent_move_plats( World *world, Player *player, float dt )
             if ( !plt->moving ) ent_brush_sound( player, world, plt->model, (short) ( snd + 1 ) );
         }
 
-        /* Carry the rider. Only upward: a descending plat drops out
-           from under the player and gravity does the rest, which is
-           what it looks like in Quake. Pushing them down would shove
-           them through the floor of the shaft on the last step of the
-           descent. */
-        if ( riding && moved > 0.0f ) {
+        if ( !riding && moved != 0.0f )
+            riding = ent_mover_intersects( world, player, plt, br, head );
+
+        /* A walking rider follows only upward. SV_PushMove also carries
+           TOSS/BOUNCE corpses in either direction and clears onground. */
+        if ( moved != 0.0f && riding &&
+             ( moved > 0.0f || rider_kind != ENT_RIDER_LIVE ) ) {
             player->pos.z += moved;
+            if ( rider_kind != ENT_RIDER_LIVE ) player->on_ground = 0;
         }
     }
-}
-
-/* the player standing on a mover's brush where it is now */
-static short ent_mover_ridden( Player *player, World *world, PlatEnt far *p )
-{
-    BrushModel far *b = &world->brush[ p->model ];
-    float top;
-
-    if ( player->pos.x + 16.0f < p->mins.x + b->ofs.x ) return 0;
-    if ( player->pos.x - 16.0f > p->maxs.x + b->ofs.x ) return 0;
-    if ( player->pos.y + 16.0f < p->mins.y + b->ofs.y ) return 0;
-    if ( player->pos.y - 16.0f > p->maxs.y + b->ofs.y ) return 0;
-    top = p->maxs.z + b->ofs.z;
-    if ( player->pos.z - PL_FEET < top - 8.0f  ) return 0;
-    if ( player->pos.z - PL_FEET > top + 64.0f ) return 0;
-    return 1;
 }
 
 /* func_train_find: the brush's mins to its first corner. One with a
@@ -126,7 +166,7 @@ void ent_train_init( World *world, PlatEnt far *p )
     p->state = p->targeted ? ENT_TRAIN_IDLE : ENT_TRAIN_WAIT;
 }
 
-void ent_move_trains( World *world, Player *player, float dt )
+void ent_move_trains( World *world, Player *player, float dt, short rider_kind )
 {
     short i, riding;
     PlatEnt far *p;
@@ -154,7 +194,8 @@ void ent_move_trains( World *world, Player *player, float dt )
         goal.y = world->corner[ p->corner ].org.y - p->mins.y;
         goal.z = world->corner[ p->corner ].org.z - p->mins.z;
 
-        riding = ent_mover_ridden( player, world, p );
+        riding = ent_mover_supported( player, p, b,
+                                      (short) ( rider_kind == ENT_RIDER_HEAD ) );
         was = b->ofs;
 
         if ( ent_step_to( &b->ofs, &goal, p->speed * dt ) ) {
@@ -169,11 +210,18 @@ void ent_move_trains( World *world, Player *player, float dt )
         if ( b->ofs.x != was.x || b->ofs.y != was.y || b->ofs.z != was.z )
             b->node = ENT_NODE_DIRTY;
 
-        if ( !riding ) continue;
+        if ( !riding && ( b->ofs.x != was.x || b->ofs.y != was.y ||
+                           b->ofs.z != was.z ) )
+            riding = ent_mover_intersects( world, player, p, b,
+                                           (short) ( rider_kind == ENT_RIDER_HEAD ) );
+        if ( !riding || ( b->ofs.x == was.x && b->ofs.y == was.y &&
+                           b->ofs.z == was.z ) ) continue;
         player->pos.x += b->ofs.x - was.x;
         player->pos.y += b->ofs.y - was.y;
-        /* carried up, never pushed down: a descending mover is left to
-           drop away under the player, as Quake does */
-        if ( b->ofs.z > was.z ) player->pos.z += b->ofs.z - was.z;
+        /* Walking riders drop from a descending mover; TOSS/BOUNCE
+           corpses receive the pusher's complete displacement. */
+        if ( b->ofs.z > was.z || rider_kind != ENT_RIDER_LIVE )
+            player->pos.z += b->ofs.z - was.z;
+        if ( rider_kind != ENT_RIDER_LIVE ) player->on_ground = 0;
     }
 }

@@ -77,12 +77,13 @@ PAK0 and are left out.
       `ThrowHead`/`ThrowGib`; transient state shares the renderer's existing
       EMS frame page and survives save/load; `src/game/gib.c`,
       `tools/test-gibs.sh`
-- [ ] Full monster animation sets
+- [x] Full monster animation sets
       id: each monster's `.qc` (`soldier.qc`, `dog.qc`, ...) steps every
       frame by name
-      qcport (partial): one EMS page a model keeps no walk set, no soldier or
-      dog attack, no leap frames (`tools/mkassets.py:93`); a leap plays the
-      run cycle, `src/render/d_alias.c:584`
+      qcport: compact QMD4 set tables retain every shareware stand, walk,
+      run, pain, attack, leap and death sequence with its QuakeC timing and
+      frame events; `tools/mdlsets.py`, `tools/test-mdlsets.py`,
+      `tools/test-mdlsum.sh`
 - [x] Chthon drawn and fighting
       id: `boss.qc` `monster_boss`, `boss_missile`, `lightning_use`
       qcport: the loaded alias model rises from an id-style lava splash,
@@ -153,12 +154,14 @@ PAK0 and are left out.
       id: `misc.qc` `air_bubbles`, `make_bubbles`
       qcport: skill-filtered `air.bin`, recurring EMS emitters and stock bubble
       timing; `tools/test-air-bubbles.sh`
-- [ ] Player death animation
+- [x] Player death animation
       id: `player.qc` `PlayerDie`, `player_diea1`, `GibPlayer`, `ThrowGib`;
       `client.qc` `respawn`
-      qcport (partial): "YOU DIED", original overkill gibs/head and a reset
-      respawn, but no ordinary death frames,
-      `src/host/host.c:139`, `:142`
+      qcport: all six 10 Hz death sequences, fixed 80-degree view roll,
+      ordinary and bouncing-head eye heights, SOLID_NOT corpse behavior,
+      release-then-press restart and saved level-entry parms;
+      `tools/test-viewfx.sh`, `tools/test-death-bubbles.sh`,
+      `tools/test-player-death.sh`
 - [x] Water jump
       id: `client.qc` `CheckWaterJump`
       qcport: hull-0 waist/upper probes, 225 up and two-second state;

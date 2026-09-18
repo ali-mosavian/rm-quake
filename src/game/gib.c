@@ -1,6 +1,7 @@
 /* gib.c -- player.qc's ThrowGib, ThrowHead and gib bounce physics. */
 
 #include <mem.h>
+#include <string.h>
 
 #include "gib.h"
 #include "mdl_ai.h"
@@ -50,20 +51,45 @@ static float near gib_crandom( Rng *rng )
     return rng_float( rng ) * 2.0f - 1.0f;
 }
 
-static void near gib_velocity( World *world, GibEnt far *g, short damage )
+static void near gib_velocity( Rng *rng, BspVec3 far *vel, short damage )
 {
     float scale;
 
-    g->vel.x = 100.0f * gib_crandom( &world->rng );
-    g->vel.y = 100.0f * gib_crandom( &world->rng );
-    g->vel.z = 200.0f + 100.0f * rng_float( &world->rng );
+    vel->x = 100.0f * gib_crandom( rng );
+    vel->y = 100.0f * gib_crandom( rng );
+    vel->z = 200.0f + 100.0f * rng_float( rng );
     scale = damage > -50 ? 0.7f : damage > -200 ? 2.0f : 10.0f;
-    g->vel.x *= scale; g->vel.y *= scale; g->vel.z *= scale;
+    vel->x *= scale; vel->y *= scale; vel->z *= scale;
+}
+
+static void near gib_player_head( Rng *rng, Player *player, short damage )
+{
+    player->pos.z -= 24.0f;
+    gib_velocity( rng, &player->vel, damage );
+    (void) gib_crandom( rng ); /* ThrowHead's angular yaw */
+}
+
+short gib_selftest( void )
+{
+    Rng got, want;
+    Player player;
+    BspVec3 vel;
+
+    memset( &player, 0, sizeof(player) );
+    player.pos.z = 100.0f;
+    rng_init( &got );
+    rng_init( &want );
+    gib_velocity( &want, &vel, -99 );
+    (void) gib_crandom( &want );
+    gib_player_head( &got, &player, -99 );
+    return (short) ( player.pos.z == 76.0f && player.vel.x == vel.x &&
+                     player.vel.y == vel.y && player.vel.z == vel.z &&
+                     got.seed == want.seed );
 }
 
 static void near gib_one( World *world, Renderer *rdr, GibEnt far *pool,
                            BspVec3 far *org, short model, short damage,
-                           float now, short head, short player_head )
+                           float now, short head )
 {
     GibEnt far *g = gib_slot( rdr, pool );
 
@@ -72,11 +98,11 @@ static void near gib_one( World *world, Renderer *rdr, GibEnt far *pool,
     g->pos = *org;
     g->model = (unsigned char) model;
     g->flags = head ? GIB_HEAD : 0;
-    gib_velocity( world, g, damage );
+    gib_velocity( &world->rng, &g->vel, damage );
     if ( head ) {
         g->pos.z -= 24.0f;
         g->avel[1] = (short) ( gib_crandom( &world->rng ) * 600.0f );
-        g->die_at = player_head ? now + PL_DEATH_PAUSE : 0.0f;
+        g->die_at = 0.0f;
     } else {
         g->avel[0] = (short) ( rng_float( &world->rng ) * 600.0f );
         g->avel[1] = (short) ( rng_float( &world->rng ) * 600.0f );
@@ -89,9 +115,9 @@ static void near gib_three( World *world, Renderer *rdr, GibEnt far *pool,
                              BspVec3 far *org, short a, short b, short c,
                              short damage, float now )
 {
-    gib_one( world, rdr, pool, org, a, damage, now, 0, 0 );
-    gib_one( world, rdr, pool, org, b, damage, now, 0, 0 );
-    gib_one( world, rdr, pool, org, c, damage, now, 0, 0 );
+    gib_one( world, rdr, pool, org, a, damage, now, 0 );
+    gib_one( world, rdr, pool, org, b, damage, now, 0 );
+    gib_one( world, rdr, pool, org, c, damage, now, 0 );
 }
 
 void gib_spawn_monster( World *world, Renderer *rdr, MdlEnt far *ent, float now )
@@ -108,7 +134,7 @@ void gib_spawn_monster( World *world, Renderer *rdr, MdlEnt far *ent, float now 
     else if ( ent->kind == MDL_KIND_WIZARD )
         a = b = c = MDL_FX_GIB2;
 
-    gib_one( world, rdr, pool, &ent->pos, gib_head_model( ent->kind ), ent->health, now, -1, 0 );
+    gib_one( world, rdr, pool, &ent->pos, gib_head_model( ent->kind ), ent->health, now, -1 );
     gib_three( world, rdr, pool, &ent->pos, a, b, c, ent->health, now );
     ent->state = MDL_ST_GIBBED;
     ent->anim_frame = 0;
@@ -117,11 +143,13 @@ void gib_spawn_monster( World *world, Renderer *rdr, MdlEnt far *ent, float now 
 void gib_spawn_player( World *world, Renderer *rdr, Player *player,
                        Fight *fight, float now )
 {
-    GibEnt far *pool = gib_map( rdr, GIB_EMS_SLOT );
+    GibEnt far *pool;
 
+    /* ThrowHead turns the player itself into h_player. The local player is
+       not rendered, but its bouncing origin remains the camera carrier. */
+    gib_player_head( &world->rng, player, fight->health );
+    pool = gib_map( rdr, GIB_EMS_SLOT );
     if ( !pool ) return;
-    gib_one( world, rdr, pool, &player->pos, MDL_FX_HPLAYER,
-              fight->health, now, -1, -1 );
     gib_three( world, rdr, pool, &player->pos, MDL_FX_GIB1,
                 MDL_FX_GIB2, MDL_FX_GIB3, fight->health, now );
 }

@@ -10,6 +10,7 @@
 
 #include "renderer.h"
 #include "fight.h"
+#include "client.h"
 #include "world.h"
 #include "input.h"
 #include "hud.h"
@@ -57,7 +58,8 @@ typedef struct {
     Camera         cam;
     Player         player;
     Fight          fight;
-    PlayerCarry    carry;         /* CARRY.BIN, read before the map loads */
+    PlayerDeath    death;
+    PlayerCarry    carry;         /* next-map or current level-entry kit */
     short          carried;       /* -carry and a whole file */
     Input          input;
     LightStyles    ls;

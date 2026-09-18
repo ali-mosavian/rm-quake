@@ -79,7 +79,9 @@ typedef struct {
 } MdlHead;
 
 #define REC_MDLHEAD 60
+#ifndef QCPORT_NATIVE_TEST
 typedef char rec_mdlhead_ok[ sizeof(MdlHead) == REC_MDLHEAD ? 1 : -1 ];
+#endif
 
 /* One .geo triangle: three vertex indices and a texture corner for each. */
 typedef struct { short a, b, c, u1, v1, u2, v2, u3, v3; } MdlTri;
@@ -96,7 +98,9 @@ typedef struct {
     unsigned char set_bits[10]; /* sixteen 5-bit frame counts */
     short   vpages, page_frames;
 } MdlState;
+#ifndef QCPORT_NATIVE_TEST
 typedef char rec_mdlstate_ok[ sizeof(MdlState) == 62 ? 1 : -1 ];
+#endif
 
 /* A small bundled alias model lives in far memory. Armor shares its
    geometry but has three skins; other uses leave the extras zero. */

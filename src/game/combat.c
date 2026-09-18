@@ -29,6 +29,12 @@ static short combat_take( float dmg, float armor_type, short armor,
     return (short) ceil( dmg - save );
 }
 
+static short combat_player_health( short health, short take )
+{
+    long left = (long) health - take;
+    return (short) ( left < -99L ? -99L : left );
+}
+
 static void near combat_pain_start( MdlEnt far *ent, short set, float now );
 
 #define ZPAIN_IGNORE  0
@@ -73,6 +79,7 @@ short combat_selftest( void )
     ent.next_think = 99.0f;
     combat_pain_start( &ent, MDL_SET_PAIN2, 7.0f );
     if ( save != 1 || take != 3 || save2 != 8 || take2 != 2 ||
+         combat_player_health( 1, 300 ) != -99 ||
          ent.state != MDL_ST_PAIN || ent.anim_set != MDL_SET_PAIN2 ||
          ent.anim_frame != 0 || ent.next_think < 7.09f || ent.next_think > 7.11f ) return 0;
 
@@ -146,6 +153,8 @@ void combat_damage_player( Player *player, World *world, Fight *fight, Renderer 
     Sound *snd = &world->snd;
     short save, take;
 
+    if ( fight->health <= 0 ) return; /* Killed switches the player to DAMAGE_NO */
+
     fight->face_until = rdr->anim_time + 0.2f;
 
     /* T_Damage: the armor takes ceil(type * damage), and its last point
@@ -166,7 +175,7 @@ void combat_damage_player( Player *player, World *world, Fight *fight, Renderer 
         }
         return;
     }
-    fight->health = (short) ( fight->health - take );
+    fight->health = combat_player_health( fight->health, take );
 
     /* PainSound: drowning under water, a burn in slime or lava -- both
        every hit -- else one of six grunts a half second apart at most,

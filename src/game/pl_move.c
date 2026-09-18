@@ -317,7 +317,7 @@ static void pl_gravity( World *world, Player *player, Fight *fight,
         /* the slide clips vel.z to 0 on the tick it meets the floor, a tick
            before this sees ground; id's jump_flag is the speed from before */
         player->fall_vz = player->vel.z;
-        if ( player->water_level == 0 ) player->vel.z -= PL_FALLACC*dt;
+        if ( player->water_level == 0 ) player->vel.z -= fight->gravity*dt;
     }
 }
 
@@ -561,6 +561,75 @@ void pl_init( Player *player, Camera *cam, BspVec3 *start_override )
     player->water_until = 0.0f;
 }
 
+static void near pl_toss_move( World *world, Player *player, Fight *fight,
+                               float dt, TraceResult *tr )
+{
+    BspVec3 fin;
+
+    if ( player->on_ground ) {
+        float speed = (float) sqrt( player->vel.x * player->vel.x +
+                                    player->vel.y * player->vel.y );
+        if ( speed > 0.0f ) {
+            float next = speed - 200.0f * dt; /* DeadThink: 20 every 0.1 s */
+            if ( next < 0.0f ) next = 0.0f;
+            player->vel.x *= next / speed;
+            player->vel.y *= next / speed;
+        }
+        return;
+    }
+
+    player->vel.z -= fight->gravity * dt;
+    fin.x = player->pos.x + player->vel.x * dt;
+    fin.y = player->pos.y + player->vel.y * dt;
+    fin.z = player->pos.z + player->vel.z * dt;
+    pl_trace( world, &player->pos, &fin, tr );
+    if ( tr->all_solid ) {
+        player->vel.x = player->vel.y = player->vel.z = 0.0f;
+        return;
+    }
+    player->pos = tr->end_pos;
+    if ( tr->frac == 1.0f ) return;
+    pl_clip_velocity( &player->vel, &tr->norm );
+    if ( tr->norm.z > PL_GROUND_NRM ) {
+        player->on_ground = -1;
+        player->vel.x = player->vel.y = player->vel.z = 0.0f;
+    }
+}
+
+/* ThrowHead changes the player's box from -24..32 to 0..56 after lowering
+   its origin by 24. Trace the same hull at origin+24, then bounce it. */
+static void near pl_head_move( World *world, Player *player, Fight *fight,
+                               float dt, TraceResult *tr )
+{
+    BspVec3 old, fin;
+    float backoff;
+
+    if ( player->on_ground ) return;
+    player->vel.z -= fight->gravity * dt;
+    old = player->pos;
+    old.z += PL_FEET;
+    fin.x = old.x + player->vel.x * dt;
+    fin.y = old.y + player->vel.y * dt;
+    fin.z = old.z + player->vel.z * dt;
+    pl_trace( world, &old, &fin, tr );
+    if ( tr->all_solid ) {
+        player->vel.x = player->vel.y = player->vel.z = 0.0f;
+        return;
+    }
+    player->pos = tr->end_pos;
+    player->pos.z -= PL_FEET;
+    if ( tr->frac == 1.0f ) return;
+    backoff = ( player->vel.x * tr->norm.x + player->vel.y * tr->norm.y +
+                player->vel.z * tr->norm.z ) * PL_BOUNCE;
+    player->vel.x -= tr->norm.x * backoff;
+    player->vel.y -= tr->norm.y * backoff;
+    player->vel.z -= tr->norm.z * backoff;
+    if ( tr->norm.z > PL_GROUND_NRM && player->vel.z < 60.0f ) {
+        player->vel.x = player->vel.y = player->vel.z = 0.0f;
+        player->on_ground = -1;
+    }
+}
+
 /*
  * name: pl_move
  * desc: One tick of player physics: accelerate along the look
@@ -574,6 +643,16 @@ void pl_move( World *world, Player *player, Camera *cam, Fight *fight,
     TraceResult tr;
     BspVec3 wishvel, wishdir;
     float wishspeed;
+
+    if ( fight->health <= 0 ) {
+        if ( fight->health < -40 ) pl_head_move( world, player, fight, dt, &tr );
+        else pl_toss_move( world, player, fight, dt, &tr );
+        pl_water_level( player, world );
+        cam->pos.x = player->pos.x;
+        cam->pos.y = player->pos.z + PL_EYE;
+        cam->pos.z = player->pos.y;
+        return;
+    }
 
     /*
      * dir_x/dir_y is the horizontal look direction in BSP space,

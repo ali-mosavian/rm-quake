@@ -138,7 +138,7 @@ void ent_move_doors( World *world, Player *player, Fight *fight,
 
     /* Every touch first, then every step -- opening a door changes
        state, and the BASIC's two sweeps ran in that order. */
-    for ( k = 0; k < world->door_count; k++ ) {
+    for ( k = 0; fight->health > 0 && k < world->door_count; k++ ) {
         d = &world->door[k];
         if ( !ent_box_touched( player, &d->mins, &d->maxs, 0.0f ) ) continue;
 

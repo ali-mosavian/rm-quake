@@ -542,18 +542,20 @@ static void pl_grenade_tick( World *world, Player *player, Fight *fight,
     short i;
 
     if ( s->hostile ) {
-        t = mdl_ray_player( &player->pos, &s->pos, dir, reach );
-        if ( t >= 0.0f && s->gib ) {
-            /* ZombieGrenadeTouch: z_hit on what bleeds; a spent one
-               (SUB_Remove) just goes */
-            if ( s->gib < 0 ) {
-                combat_damage_player( player, world, fight, rdr, s->dmg );
-                snd_play( &world->snd, player, SND_Z_HIT, &s->pos );
+        if ( fight->health > 0 ) {
+            t = mdl_ray_player( &player->pos, &s->pos, dir, reach );
+            if ( t >= 0.0f && s->gib ) {
+                /* ZombieGrenadeTouch: z_hit on what bleeds; a spent one
+                   (SUB_Remove) just goes */
+                if ( s->gib < 0 ) {
+                    combat_damage_player( player, world, fight, rdr, s->dmg );
+                    snd_play( &world->snd, player, SND_Z_HIT, &s->pos );
+                }
+                s->alive = 0;
+                return;
             }
-            s->alive = 0;
-            return;
+            if ( t >= 0.0f ) { pl_grenade_explode( world, player, fight, rdr, s ); return; }
         }
-        if ( t >= 0.0f ) { pl_grenade_explode( world, player, fight, rdr, s ); return; }
     } else {
         for ( i = 0; i < world->mon_count; i++ ) {
             if ( !MDL_IS_SOLID( &world->mon[i] ) ) continue;
@@ -636,7 +638,9 @@ void pl_spikes_tick( World *world, Player *player, Fight *fight,
             /* spike_touch. A trap's spike leaves from a point 8 units
                off its wall, inside hull 1's grown solid, so it walks as
                a point through hull 0: a step into solid ends it. */
-            t = mdl_ray_player( &player->pos, &s->pos, &dir, reach );
+            t = fight->health > 0
+                ? mdl_ray_player( &player->pos, &s->pos, &dir, reach )
+                : -1.0f;
             if ( s->toss == 1 ) s->vel.z -= fight->gravity * dt;
             if ( pl_point_contents( &fin, world ) == CONTENTS_SOLID ) {
                 s->alive = 0;

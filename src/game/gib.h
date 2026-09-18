@@ -13,5 +13,6 @@ void gib_spawn_player( World *world, Renderer *rdr, Player *player,
 void gib_tick( World *world, Renderer *rdr, float dt );
 void gib_clear( Renderer *rdr );
 GibEnt far *gib_map( Renderer *rdr, short slot );
+short gib_selftest( void );
 
 #endif

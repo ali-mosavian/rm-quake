@@ -20,7 +20,8 @@ void ent_use_targets( World *world, Player *player, Fight *fight,
  *       ARRIVES, not when it is pressed, as button_wait does.
  */
 void ent_move_trigs( World *world, Player *player, Camera *cam, Fight *fight,
-                      Renderer *rdr, float dt, short scr_x_res, short scr_y_res );
+                      Renderer *rdr, float dt, short scr_x_res, short scr_y_res,
+                      short player_solid );
 
 /* A trigger's target fires. Public because a pellet or a nail fires a
    shootable trigger. */

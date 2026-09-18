@@ -17,6 +17,7 @@ static BindRow bind_rows[] = {
     { "+attack", "attack" },
     { "impulse 10", "change weapon" },
     { "+jump", "jump / swim up" },
+    { "+use", "use" },
     { "+forward", "walk forward" },
     { "+back", "backpedal" },
     { "+moveleft", "step left" },

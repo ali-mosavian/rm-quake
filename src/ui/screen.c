@@ -412,14 +412,11 @@ void scr_draw_msg( Hud far *hud, World *world, Fight *fight, Renderer *rdr,
 
     /* what the fight has to say, centred: the font is 4 wide */
     switch ( fight->state ) {
-    case GS_DEAD: msg = "YOU DIED"; break;
     case GS_WON:  msg = "AREA CLEARED - FIRE TO GO AGAIN"; break;
     case GS_EXIT: msg = "LEVEL COMPLETE - HOLD FIRE TO GO ON"; break;
     default:      return;
     }
     len = (short) strlen( msg );
-    if ( fight->state == GS_DEAD )
-        qglDrFill( h_dst_dc, 0, (short)( h / 2 - 8 ), w, (short)( h / 2 + 8 ), hud->hc_bad );
     draw_string( hud, h_dst_dc, (short)( ( w - 4 * len ) / 2 ), (short)( h / 2 - 3 ),
                  msg, hud->hc_text );
 

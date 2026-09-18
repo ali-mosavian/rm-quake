@@ -363,7 +363,7 @@ void demo_actions( Demo *dm, const KeyBindings KB_FAR *keys )
     if ( !dm->buf ) return;
     r = &dm->rec;
     r->in[2] = keybind_record_state( keys, KA_ATTACK );
-    r->in[3] = 0;
+    r->in[3] = keybind_record_state( keys, KA_USE );
     r->in[4] = keybind_record_state( keys, KA_FORWARD );
     r->in[5] = keybind_record_state( keys, KA_MOVELEFT );
     r->in[6] = keybind_record_state( keys, KA_BACK );

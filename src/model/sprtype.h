@@ -24,7 +24,9 @@ typedef struct {
     SpriteFrame frame[SPR_FRAMES];
 } SpriteMeta;
 
+#ifndef QCPORT_NATIVE_TEST
 typedef char rec_sprite_frame_ok[ sizeof(SpriteFrame) == 16 ? 1 : -1 ];
 typedef char rec_sprite_meta_ok[ sizeof(SpriteMeta) == 168 ? 1 : -1 ];
+#endif
 
 #endif

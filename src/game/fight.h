@@ -104,13 +104,12 @@ typedef struct {
 
 /* Fight.state: what the tick and the overlay do. */
 #define GS_PLAY  1
-#define GS_DEAD  2            /* the pause, then pl_respawn */
+#define GS_DEAD  2            /* death frames, release, then a press respawns */
 #define GS_WON   3            /* every monster down; fire starts them again */
 #define GS_EXIT  4            /* the slipgate: the tally, and fire goes on */
 #define GS_NEXT  5            /* leaving for the next map: the host loop ends */
 #define GS_FINALE 6           /* e1m7's episode text */
 #define GS_SELL   7           /* shareware sell screen after the finale */
-#define PL_DEATH_PAUSE 1.5f   /* seconds YOU DIED stays before the respawn */
 #define PL_INTER_HOLD  2.0f   /* intermission_exittime: the tally stays this long */
 #define PL_CARRY_MIN   50     /* SetChangeParms: health goes on at 50 at least */
 

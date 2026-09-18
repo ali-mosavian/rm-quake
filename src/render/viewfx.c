@@ -12,6 +12,7 @@
 #define V_ROLLSPEED  200.0f
 #define V_ROLLANGLE  2.0f
 #define V_NUDGE      0.03125f
+#define V_DEAD_ROLL  80.0f
 
 static void v_forward_right( const Camera *cam, Vec3 *forward, Vec3 *right )
 {
@@ -68,13 +69,15 @@ float v_view_roll( const Camera *cam, const Player *player )
 }
 
 void v_render_effects( Camera *out, Vec3 *up, const Camera *base,
-                       const Player *player, float time )
+                       const Player *player, short dead, float base_height,
+                       float dead_height, float time )
 {
     Vec3 forward, right, upright;
     float bob, roll, cs, sn;
 
     *out = *base;
     bob = v_view_bob( player, time );
+    if ( dead ) bob += dead_height - base_height;
     out->pos.x += V_NUDGE; out->pos.y += bob + V_NUDGE; out->pos.z += V_NUDGE;
     out->look_at.x += V_NUDGE; out->look_at.y += bob + V_NUDGE; out->look_at.z += V_NUDGE;
 
@@ -82,7 +85,7 @@ void v_render_effects( Camera *out, Vec3 *up, const Camera *base,
     upright.x = forward.y * right.z - forward.z * right.y;
     upright.y = forward.z * right.x - forward.x * right.z;
     upright.z = forward.x * right.y - forward.y * right.x;
-    roll = v_view_roll( base, player ) * V_PI / 180.0f;
+    roll = ( dead ? V_DEAD_ROLL : v_view_roll( base, player ) ) * V_PI / 180.0f;
     cs = (float) cos( roll );
     sn = (float) sin( roll );
     up->x = upright.x * cs + right.x * sn;

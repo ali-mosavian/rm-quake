@@ -44,7 +44,9 @@ typedef struct {
     long ofs, size;
 } QmapEnt;
 
+#ifndef QCPORT_NATIVE_TEST
 typedef char rec_qmapent_ok[ sizeof(QmapEnt) == QMAP_ENT ? 1 : -1 ];
+#endif
 
 typedef struct {
     short   fh;                 /* 0 until pak_open */

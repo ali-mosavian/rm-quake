@@ -15,14 +15,17 @@
 #include "mdl_ai.h"
 
 #define SG_MAGIC   0x31565351L
-#define SG_VERSION 6
+#define SG_VERSION 7
 #define SG_VERSION_ITEMS 2
 #define SG_VERSION_SPR3 5
+#define SG_VERSION_ANIM 6
+#define SG_VERSION_SPAWN 7
 #define SG_VERSION_OLD 1
 #define SG_GIB_MAGIC 0x31424947L
 #define SG_SPR_MAGIC 0x31525053L
 #define SG_SPR2_MAGIC 0x32525053L
 #define SG_SPR3_MAGIC 0x33525053L
+#define SG_SPAWN_MAGIC 0x314E5053L
 #define SG_V4_BUBBLES 32
 
 typedef struct {
@@ -48,6 +51,10 @@ typedef struct {
     long magic;
     short explosions, bubbles, spawners, emitters;
 } SaveSprites3;
+typedef struct {
+    long magic;
+    PlayerCarry carry;
+} SaveSpawn;
 
 typedef struct {
     Rng rng;
@@ -145,12 +152,14 @@ static void near savegame_comment( const char *map, const World *world,
 
 static short near savegame_write( short file, SaveHead *head, World *world,
                                   Player *player, Camera *cam, Fight *fight,
-                                  Renderer *rdr, short mouse_x, short mouse_y )
+                                  const PlayerCarry *spawn_carry, Renderer *rdr,
+                                  short mouse_x, short mouse_y )
 {
     SaveWorld sw;
     SaveRender sr;
     SaveGibs sg;
     SaveSprites3 ss;
+    SaveSpawn sp;
     GibEnt far *gib;
     SpriteExplosion far *sprite;
     SpriteBubble far *bubble;
@@ -216,12 +225,16 @@ static short near savegame_write( short file, SaveHead *head, World *world,
     if ( !spawner || !savegame_write_block( file, (long) spawner,
                          (long) SPR_SPAWNERS * sizeof(SpriteBubbleSpawner) ) ) return 0;
     emitter = d_emitter_map( rdr, 2 );
-    return emitter && savegame_write_block( file, (long) emitter,
-                         (long) SPR_EMITTERS * sizeof(SpriteBubbleEmitter) );
+    if ( !emitter || !savegame_write_block( file, (long) emitter,
+                         (long) SPR_EMITTERS * sizeof(SpriteBubbleEmitter) ) ) return 0;
+    sp.magic = SG_SPAWN_MAGIC;
+    sp.carry = *spawn_carry;
+    return savegame_write_block( file, (long) (void far *) &sp, sizeof(sp) );
 }
 
 short savegame_save( short slot, const char *map, World *world, Player *player,
-                     Camera *cam, Fight *fight, Renderer *rdr,
+                     Camera *cam, Fight *fight, const PlayerCarry *spawn_carry,
+                     Renderer *rdr,
                      short mouse_x, short mouse_y, char *error )
 {
     SaveHead head;
@@ -254,7 +267,8 @@ short savegame_save( short slot, const char *map, World *world, Player *player,
     fclose( create );
     file = qglFileOpen( temp );
     if ( !file ) { remove( temp ); strcpy( error, "Could not open save file" ); return 0; }
-    ok = savegame_write( file, &head, world, player, cam, fight, rdr, mouse_x, mouse_y );
+    ok = savegame_write( file, &head, world, player, cam, fight, spawn_carry,
+                         rdr, mouse_x, mouse_y );
     qglFileClose( file );
     if ( !ok ) { remove( temp ); strcpy( error, "Could not write save file" ); return 0; }
     remove( old );
@@ -333,7 +347,7 @@ static short near savegame_monsters( World *world, short version )
         MdlState *model;
         if ( ent->kind < 0 || ent->kind >= MDL_KINDS ) return 0;
         model = &world->mdl[ent->kind];
-        if ( version < SG_VERSION ) {
+        if ( version < SG_VERSION_ANIM ) {
             ent->anim_set = savegame_anim_set( ent, model );
             if ( ent->kind == MDL_KIND_ZOMBIE && ent->state == MDL_ST_DEAD ) {
                 ent->state = MDL_ST_GIBBED;
@@ -358,7 +372,8 @@ static float near savegame_warn_v1( float until, float warned, float now )
 }
 
 short savegame_load( short slot, const char *map, World *world, Player *player,
-                     Camera *cam, Fight *fight, Renderer *rdr,
+                     Camera *cam, Fight *fight, PlayerCarry *spawn_carry,
+                     Renderer *rdr,
                      short *mouse_x, short *mouse_y, char *error )
 {
     SaveHead head;
@@ -368,6 +383,7 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
     SaveSprites ss;
     SaveSprites2 ss2;
     SaveSprites3 ss3;
+    SaveSpawn sp;
     char name[16];
     short file;
     short i, ok, gib_count = 0, sprite_live = 0, bubble_live = 0, spawn_left = 0;
@@ -495,8 +511,23 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
                 if ( emitter[i].live ) emitters++;
         }
     }
+    if ( ok && head.version >= SG_VERSION_SPAWN ) {
+        if ( !savegame_read_block( file, (long) (void far *) &sp, sizeof(sp) ) ||
+             sp.magic != SG_SPAWN_MAGIC ) ok = 0;
+        else *spawn_carry = sp.carry;
+    }
     qglFileClose( file );
     if ( !ok ) { strcpy( error, "Save file is truncated" ); return 0; }
+
+    if ( head.version < SG_VERSION_SPAWN ) {
+        memset( spawn_carry, 0, sizeof(*spawn_carry) );
+        spawn_carry->items = PL_IT_SHOTGUN | PL_IT_AXE;
+        spawn_carry->health = PL_HEALTH;
+        spawn_carry->shells = PL_SHELLS;
+        spawn_carry->weapon = PL_IT_SHOTGUN;
+        spawn_carry->skill = fight->skill;
+        spawn_carry->serverflags = fight->serverflags;
+    }
 
     world->rng = sw.rng;
     world->mon_teles = sw.mon_teles;

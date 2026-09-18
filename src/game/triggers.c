@@ -286,7 +286,8 @@ void ent_trig_shot( World *world, Player *player, Fight *fight,
 }
 
 void ent_move_trigs( World *world, Player *player, Camera *cam, Fight *fight,
-                      Renderer *rdr, float dt, short scr_x_res, short scr_y_res )
+                      Renderer *rdr, float dt, short scr_x_res, short scr_y_res,
+                      short player_solid )
 {
     short k;
     TrigEnt far *t;
@@ -360,7 +361,7 @@ void ent_move_trigs( World *world, Player *player, Camera *cam, Fight *fight,
         case ENT_TRIG_SHOOT_BUTTON:
             switch ( t->state ) {
             case ENT_TRIG_READY:
-                if ( t->kind == ENT_TRIG_BUTTON &&
+                if ( player_solid && t->kind == ENT_TRIG_BUTTON &&
                      ent_box_touched( player, &t->mins, &t->maxs, ENT_TOUCH_SLACK ) )
                     t->state = ENT_TRIG_GOING;
                 break;
@@ -383,7 +384,8 @@ void ent_move_trigs( World *world, Player *player, Camera *cam, Fight *fight,
             case ENT_TRIG_BACK:
                 /* button_blocked without the push: wait for the player
                    to step off rather than move the brush through them. */
-                if ( !ent_box_touched( player, &t->mins, &t->maxs, 0.0f ) ) {
+                if ( !player_solid ||
+                     !ent_box_touched( player, &t->mins, &t->maxs, 0.0f ) ) {
                     if ( ent_step_to( &b->ofs, &home, t->speed * dt ) ) t->state = ENT_TRIG_READY;
                 }
                 break;
@@ -394,7 +396,7 @@ void ent_move_trigs( World *world, Player *player, Camera *cam, Fight *fight,
             /* the level's end: the tally, with the map's own title
                held up until the next map takes over -- an hour, not
                ENT_MSG_TIME, since nothing else is going to be said */
-            if ( t->state == ENT_TRIG_READY &&
+            if ( player_solid && t->state == ENT_TRIG_READY &&
                  ent_box_touched( player, &t->mins, &t->maxs, 0.0f ) ) {
                 ent_say( fight, rdr, ent_msg( world, t->msg ) );
                 /* changelevel_touch: nextmap = self.map */
@@ -415,7 +417,7 @@ void ent_move_trigs( World *world, Player *player, Camera *cam, Fight *fight,
             case ENT_TRIG_READY:
                 /* A shootable trigger is fired by a pellet, never by
                    a touch -- pl_shot_touch does that. */
-                if ( t->kind != ENT_TRIG_SHOOT &&
+                if ( player_solid && t->kind != ENT_TRIG_SHOOT &&
                      ent_box_touched( player, &t->mins, &t->maxs, 0.0f ) )
                     ent_trig_fire( world, player, fight, rdr, k );
                 break;
@@ -428,7 +430,8 @@ void ent_move_trigs( World *world, Player *player, Camera *cam, Fight *fight,
 
         case ENT_TRIG_SKILL:
             /* trigger_skill_touch: every touch, and the next map loads by it */
-            if ( ent_box_touched( player, &t->mins, &t->maxs, 0.0f ) ) fight->skill = t->count;
+            if ( player_solid && ent_box_touched( player, &t->mins, &t->maxs, 0.0f ) )
+                fight->skill = t->count;
             break;
 
         case ENT_TRIG_BOLT:

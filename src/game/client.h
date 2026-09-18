@@ -6,6 +6,22 @@
 #include "pl_move.h"
 #include "fight.h"
 
+#define PL_DEATH_A   0
+#define PL_DEATH_B   1
+#define PL_DEATH_C   2
+#define PL_DEATH_D   3
+#define PL_DEATH_E   4
+#define PL_DEATH_AXE 5
+
+#define PL_DEATH_DYING   0
+#define PL_DEATH_RELEASE 1
+#define PL_DEATH_READY   2
+
+typedef struct {
+    short set, frame, phase;
+    float next_frame;
+} PlayerDeath;
+
 /*
  * client.h -- the player's side of the game's state, client.qc: the kit,
  * dying and respawning, the level put back, the kit carried to the next
@@ -16,9 +32,12 @@
 void pl_reset_player( Player *player, Fight *fight, Renderer *rdr );
 void pl_weapon_flash( Fight *fight, float now );
 
-/* one death counted, then the kit again; the world keeps whatever the
-   player did to it -- Quake's own respawn */
-void pl_respawn( Player *player, Fight *fight, Renderer *rdr );
+short pl_death_choose( short weapon, float random );
+void pl_death_begin( PlayerDeath *death, Player *player, Fight *fight,
+                     short set, float kick, float now );
+short pl_death_tick( PlayerDeath *death, float now, short advance );
+void pl_death_reset( PlayerDeath *death );
+short pl_death_selftest( void );
 
 /* the fight again: every monster back at its spawn, every pickup back,
    the player at the start. Kills and deaths keep counting. */
