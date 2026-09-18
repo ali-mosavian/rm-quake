@@ -37,7 +37,12 @@ typedef struct {
     short   key;
 } DynLight;
 
-#define PART_PENDING_MAX 4
+#define PART_PENDING_MAX 16
+typedef struct {
+    BspVec3 at;
+    signed char dx, dy, dz;       /* svc_particle's signed 1/16 units */
+    unsigned char count, color, kind;
+} PartEvent;
 
 /* Renderer -- per-frame toggles and counters. Quake's own name for
    this role; owns what d_draw_faces reads and what host_tick/
@@ -67,7 +72,7 @@ typedef struct {
     short part_pending_n;
     short part_live;
     short part_drawn;
-    BspVec3 part_pending[PART_PENDING_MAX];
+    PartEvent part_pending[PART_PENDING_MAX];
 
     /* q_vis.bi's VisState -- folded in here per the port plan's own
        architecture table (Renderer replaces RenderState *and*

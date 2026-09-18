@@ -90,6 +90,13 @@ static float pl_box_ray( BspVec3 far *at, BspVec3 *org, BspVec3 *dir, float maxt
     return pl_ray_box( &mins, &maxs, org, dir, maxt );
 }
 
+static void pl_impact_at( BspVec3 *out, BspVec3 *org, BspVec3 *dir, float t )
+{
+    out->x = org->x + dir->x * ( t - 4.0f );
+    out->y = org->y + dir->y * ( t - 4.0f );
+    out->z = org->z + dir->z * ( t - 4.0f );
+}
+
 void pl_spread_dir( Rng *rng, BspVec3 *dir, float sx, float sy, BspVec3 *out )
 {
     float rx = dir->y, ry = -dir->x, rl;
@@ -319,7 +326,7 @@ static void pl_fire_rocket( Player *player, Rng *rng, Sound *snd, Camera *cam, F
 static void pl_fire_axe( World *world, Player *player, Camera *cam,
                          Fight *fight, Renderer *rdr )
 {
-    BspVec3 org, fin, aim, hit_at;
+    BspVec3 org, fin, aim, hit_at, no_dir = { 0.0f, 0.0f, 0.0f };
     TraceResult tr;
     float t, bt;
     short i, best, dmg, stopped;
@@ -349,8 +356,9 @@ static void pl_fire_axe( World *world, Player *player, Camera *cam,
 
     dmg = (short) ( rdr->anim_time < fight->quad_until ? PL_AXE_DMG * PL_QUAD_MUL : PL_AXE_DMG );
     if ( best >= 0 ) {
-        hit_at = world->mon[best].pos;
+        pl_impact_at( &hit_at, &org, &aim, bt );
         snd_play( &world->snd, player, SND_AX_MEAT, &hit_at );
+        part_effect( rdr, &hit_at, &no_dir, 73, PL_AXE_DMG * 4 );
         combat_damage_monster( world, player, fight, rdr, &world->mon[best], dmg );
         return;
     }
@@ -364,7 +372,7 @@ static void pl_fire_axe( World *world, Player *player, Camera *cam,
 void pl_fire( World *world, Player *player, Camera *cam, Fight *fight,
                Renderer *rdr )
 {
-    BspVec3 org, fin, aim, dir;
+    BspVec3 org, fin, aim, dir, impact, no_dir = { 0.0f, 0.0f, 0.0f };
     TraceResult tr;
     short hit[MDL_MAX_ENTS];
     short i, p, best, npellet, pdmg;
@@ -433,7 +441,14 @@ void pl_fire( World *world, Player *player, Camera *cam, Fight *fight,
         }
         pdmg = (short) ( rdr->anim_time < fight->quad_until
                           ? PL_PELLET_DMG * PL_QUAD_MUL : PL_PELLET_DMG );
-        if ( best >= 0 ) hit[best] = (short) ( hit[best] + pdmg );
+        if ( best >= 0 ) {
+            hit[best] = (short) ( hit[best] + pdmg );
+            pl_impact_at( &impact, &org, &dir, bt );
+            part_effect( rdr, &impact, &no_dir, 73, pdmg * 4 );
+        } else if ( tr.frac < 1.0f ) {
+            pl_impact_at( &impact, &org, &dir, bt );
+            part_effect( rdr, &impact, &no_dir, 0, 20 );
+        }
 
         pl_shot_touch( world, player, fight, rdr, &org, &dir, bt, pdmg, (short *) 0 );
     }
@@ -539,7 +554,7 @@ static void pl_grenade_tick( World *world, Player *player, Fight *fight,
 void pl_spikes_tick( World *world, Player *player, Fight *fight,
                       Renderer *rdr, float dt )
 {
-    BspVec3 fin, dir;
+    BspVec3 fin, dir, impact, no_dir = { 0.0f, 0.0f, 0.0f };
     TraceResult tr;
     float t, bt, reach, spd;
     short n, i, best, stopped;
@@ -585,10 +600,19 @@ void pl_spikes_tick( World *world, Player *player, Fight *fight,
             if ( pl_point_contents( &fin, world ) == CONTENTS_SOLID ) {
                 s->alive = 0;
                 /* TE_WIZSPIKE or TE_SPIKE; a lava ball says nothing */
-                if ( s->wiz ) snd_play( &world->snd, player, SND_WIZ_HIT, &s->pos );
-                else if ( !s->toss ) pl_spike_hit( player, &world->rng, &world->snd, &s->pos );
+                if ( s->wiz ) {
+                    part_effect( rdr, &s->pos, &no_dir, 20, 30 );
+                    snd_play( &world->snd, player, SND_WIZ_HIT, &s->pos );
+                } else if ( !s->toss ) {
+                    part_effect( rdr, &s->pos, &no_dir, 0, 10 );
+                    pl_spike_hit( player, &world->rng, &world->snd, &s->pos );
+                }
             } else {
-                if ( t >= 0.0f ) { combat_damage_player( player, world, fight, rdr, s->dmg ); s->alive = 0; }
+                if ( t >= 0.0f ) {
+                    part_effect( rdr, &s->pos, &no_dir, 73, (short) ( s->dmg * 4.0f ) );
+                    combat_damage_player( player, world, fight, rdr, s->dmg );
+                    s->alive = 0;
+                }
                 s->pos = fin;
             }
             continue;
@@ -607,6 +631,8 @@ void pl_spikes_tick( World *world, Player *player, Fight *fight,
         if ( best >= 0 ) {
             if ( s->rocket ) s->ignore = world->mon[best].order;
             if ( s->rocket && world->mon[best].kind == MDL_KIND_SHAMBLER ) ndmg *= 0.5f;
+            pl_impact_at( &impact, &s->pos, &dir, bt );
+            part_effect( rdr, &impact, &no_dir, 73, (short) ( ndmg * 4.0f ) );
             combat_damage_monster( world, player, fight, rdr, &world->mon[best], ndmg );
             s->alive = 0;
         }
@@ -615,7 +641,11 @@ void pl_spikes_tick( World *world, Player *player, Fight *fight,
         pl_shot_touch( world, player, fight, rdr, &s->pos, &dir, bt, (short) ndmg, &stopped );
         if ( stopped ) s->alive = 0;
         if ( tr.frac < 1.0f ) {
-            if ( s->alive && !s->rocket ) pl_spike_hit( player, &world->rng, &world->snd, &tr.end_pos );
+            if ( s->alive && !s->rocket ) {
+                part_effect( rdr, &tr.end_pos, &no_dir, 0,
+                             (short) ( s->dmg >= PL_SNG_DMG ? 20 : 10 ) );
+                pl_spike_hit( player, &world->rng, &world->snd, &tr.end_pos );
+            }
             s->alive = 0;
         }
 

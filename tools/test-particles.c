@@ -38,6 +38,7 @@ int main( void )
 {
     Renderer rdr;
     BspVec3 org = { 0.0f, 0.0f, 0.0f };
+    BspVec3 dir = { 0.0f, 0.0f, 0.0f };
     Mat4 m;
 
     assert( PART_EMS_SLOT == 3 );
@@ -60,6 +61,19 @@ int main( void )
 
     part_frame( &rdr, &m, 160.0f, 100.0f, 0.1f, 2, 3 );
     assert( part_maps == 2 );
+    part_shutdown( &rdr );
+
+    memset( &rdr, 0, sizeof(rdr) );
+    memset( pixels, 0, sizeof(pixels) );
+    memset( depth, 0, sizeof(depth) );
+    assert( part_init( &rdr ) );
+    part_maps = 0;
+    part_effect( &rdr, &org, &dir, 73, 20 );
+    assert( part_maps == 0 );
+    part_frame( &rdr, &m, 160.0f, 100.0f, 0.1f, 2, 3 );
+    assert( part_maps == 1 );
+    assert( rdr.part_drawn == 20 );
+    assert( pixels[100 * 320 + 160] >= 72 && pixels[100 * 320 + 160] <= 79 );
     part_shutdown( &rdr );
     return 0;
 }
