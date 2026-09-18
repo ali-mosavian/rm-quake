@@ -438,8 +438,8 @@ static short d_mdl_visible( World *world, Renderer *rdr, DiskPlane far *frustum,
     return vis;
 }
 
-/* One slot per entity, made on the first frame that wants it: item_count
-   and mon_count are the map's, not known when r_alloc_scratch runs. A
+/* One slot per entity, made on the first frame that wants it. Pickups use
+   item_max because DropBackpack grows item_count after this allocation. A
    refusal leaves the pointer null and every call recomputes, which is
    what this did before. */
 static LeafCache far *lc_slot( Renderer *rdr, LeafCache far **arr, short n, short i )
@@ -572,15 +572,12 @@ short d_draw_items( World *world, Renderer *rdr, Player *player,
             have_mdl = im.state.loaded;
         }
         if ( have_mdl ) {
-            /* The phase includes the map position exactly as Quake's
-               EF_ROTATE path does; there is no per-item state. */
-            bob.z += (float) sin( it->pos.x + it->pos.y + rdr->anim_time * 3.0 ) * 5.5f;
             if ( !d_mdl_visible( world, rdr, frustum, &bob,
                                   im.state.radius, im.state.zlo, im.state.zhi,
-                                  lc_slot( rdr, &rdr->item_lc, world->item_count, i ) ) ) continue;
+                                  lc_slot( rdr, &rdr->item_lc, world->item_max, i ) ) ) continue;
         } else if ( !d_mdl_visible( world, rdr, frustum, &bob,
                                      ENT_BOX_HALF * 1.5f, 0.0f, ENT_BOX_TOP + 8.0f,
-                                     lc_slot( rdr, &rdr->item_lc, world->item_count, i ) ) ) continue;
+                                     lc_slot( rdr, &rdr->item_lc, world->item_max, i ) ) ) continue;
 
         if ( it->crate >= 0 && it->crate < world->crate_count ) {
             /* the map's own b_*.bsp, still, and centred on the origin
@@ -629,7 +626,6 @@ short d_draw_items( World *world, Renderer *rdr, Player *player,
         }
 
         item_box_colours( it->kind, &side, &top );
-        bob.z += 4.0f + 4.0f * (float) sin( rdr->anim_time * 3.0 );
         drawn = (short) ( drawn + mdl_draw_box( &bob, ENT_ITEM_HALF, ENT_ITEM_TOP,
                              cyaw, syaw, m, xresh, yresh, z_near, dst, side, top ) );
     }

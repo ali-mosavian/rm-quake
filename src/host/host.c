@@ -380,6 +380,7 @@ static void near host_tick( Host *h, float dt )
 
     /* after the movers: a plat can carry an item's floor out from under
        the player */
+    pl_items_tick( world, fight, rdr, dt );
     pl_items_touch( world, player, fight, rdr );
 
     /* after the player has moved: FindTarget sees where they are now */

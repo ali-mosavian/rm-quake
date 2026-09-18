@@ -140,11 +140,12 @@ void combat_damage_monster( World *world, Player *player, Fight *fight, Renderer
         ent->anim_frame = 0;
         if ( ent->health < f->gib_below )
             mdl_voice( player, &world->snd, ent, CHAN_VOICE, SND_UDEATH, ATTN_NORM );
-        else
+        else {
             mdl_say( player, &world->snd, ent, 3 );
+            if ( f->drop_amount )
+                pl_backpack_add( world, ent, f->drop_kind, f->drop_amount, rdr->anim_time );
+        }
         fight->kills++;
-        if ( f->backpack )
-            pl_item_add( world, ENT_ITEM_SHELLS, ENT_BACKPACK, &ent->pos );
         return;
     }
     ent->hunting = -1;

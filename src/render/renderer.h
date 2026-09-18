@@ -19,8 +19,8 @@ typedef struct { float x, y, z; } BspVec3;
    nine times per entity -- 13,007 node visits a frame for 36 entities,
    against 540 for the entire world walk. The leaves depend only on the
    box, not on the PVS, so they are found once and the per-frame test
-   becomes nine array reads. A pickup never moves at all; a monster
-   moves at its 10 Hz think and re-fills this when it does. */
+   becomes nine array reads. Map pickups never move; a dropped backpack
+   and a monster re-fill this when their origin changes. */
 typedef struct {
     BspVec3 at;              /* the origin these were found for */
     float   r, zlo, zhi;     /* and the extent around it */

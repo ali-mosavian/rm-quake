@@ -248,7 +248,8 @@ void mdl_load_items( World *world, short worldtype )
         if ( id >= 0 ) used[id] = 1;
     }
     for ( i = 0; i < world->mon_count; i++ )
-        if ( world->mon[i].kind == MDL_KIND_ARMY ) used[ITEM_MDL_BACKPACK] = 1;
+        if ( world->mon[i].kind == MDL_KIND_ARMY || world->mon[i].kind == MDL_KIND_OGRE )
+            used[ITEM_MDL_BACKPACK] = 1;
     for ( i = 0; i < ITEM_MDL_N; i++ ) if ( used[i] ) n++;
 
     world->item_mdl_count = n;

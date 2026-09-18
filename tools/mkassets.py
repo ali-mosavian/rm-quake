@@ -247,7 +247,7 @@ def item_models(ents: list[bytes], monster_kinds: set[int]) -> set[str]:
                 names.add(f"end{bit + 1}")
             elif kind in ITEM_MODELS:
                 names.add(ITEM_MODELS[kind])
-    if 0 in monster_kinds:
+    if monster_kinds & {0, 3}:
         names.add("backpack")
     return names
 

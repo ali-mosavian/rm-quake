@@ -200,7 +200,8 @@ typedef struct {
     float flinch_roll;    /* a hit under random() * this does not flinch; 0 none */
     short pain_long_snd;  /* played on the long roll in place of the flinch; 0 none */
     short pain_resets;    /* zombie_pain's own rules */
-    short backpack;       /* drops one dead */
+    short drop_kind;      /* DropBackpack's one ammo kind, or 0 when none */
+    short drop_amount;
 } MonsterFacts;
 
 extern const MonsterFacts far mon_facts[];

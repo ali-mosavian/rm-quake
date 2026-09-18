@@ -21,6 +21,7 @@
 #include "weapons.h"   /* the ray-box test, the pellet spread, the projectiles */
 #include "dl.h"
 #include "combat.h"
+#include "item.h"
 
 #define DEG2RAD 0.017453293f
 
@@ -107,14 +108,14 @@ typedef char mon_rows_ok[ sizeof mon_info / sizeof mon_info[0] == MDL_KINDS ? 1 
 /* MDL_KIND_* order. The zombie's death sound is its gib already, so no
    health is under its gib_below. */
 const MonsterFacts far mon_facts[] = {
-    { MDL_HEALTH,      0, SND_MON + 0 * 4,  -35,          0.0f,          0.0f,               SND_ARMY_PAIN2, 0, 1 },
-    { KNIGHT_HEALTH,   0, SND_MON + 1 * 4,  -40,          KNIGHT_PAIN,   0.0f,               0,              0, 0 },
-    { DOG_HEALTH,      0, SND_MON + 2 * 4,  -35,          0.0f,          0.0f,               0,              0, 0 },
-    { OGRE_HEALTH,     0, SND_MON + 3 * 4,  -80,          KNIGHT_PAIN,   0.0f,               0,              0, 0 },
-    { DEMON_HEALTH,    0, SND_MON + 4 * 4,  -80,          KNIGHT_PAIN,   200.0f,             0,              0, 0 },
-    { ZOMBIE_HEALTH,   0, SND_MON2 + 0 * 4, -32767 - 1,   0.0f,          0.0f,               0,              1, 0 },
-    { WIZARD_HEALTH,   1, SND_MON2 + 1 * 4, -40,          0.0f,          0.0f,               0,              0, 0 },
-    { SHAMBLER_HEALTH, 0, SND_MON2 + 2 * 4, -60,          SHAMBLER_PAIN, SHAMBLER_PAIN_ROLL, 0,              0, 0 },
+    { MDL_HEALTH,      0, SND_MON + 0 * 4,  -35,          0.0f,          0.0f,               SND_ARMY_PAIN2, 0, ENT_ITEM_SHELLS,  5 },
+    { KNIGHT_HEALTH,   0, SND_MON + 1 * 4,  -40,          KNIGHT_PAIN,   0.0f,               0,              0, 0,                0 },
+    { DOG_HEALTH,      0, SND_MON + 2 * 4,  -35,          0.0f,          0.0f,               0,              0, 0,                0 },
+    { OGRE_HEALTH,     0, SND_MON + 3 * 4,  -80,          KNIGHT_PAIN,   0.0f,               0,              0, ENT_ITEM_ROCKETS, 2 },
+    { DEMON_HEALTH,    0, SND_MON + 4 * 4,  -80,          KNIGHT_PAIN,   200.0f,             0,              0, 0,                0 },
+    { ZOMBIE_HEALTH,   0, SND_MON2 + 0 * 4, -32767 - 1,   0.0f,          0.0f,               0,              1, 0,                0 },
+    { WIZARD_HEALTH,   1, SND_MON2 + 1 * 4, -40,          0.0f,          0.0f,               0,              0, 0,                0 },
+    { SHAMBLER_HEALTH, 0, SND_MON2 + 2 * 4, -60,          SHAMBLER_PAIN, SHAMBLER_PAIN_ROLL, 0,              0, 0,                0 },
 };
 typedef char mon_facts_ok[ sizeof mon_facts / sizeof mon_facts[0] == MDL_KINDS ? 1 : -1 ];
 

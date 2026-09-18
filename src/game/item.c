@@ -78,6 +78,15 @@ static short near item_take_ammo( Fight *fight, Renderer *rdr, ItemEnt far *it, 
     return inf->snd;
 }
 
+/* BackpackTouch always removes the bag, even when its ammo is already full. */
+static short near item_take_backpack( Fight *fight, ItemEnt far *it, const ItemInfo far *inf )
+{
+    short *v = FIGHT_SHORT( fight, inf->ofs );
+    *v = (short) ( *v + it->amount );
+    if ( *v > inf->cap ) *v = inf->cap;
+    return SND_AMMO;
+}
+
 /* ammo_touch's cells: refused at 200, not at the 100 bound_other_ammo caps to */
 static short near item_take_cells( Fight *fight, Renderer *rdr, ItemEnt far *it, const ItemInfo far *inf )
 {
@@ -241,6 +250,8 @@ void pl_items_touch( World *world, Player *player, Fight *fight, Renderer *rdr )
     pl_powerup_warn( player, &world->snd, rdr, fight->pent_until, &fight->pent_warn, SND_PENT_END );
     pl_powerup_warn( player, &world->snd, rdr, fight->invis_until, &fight->invis_warn, SND_INV_END );
 
+    if ( fight->health <= 0 ) return;
+
     for ( i = 0; i < world->item_count; i++ ) {
         ItemEnt far *it = &world->item[i];
 
@@ -252,7 +263,10 @@ void pl_items_touch( World *world, Player *player, Fight *fight, Renderer *rdr )
         if ( dz <= -ENT_ITEM_TOP - PL_FEET || dz >= ENT_ITEM_TOP + PL_FEET ) continue;
 
         if ( it->kind < 0 || it->kind >= ENT_ITEM_KINDS ) continue;
-        snd = item_info[it->kind].take( fight, rdr, it, &item_info[it->kind] );
+        if ( it->crate <= ENT_BACKPACK_CRATE )
+            snd = item_take_backpack( fight, it, &item_info[it->kind] );
+        else
+            snd = item_info[it->kind].take( fight, rdr, it, &item_info[it->kind] );
         if ( snd < 0 ) continue;
 
         it->gone = -1;
@@ -271,6 +285,48 @@ void pl_items_touch( World *world, Player *player, Fight *fight, Renderer *rdr )
     }
 }
 
+void pl_items_tick( World *world, Fight *fight, Renderer *rdr, float dt )
+{
+    short i = (short) ( world->item_max - world->mon_count );
+
+    /* Map pickups never move. The tail alone is DropBackpack's, so a map
+       with no dead ammo-carrying monster pays one compare per tick. */
+    for ( ; i < world->item_count; i++ ) {
+        ItemEnt far *it = &world->item[i];
+        short source;
+        MdlEnt far *mon;
+        BspVec3 org, fin;
+        TraceResult tr;
+        float backoff;
+
+        if ( it->gone || it->crate > ENT_BACKPACK_CRATE ) continue;
+        source = (short) ( ENT_BACKPACK_CRATE - it->crate );
+        if ( source < 0 || source >= world->mon_count ) { it->gone = -1; continue; }
+        mon = &world->mon[source];
+        if ( rdr->anim_time >= mon->idle_at ) { it->gone = -1; continue; }
+
+        mon->vel.z -= fight->gravity * dt;
+        org = it->pos;
+        org.z += PL_FEET;
+        fin.x = org.x + mon->vel.x * dt;
+        fin.y = org.y + mon->vel.y * dt;
+        fin.z = org.z + mon->vel.z * dt;
+        /* BackpackTouch's -16..16, 0..56 box is hull 1 shifted up by
+           PL_FEET: the player's -16..16, -24..32 becomes it exactly. */
+        pl_trace( world, &org, &fin, &tr );
+        it->pos = tr.end_pos;
+        it->pos.z -= PL_FEET;
+        if ( tr.frac >= 1.0f ) continue;
+
+        backoff = mon->vel.x * tr.norm.x + mon->vel.y * tr.norm.y + mon->vel.z * tr.norm.z;
+        mon->vel.x -= tr.norm.x * backoff;
+        mon->vel.y -= tr.norm.y * backoff;
+        mon->vel.z -= tr.norm.z * backoff;
+        if ( tr.norm.z > 0.7f && mon->vel.z < 60.0f )
+            mon->vel.x = mon->vel.y = mon->vel.z = 0.0f;
+    }
+}
+
 short item_taken( World *world )
 {
     short i, n = 0;
@@ -278,18 +334,30 @@ short item_taken( World *world )
     return n;
 }
 
-void pl_item_add( World *world, short kind, short amount, BspVec3 far *org )
+void pl_backpack_add( World *world, MdlEnt far *owner, short kind,
+                      short amount, float now )
 {
     ItemEnt far *it;
+    short source;
 
     if ( world->item_count >= world->item_max ) return;
+    for ( source = 0; source < world->mon_count; source++ )
+        if ( &world->mon[source] == owner ) break;
+    if ( source >= world->mon_count ) return;
+
     it = &world->item[ world->item_count ];
     it->kind = kind;
     it->amount = amount;
     it->target = 0;
-    it->crate = -1;
-    it->pos = *org;
+    it->crate = (short) ( ENT_BACKPACK_CRATE - source );
+    it->order = owner->order;
+    it->pos = owner->pos;
+    it->pos.z -= 24.0f;
     it->gone = 0;
+    owner->vel.x = rng_float( &world->rng ) * 200.0f - 100.0f;
+    owner->vel.y = rng_float( &world->rng ) * 200.0f - 100.0f;
+    owner->vel.z = 300.0f;
+    owner->idle_at = now + 120.0f;
     world->item_mdl_slot[world->item_count] = (signed char) world->backpack_mdl;
     world->item_skin[world->item_count] = 0;
     world->item_count++;
