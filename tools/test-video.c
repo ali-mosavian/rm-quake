@@ -78,7 +78,7 @@ int main( void )
     check( &v, -1, 152, 9 );
     row_reads = row_writes = 0;
     v_present_warp( &v, 2, 0, -1, 0.0f );
-    assert( row_reads == v.y_res && row_writes == v.y_res );
+    assert( row_reads == v.y_res + 6 && row_writes == v.y_res );
     v.sbar_lines = 24;
     check( &v, -1, 176, 9 );
     v.sbar_lines = 0;

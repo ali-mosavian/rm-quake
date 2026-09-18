@@ -13,7 +13,6 @@
 #include "qgl.h"
 #include "pal.h"
 #include "sys.h"
-#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -184,28 +183,56 @@ short v_present( Video *v, QSurf h_dst_dc, short page, short keep_sbar )
    qglRowRead/Write own the EMS mappings, so the source and destination
    never leave a stale window behind. The 320-wide maximum is the mode's
    render width; enlarged views retain the regular scaler. */
+static short near v_warp_wave( short x )
+{
+    x &= 63;
+    if ( x > 31 ) x = (short) ( 63 - x );
+    return (short) ( ( x - 16 ) / 5 );
+}
+
+/* The source can cross EMS pages, so retain the seven rows vertical warp
+   may sample in far storage, then read and write through the row dispatch. */
 short v_present_warp( Video *v, QSurf h_dst_dc, short page, short keep_sbar,
                       float now )
 {
-    static unsigned char row[320], warped[320];
-    short x, y, sx, phase;
+    static unsigned char far src[7][320];
+    static unsigned char far dst[320];
+    short x, y, r, sx, sy, base, phase, first, slot;
 
-    if ( v->view_scale != 1 || v->x_res > (short) sizeof(row) )
-        return v_present( v, h_dst_dc, page, keep_sbar );
-
+    if ( v->view_scale != 1 ) return v_present( v, h_dst_dc, page, keep_sbar );
     v_clear_border( v, v->h_comp_dc, keep_sbar );
     phase = (short) ( now * 20.0f );
+    first = 0;
+    for ( r = 0; r < 7; r++ ) {
+        sy = (short) ( r - 3 );
+        if ( sy < 0 ) sy = 0;
+        qglRowRead( h_dst_dc, 0, sy, v->x_res, QGL_FMT_8BIT,
+                    (long) (void far *) src[r] );
+    }
     for ( y = 0; y < v->y_res; y++ ) {
-        qglRowRead( h_dst_dc, 0, y, v->x_res, QGL_FMT_8BIT,
-                    (long) (void far *) row );
+        base = (short) ( y - 3 );
+        if ( y ) {
+            if ( ++first == 7 ) first = 0;
+            sy = (short) ( y + 3 );
+            if ( sy >= v->y_res ) sy = (short) ( v->y_res - 1 );
+            slot = (short) ( first + 6 );
+            if ( slot >= 7 ) slot -= 7;
+            qglRowRead( h_dst_dc, 0, sy, v->x_res, QGL_FMT_8BIT,
+                        (long) (void far *) src[slot] );
+        }
         for ( x = 0; x < v->x_res; x++ ) {
-            sx = (short) ( x + (short) ( sin( (float) ( y + phase ) * 0.09817477f ) * 3.0f ) );
+            sx = (short) ( x + v_warp_wave( (short) ( y + phase ) ) );
+            sy = (short) ( y + v_warp_wave( (short) ( x + phase ) ) );
             if ( sx < 0 ) sx = 0;
             if ( sx >= v->x_res ) sx = (short) ( v->x_res - 1 );
-            warped[x] = row[sx];
+            if ( sy < 0 ) sy = 0;
+            if ( sy >= v->y_res ) sy = (short) ( v->y_res - 1 );
+            slot = (short) ( first + sy - base );
+            if ( slot >= 7 ) slot -= 7;
+            dst[x] = src[slot][sx];
         }
         qglRowWrite( v->h_comp_dc, v->view_x, (short) ( v->view_y + y ),
-                     v->x_res, QGL_FMT_8BIT, (long) (void far *) warped );
+                     v->x_res, QGL_FMT_8BIT, (long) (void far *) dst );
     }
     return page;
 }
