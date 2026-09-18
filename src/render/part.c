@@ -66,6 +66,7 @@ short part_init( Renderer *rdr )
     rdr->part_live = rdr->part_drawn = 0;
     rdr->gib_count = rdr->gib_mdl_drawn = 0;
     rdr->sprite_live = rdr->sprite_drawn = 0;
+    rdr->bubble_live = rdr->bubble_drawn = rdr->bubble_spawn_left = 0;
     rdr->part_last = rdr->anim_time;
     return -1;
 }
@@ -77,6 +78,7 @@ void part_shutdown( Renderer *rdr )
     rdr->part_pending_n = 0;
     rdr->part_live = rdr->part_drawn = 0;
     rdr->sprite_live = rdr->sprite_drawn = 0;
+    rdr->bubble_live = rdr->bubble_drawn = rdr->bubble_spawn_left = 0;
 }
 
 void part_explosion( Renderer *rdr, BspVec3 *origin )

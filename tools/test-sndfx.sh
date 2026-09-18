@@ -90,6 +90,8 @@ if [[ " $ARMS " == *" 5 "* ]]; then
     seen 124 || seen 125 || bad "13 s under water with no drown sound"
     hp=$(line "fight=" | sed 's/fight=health \([0-9-]*\).*/\1/')
     [[ "${hp:-100}" -lt 100 ]] || bad "13 s under water left health ${hp:-none}"
+    bubbles=$(line "bubbles live=" | sed -n 's/^bubbles live=\([0-9][0-9]*\).*/\1/p')
+    [[ "${bubbles:-0}" -gt 0 ]] || bad "underwater PainSound emitted no bubble"
 fi
 
 if [[ " $ARMS " == *" 6 "* ]]; then

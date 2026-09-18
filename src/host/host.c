@@ -280,9 +280,10 @@ static void near host_state( Host *h, short fire, short advance )
             if ( fight->health < -40 ) {
                 i = (short) ( rng_int( &world->rng ) & 1 ? SND_GIB : SND_UDEATH );
                 gib_spawn_player( world, rdr, player, fight, rdr->anim_time );
-            } else if ( player->water_level == 3 )
+            } else if ( player->water_level == 3 ) {
                 i = SND_H2ODEATH;
-            else if ( ( ndead = (short) ( (float) rng_int( &world->rng ) / RNG_MAX * 4.0f + 0.5f ) ) == 0 )
+                d_sprite_bubbles( rdr, 20 );
+            } else if ( ( ndead = (short) ( (float) rng_int( &world->rng ) / RNG_MAX * 4.0f + 0.5f ) ) == 0 )
                 i = SND_DEATH;
             else
                 i = (short) ( SND_DEATH2 + ndead - 1 );
@@ -406,6 +407,7 @@ static void near host_tick( Host *h, float dt )
     pl_traps_tick( world, player, fight, rdr );
     pl_spikes_tick( world, player, fight, rdr, dt );
     gib_tick( world, rdr, dt );
+    d_sprite_tick( world, rdr, player, dt );
 
     host_state( h, fire, advance );
 
@@ -1764,6 +1766,9 @@ static void near host_report( Host *h )
     mark( buf );
     sprintf( buf, "sprites live=%d drawn=%d", (int) h->rdr.sprite_live,
              (int) h->rdr.sprite_drawn );
+    mark( buf );
+    sprintf( buf, "bubbles live=%d drawn=%d spawn=%d", (int) h->rdr.bubble_live,
+             (int) h->rdr.bubble_drawn, (int) h->rdr.bubble_spawn_left );
     mark( buf );
     sprintf( buf, "boss drawn=%d", (int) h->rdr.boss_drawn );
     mark( buf );

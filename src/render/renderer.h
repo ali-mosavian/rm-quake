@@ -169,6 +169,9 @@ typedef struct {
     short gib_count;      /* transient GibEnt records in frame_dc */
     short sprite_live;
     short sprite_drawn;
+    short bubble_live;
+    short bubble_drawn;
+    short bubble_spawn_left;
     short boss_drawn;     /* Chthon triangles submitted this frame */
     short ents_last;      /* brush entities after the world walk: with depth
                               unless -entinsert, or -badorder */

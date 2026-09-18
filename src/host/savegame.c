@@ -13,11 +13,12 @@
 #include "item.h"
 
 #define SG_MAGIC   0x31565351L
-#define SG_VERSION 3
+#define SG_VERSION 4
 #define SG_VERSION_ITEMS 2
 #define SG_VERSION_OLD 1
 #define SG_GIB_MAGIC 0x31424947L
 #define SG_SPR_MAGIC 0x31525053L
+#define SG_SPR2_MAGIC 0x32525053L
 
 typedef struct {
     long magic;
@@ -34,6 +35,10 @@ typedef struct {
 typedef struct { long magic; short count; } SaveGibs;
 typedef char rec_savegibs_ok[ sizeof(SaveGibs) == 6 ? 1 : -1 ];
 typedef struct { long magic; short count; } SaveSprites;
+typedef struct {
+    long magic;
+    short explosions, bubbles, spawners;
+} SaveSprites2;
 
 typedef struct {
     Rng rng;
@@ -136,9 +141,11 @@ static short near savegame_write( short file, SaveHead *head, World *world,
     SaveWorld sw;
     SaveRender sr;
     SaveGibs sg;
-    SaveSprites ss;
+    SaveSprites2 ss;
     GibEnt far *gib;
     SpriteExplosion far *sprite;
+    SpriteBubble far *bubble;
+    SpriteBubbleSpawner far *spawner;
 
     sw.rng = world->rng;
     sw.mon_teles = world->mon_teles;
@@ -183,12 +190,20 @@ static short near savegame_write( short file, SaveHead *head, World *world,
         if ( !gib || !savegame_write_block( file, (long) gib,
                                   (long) sg.count * sizeof(GibEnt) ) ) return 0;
     }
-    ss.magic = SG_SPR_MAGIC;
-    ss.count = SPR_EXPLOSIONS;
+    ss.magic = SG_SPR2_MAGIC;
+    ss.explosions = SPR_EXPLOSIONS;
+    ss.bubbles = SPR_BUBBLES;
+    ss.spawners = SPR_SPAWNERS;
     if ( !savegame_write_block( file, (long) (void far *) &ss, sizeof(ss) ) ) return 0;
     sprite = d_sprite_map( rdr, 2 );
-    return sprite && savegame_write_block( file, (long) sprite,
-                              (long) SPR_EXPLOSIONS * sizeof(SpriteExplosion) );
+    if ( !sprite || !savegame_write_block( file, (long) sprite,
+                         (long) SPR_EXPLOSIONS * sizeof(SpriteExplosion) ) ) return 0;
+    bubble = d_bubble_map( rdr, 2 );
+    if ( !bubble || !savegame_write_block( file, (long) bubble,
+                              (long) SPR_BUBBLES * sizeof(SpriteBubble) ) ) return 0;
+    spawner = d_spawner_map( rdr, 2 );
+    return spawner && savegame_write_block( file, (long) spawner,
+                         (long) SPR_SPAWNERS * sizeof(SpriteBubbleSpawner) );
 }
 
 short savegame_save( short slot, const char *map, World *world, Player *player,
@@ -282,12 +297,15 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
     SaveRender sr;
     SaveGibs sg;
     SaveSprites ss;
+    SaveSprites2 ss2;
     char name[16];
     short file;
-    short i, ok, gib_count = 0, sprite_live = 0;
+    short i, ok, gib_count = 0, sprite_live = 0, bubble_live = 0, spawn_left = 0;
     long got;
     GibEnt far *gib = 0;
     SpriteExplosion far *sprite = 0;
+    SpriteBubble far *bubble = 0;
+    SpriteBubbleSpawner far *spawner = 0;
 
     savegame_name( slot, "sav", name );
     file = qglFileOpen( name );
@@ -339,7 +357,7 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
             }
         }
     }
-    if ( ok && head.version >= SG_VERSION ) {
+    if ( ok && head.version == 3 ) {
         if ( !savegame_read_block( file, (long) (void far *) &ss, sizeof(ss) ) ||
              ss.magic != SG_SPR_MAGIC || ss.count != SPR_EXPLOSIONS ) ok = 0;
         else {
@@ -348,6 +366,30 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
                          (long) SPR_EXPLOSIONS * sizeof(SpriteExplosion) ) );
             if ( ok ) for ( i = 0; i < SPR_EXPLOSIONS; i++ )
                 if ( sprite[i].live ) sprite_live++;
+        }
+    }
+    if ( ok && head.version >= SG_VERSION ) {
+        if ( !savegame_read_block( file, (long) (void far *) &ss2, sizeof(ss2) ) ||
+             ss2.magic != SG_SPR2_MAGIC || ss2.explosions != SPR_EXPLOSIONS ||
+             ss2.bubbles != SPR_BUBBLES || ss2.spawners != SPR_SPAWNERS ) ok = 0;
+        else {
+            sprite = d_sprite_map( rdr, 2 );
+            ok = (short) ( sprite && savegame_read_block( file, (long) sprite,
+                         (long) SPR_EXPLOSIONS * sizeof(SpriteExplosion) ) );
+            if ( ok ) for ( i = 0; i < SPR_EXPLOSIONS; i++ )
+                if ( sprite[i].live ) sprite_live++;
+            bubble = d_bubble_map( rdr, 2 );
+            if ( ok ) ok = (short) ( bubble && savegame_read_block( file, (long) bubble,
+                         (long) SPR_BUBBLES * sizeof(SpriteBubble) ) );
+            if ( ok ) for ( i = 0; i < SPR_BUBBLES; i++ )
+                if ( bubble[i].live ) bubble_live++;
+            spawner = d_spawner_map( rdr, 2 );
+            if ( ok ) ok = (short) ( spawner && savegame_read_block( file, (long) spawner,
+                         (long) SPR_SPAWNERS * sizeof(SpriteBubbleSpawner) ) );
+            if ( ok ) for ( i = 0; i < SPR_SPAWNERS; i++ ) {
+                if ( spawner[i].left < 0 || spawner[i].left > SPR_BUBBLES ) ok = 0;
+                else spawn_left = (short) ( spawn_left + spawner[i].left );
+            }
         }
     }
     qglFileClose( file );
@@ -382,6 +424,9 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
     rdr->gib_count = gib_count;
     rdr->sprite_live = sprite_live;
     rdr->sprite_drawn = 0;
+    rdr->bubble_live = bubble_live;
+    rdr->bubble_drawn = 0;
+    rdr->bubble_spawn_left = head.version >= SG_VERSION ? spawn_left : 0;
     rdr->pvs_leaf = 0;
     if ( rdr->item_lc )
         for ( i = 0; i < world->item_count; i++ ) rdr->item_lc[i].ok = 0;

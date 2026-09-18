@@ -115,6 +115,7 @@ void combat_damage_player( Player *player, World *world, Fight *fight, Renderer 
     if ( fight->health <= 0 ) return;
     if ( rdr->anim_time < fight->invis_until ) return;   /* player_pain: the eyes have no pain frames */
     if ( player->water_level == 3 && player->water_type == CONTENTS_WATER ) {
+        d_sprite_bubbles( rdr, 1 );
         snd_self( snd, player, CHAN_VOICE, (short) ( SND_DROWN1 + ( rng_int( rng ) & 1 ) ) );
         return;
     }
