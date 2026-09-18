@@ -37,6 +37,8 @@ typedef struct {
     short   key;
 } DynLight;
 
+#define PART_PENDING_MAX 4
+
 /* Renderer -- per-frame toggles and counters. Quake's own name for
    this role; owns what d_draw_faces reads and what host_tick/
    host_render update every frame. Narrower than the old BASIC
@@ -58,6 +60,14 @@ typedef struct {
     unsigned short dl_seed;   /* the flicker's LCG */
     short no_dlight;          /* -nodlight */
     short no_styles;          /* -nostyles: the light styles hold still */
+    QSurf part_dc;            /* one page: the complete particle pool */
+    float part_last;
+    unsigned short part_seed;
+    short part_next;
+    short part_pending_n;
+    short part_live;
+    short part_drawn;
+    BspVec3 part_pending[PART_PENDING_MAX];
 
     /* q_vis.bi's VisState -- folded in here per the port plan's own
        architecture table (Renderer replaces RenderState *and*

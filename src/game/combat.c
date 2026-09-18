@@ -6,6 +6,7 @@
 #include <math.h>
 
 #include "combat.h"
+#include "part.h"
 #include "snd.h"
 #include "mdl_ai.h"
 #include "item.h"
@@ -230,6 +231,7 @@ void combat_damage_box( World *world, Player *player, Fight *fight,
     visual.z += ENT_BOX_TOP * 0.5f;
     snd_play( &world->snd, player, SND_BOOM, &visual );
     dl_explosion( rdr, &visual );
+    part_explosion( rdr, &visual );
     combat_radius( world, player, fight, rdr, it->pos, ENT_BOX_DMG,
                    COMBAT_BY_WORLD, it->order );
 }

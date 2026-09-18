@@ -22,6 +22,7 @@
 #include "lights.h"
 #include "item.h"
 #include "d_alias.h"
+#include "part.h"
 #include "input.h"
 #include "r_bsp.h"
 #include "mod_tex.h"
@@ -591,6 +592,7 @@ static void near host_render_models( Host *h, RenderView *rv, Camera *cam )
     rdr->mdl_drawn = d_draw_models( world, rdr, rv->frustum, &rv->mtx_fin,
                                      rv->xresh, rv->yresh, z_near, dst );
     d_draw_spikes( &h->fight, &rv->mtx_fin, rv->xresh, rv->yresh, z_near, dst );
+    part_frame( rdr, &rv->mtx_fin, rv->xresh, rv->yresh, z_near, dst, h->z_dc );
     /* the weapon in hand LAST, with depth off inside d_draw_view: it is
        not in the world and nothing may hide it */
     rdr->mdl_drawn = (short) ( rdr->mdl_drawn +
@@ -827,6 +829,10 @@ static void near host_load_rest( Host *h, LoadScreen *ldr )
         sprintf( buf, "sc_init ok largest=%ld total=%ld",
                  qglMemAvail( QGL_MEM_LARGEST ), qglMemAvail( QGL_MEM_TOTAL ) );
     }
+    mark( buf );
+    if ( !part_init( &h->rdr ) ) sys_error( "particle EMS allocation failed" );
+    sprintf( buf, "part_init ok count=%d ems_free=%d", PART_MAX,
+             (int) qglGemAvail() );
     mark( buf );
     ld_step( ldr, vdc, h->hud );
 
@@ -1732,6 +1738,9 @@ static void near host_report( Host *h )
     mark( buf );
     sprintf( buf, "console paused=%ld", h->console_frames );
     mark( buf );
+    sprintf( buf, "particles live=%d drawn=%d", (int) h->rdr.part_live,
+             (int) h->rdr.part_drawn );
+    mark( buf );
 
     sprintf( buf, "fight=health %d shells %d nails %d rockets %d armor %d items %ld took %d kills %d booms %d deaths %d cells %d",
              fight->health, fight->shells, fight->nails, fight->rockets,
@@ -1771,6 +1780,7 @@ static void near host_map_release( Host *h )
         qglMemFree( (long) (void far *) h->sc );
         h->sc = 0;
     }
+    part_shutdown( &h->rdr );
     scr_sbar_shutdown();
     snd_shutdown( &h->world.snd );
     pak_close( &h->world.pak );
