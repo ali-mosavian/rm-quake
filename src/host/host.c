@@ -24,6 +24,7 @@
 #include "item.h"
 #include "d_alias.h"
 #include "part.h"
+#include "d_sprite.h"
 #include "input.h"
 #include "r_bsp.h"
 #include "mod_tex.h"
@@ -606,6 +607,8 @@ static void near host_render_models( Host *h, RenderView *rv, Camera *cam )
     d_draw_gibs( world, rdr, rv->frustum, &rv->mtx_fin,
                   rv->xresh, rv->yresh, z_near, dst );
     part_frame( rdr, &rv->mtx_fin, rv->xresh, rv->yresh, z_near, dst, h->z_dc );
+    d_draw_sprites( world, rdr, &rv->mtx_fin, &h->mtx_prj,
+                     rv->xresh, rv->yresh, z_near, dst );
     /* the weapon in hand LAST, with depth off inside d_draw_view: it is
        not in the world and nothing may hide it */
     rdr->mdl_drawn = (short) ( rdr->mdl_drawn +
@@ -1758,6 +1761,9 @@ static void near host_report( Host *h )
     mark( buf );
     sprintf( buf, "particles live=%d drawn=%d", (int) h->rdr.part_live,
              (int) h->rdr.part_drawn );
+    mark( buf );
+    sprintf( buf, "sprites live=%d drawn=%d", (int) h->rdr.sprite_live,
+             (int) h->rdr.sprite_drawn );
     mark( buf );
     sprintf( buf, "boss drawn=%d", (int) h->rdr.boss_drawn );
     mark( buf );

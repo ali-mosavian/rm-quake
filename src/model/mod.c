@@ -17,6 +17,7 @@
 #include "pl_move.h"     /* pl_load_hulls */
 #include "ent.h"         /* ent_load_spawn/ent_load_world */
 #include "mdl.h"
+#include "sprite.h"
 #include "sys.h"         /* sys_error */
 
 /* q_map.bi's own constants -- project-specific, not mgl's. */
@@ -195,6 +196,8 @@ void mod_load_world( World *world, Renderer *rdr, Camera *cam, Fight *fight, cha
     mod_load_visibility( world );
     pl_load_hulls( world, (short) counts->clips );
 
+    sprite_load( world );
+
     ent_load_spawn( world, cam, fight );
     ent_load_world( world );
     fight->secret_total = ent_secret_total( world );
@@ -219,6 +222,7 @@ void mod_unload( World *world )
 {
     short i;
 
+    sprite_unload( world );
     if ( world->tex_v_raw )    qglDelView( world->tex_v_raw );
     if ( world->tex_v_shaded ) qglDelView( world->tex_v_shaded );
     if ( world->tex_raw )     qglSfFree( world->tex_raw );

@@ -866,7 +866,9 @@ AMKSTEP         macro
                 mov     W fs:qgl$psdv+2, dx
 endm
 
-ATEX_BODY       macro   ?p, ?zwrite, ?ztest, ?lit
+ATEX_BODY       macro   ?p, ?zwrite, ?ztest, ?lit, ?mask
+
+                local   masked
 
                 PS      ebx, bp
                 add     di, ax
@@ -900,6 +902,18 @@ ATEX_BODY       macro   ?p, ?zwrite, ?ztest, ?lit
 ?p&_zcmp:       cmp     gs:[ebp*2+__IMM32__], ax
                 ZEND    ?p&_zcmp
                 jae     @@behind
+        ifnb    <?mask>
+                TEX_FETCH ?p
+                cmp     al, 255
+                je      @@behind
+        ifnb    <?lit>
+                TEX_LIT
+        endif
+                mov     es:[di+bp], al
+                mov     ax, W fs:qgl$zacc+2
+?p&_zofs:       mov     gs:[ebp*2+__IMM32__], ax
+                ZEND    ?p&_zofs
+        else
 ?p&_zofs:       mov     gs:[ebp*2+__IMM32__], ax
                 ZEND    ?p&_zofs
                 TEX_FETCH ?p
@@ -907,6 +921,7 @@ ATEX_BODY       macro   ?p, ?zwrite, ?ztest, ?lit
                 TEX_LIT
         endif
                 mov     es:[di+bp], al
+        endif
 @@behind:       PSTEPPX ?p
 ?p&_umsk:       and     bx, __IMM16__
                 ZEND    ?p&_umsk
@@ -917,13 +932,23 @@ ATEX_BODY       macro   ?p, ?zwrite, ?ztest, ?lit
                 TEX_LIT
         endif
                 PSTEPPX ?p
+        ifnb    <?mask>
+                cmp     al, 255
+                je      masked
+        endif
                 mov     es:[di+bp], al
+masked:
 ?p&_umsk:       and     bx, __IMM16__
                 ZEND    ?p&_umsk
           ifnb  <?zwrite>
+        ifnb    <?mask>
+                cmp     al, 255
+                je      @F
+        endif
                 mov     ax, W fs:qgl$zacc+2
 ?p&_zofs:       mov     gs:[ebp*2+__IMM32__], ax
                 ZEND    ?p&_zofs
+@@:
                 Z_STEP  ?p
           endif
         endif
@@ -977,6 +1002,18 @@ qgl$AlitT      proc    near
                 ATEX_BODY alt, 1, 1, LIT
 qgl$AlitT      endp
 
+qgl$MatexO     proc    near
+                ATEX_BODY amo, , , , MASK
+qgl$MatexO     endp
+
+qgl$MatexW     proc    near
+                ATEX_BODY amw, 1, , , MASK
+qgl$MatexW     endp
+
+qgl$MatexT     proc    near
+                ATEX_BODY amt, 1, 1, , MASK
+qgl$MatexT     endp
+
 
 qgl$Fixup       proc    near uses ax bx cx dx si di bp
 
@@ -996,6 +1033,9 @@ qgl$Fixup       proc    near uses ax bx cx dx si di bp
                 FIX_TEX alo
                 FIX_TEX alw
                 FIX_TEX alt
+                FIX_TEX amo
+                FIX_TEX amw
+                FIX_TEX amt
 
                 ;; dvdx_int IS NOT THE PLAIN INTEGER HALF. si carries v
                 ;; already shifted by tshift, so its step must be shifted
@@ -1038,6 +1078,8 @@ qgl$Fixup       proc    near uses ax bx cx dx si di bp
                 FIX_Z   at
                 FIX_Z   alw
                 FIX_Z   alt
+                FIX_Z   amw
+                FIX_Z   amt
                 FIX_Z   fw
                 FIX_Z   ft
 
@@ -1076,6 +1118,8 @@ b8_span         proc    near
                 mov     ax, qgl$mode
                 cmp     ax, QGL_M_ATEX
                 je      @@atex
+                cmp     ax, QGL_M_MATEX
+                je      @@matex
                 cmp     ax, QGL_M_ALIT
                 jne     @@table
                 mov     ax, O qgl$AlitO
@@ -1094,6 +1138,15 @@ b8_span         proc    near
                 cmp     qgl$zmode, QGL_Z_SET
                 je      @@done
                 mov     ax, O qgl$AtexT
+                jmp     short @@done
+@@matex:
+                mov     ax, O qgl$MatexO
+                cmp     qgl$zmode, QGL_Z_OFF
+                je      @@done
+                mov     ax, O qgl$MatexW
+                cmp     qgl$zmode, QGL_Z_SET
+                je      @@done
+                mov     ax, O qgl$MatexT
 @@done:         ret
 @@table:
                 imul    ax, QGL_Z_KINDS

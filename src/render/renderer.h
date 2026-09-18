@@ -38,14 +38,16 @@ typedef struct {
 } DynLight;
 
 /* One EMS page shared by frame-sized renderer state. Particles occupy the
-   first 4 KB, dynamic lights the next 4 KB and gibs the next 4 KB. Each is
-   mapped only while its own pass uses it. */
+   first 4 KB, dynamic lights the next 4 KB, gibs the next 4 KB and transient
+   sprites the last 4 KB. Each is mapped only while its own pass uses it. */
 #define RDR_PART_BYTES   4096
 #define RDR_DLIGHT_OFS   RDR_PART_BYTES
 #define RDR_GIB_OFS      8192
 #define RDR_GIB_BYTES    4096
-#define RDR_FRAME_BYTES  ( RDR_GIB_OFS + RDR_GIB_BYTES )
-#define RDR_FRAME_ROWS   3
+#define RDR_SPRITE_OFS   12288
+#define RDR_SPRITE_BYTES 4096
+#define RDR_FRAME_BYTES  16384
+#define RDR_FRAME_ROWS   4
 
 #define PART_PENDING_MAX 16
 typedef struct {
@@ -165,6 +167,8 @@ typedef struct {
     short projectile_mdl_drawn; /* projectile alias triangles this frame */
     short gib_mdl_drawn;  /* ThrowGib/ThrowHead triangles this frame */
     short gib_count;      /* transient GibEnt records in frame_dc */
+    short sprite_live;
+    short sprite_drawn;
     short boss_drawn;     /* Chthon triangles submitted this frame */
     short ents_last;      /* brush entities after the world walk: with depth
                               unless -entinsert, or -badorder */

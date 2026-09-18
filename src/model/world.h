@@ -5,6 +5,7 @@
 #include "rng.h"
 #include "pak.h"
 #include "sound.h"
+#include "sprtype.h"
 
 /* Cell heights are powers of two and a cell is at most one EMS page,
    so 1..16384 -- nine of them can matter and the rest cannot exist. */
@@ -171,6 +172,9 @@ typedef struct {
     QSurf   tex_v_raw, tex_v_shaded;
     short  tex_aim_raw, tex_aim_shd;
     long  tex_ofs[1024];    /* [id*4 + level] -> byte offset in the atlas */
+    SpriteMeta far *sprite_meta;
+    QSurf sprite_atlas, sprite_view;
+    short sprite_aim;
     QSurf sky_layers, sky_dc;   /* d_sky.c's: back and front, composed */
     short sky_shift;            /* the front shift sky_dc holds, -1 none */
     short skill;                /* 0..3: which ents<N>.bin loaded */

@@ -449,6 +449,7 @@ QGL_M_TEX       equ     2
 QGL_M_PTEX      equ     3
 QGL_M_ATEX      equ     4               ;; projective edges, affine per row
 QGL_M_ALIT      equ     5               ;; ATEX through qglRsLitMap's copied row
+QGL_M_MATEX     equ     6               ;; ATEX, palette index 255 transparent
 
 ;;
 ;; Shortcuts, mgl's spelling (inc/equ.inc). They are here rather than

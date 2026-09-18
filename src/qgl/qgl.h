@@ -26,12 +26,13 @@
 #define QGL_Z_TEST 2
 
 /* Drawing mode, for qglRsPoly. */
-#define QGL_M_WIRE 0
-#define QGL_M_FLAT 1
-#define QGL_M_TEX  2
-#define QGL_M_PTEX 3
-#define QGL_M_ATEX 4
-#define QGL_M_ALIT 5
+#define QGL_M_WIRE  0
+#define QGL_M_FLAT  1
+#define QGL_M_TEX   2
+#define QGL_M_PTEX  3
+#define QGL_M_ATEX  4
+#define QGL_M_ALIT  5
+#define QGL_M_MATEX 6
 
 /* Where a paged array store's records live. */
 #define QGL_AR_MEM 0

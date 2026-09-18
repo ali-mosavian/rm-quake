@@ -9,12 +9,15 @@
 #include "qgl.h"
 #include "dl.h"
 #include "gib.h"
+#include "d_sprite.h"
 #include "item.h"
 
 #define SG_MAGIC   0x31565351L
-#define SG_VERSION 2
+#define SG_VERSION 3
+#define SG_VERSION_ITEMS 2
 #define SG_VERSION_OLD 1
 #define SG_GIB_MAGIC 0x31424947L
+#define SG_SPR_MAGIC 0x31525053L
 
 typedef struct {
     long magic;
@@ -30,6 +33,7 @@ typedef struct {
    block and still load with an empty pool. */
 typedef struct { long magic; short count; } SaveGibs;
 typedef char rec_savegibs_ok[ sizeof(SaveGibs) == 6 ? 1 : -1 ];
+typedef struct { long magic; short count; } SaveSprites;
 
 typedef struct {
     Rng rng;
@@ -72,7 +76,7 @@ static short near savegame_read_head( short slot, SaveHead *head )
     if ( fread( head, sizeof(*head), 1, file ) != 1 ) head->magic = 0;
     fclose( file );
     if ( head->magic != SG_MAGIC ||
-         ( head->version != SG_VERSION && head->version != SG_VERSION_OLD ) ) return 0;
+         ( head->version < SG_VERSION_OLD || head->version > SG_VERSION ) ) return 0;
     head->map[8] = 0;
     head->comment[SG_COMMENT - 1] = 0;
     return -1;
@@ -132,7 +136,9 @@ static short near savegame_write( short file, SaveHead *head, World *world,
     SaveWorld sw;
     SaveRender sr;
     SaveGibs sg;
+    SaveSprites ss;
     GibEnt far *gib;
+    SpriteExplosion far *sprite;
 
     sw.rng = world->rng;
     sw.mon_teles = world->mon_teles;
@@ -172,10 +178,17 @@ static short near savegame_write( short file, SaveHead *head, World *world,
     sg.magic = SG_GIB_MAGIC;
     sg.count = rdr->gib_count;
     if ( !savegame_write_block( file, (long) (void far *) &sg, sizeof(sg) ) ) return 0;
-    if ( !sg.count ) return -1;
-    gib = gib_map( rdr, 2 );
-    return gib && savegame_write_block( file, (long) gib,
-                                        (long) sg.count * sizeof(GibEnt) );
+    if ( sg.count ) {
+        gib = gib_map( rdr, 2 );
+        if ( !gib || !savegame_write_block( file, (long) gib,
+                                  (long) sg.count * sizeof(GibEnt) ) ) return 0;
+    }
+    ss.magic = SG_SPR_MAGIC;
+    ss.count = SPR_EXPLOSIONS;
+    if ( !savegame_write_block( file, (long) (void far *) &ss, sizeof(ss) ) ) return 0;
+    sprite = d_sprite_map( rdr, 2 );
+    return sprite && savegame_write_block( file, (long) sprite,
+                              (long) SPR_EXPLOSIONS * sizeof(SpriteExplosion) );
 }
 
 short savegame_save( short slot, const char *map, World *world, Player *player,
@@ -243,7 +256,7 @@ static short near savegame_read_items( short file, ItemEnt far *item,
                                        short count, short version )
 {
     short i;
-    if ( version == SG_VERSION )
+    if ( version >= SG_VERSION_ITEMS )
         return savegame_read_block( file, (long) item,
                                     (long) count * sizeof(ItemEnt) );
     for ( i = 0; i < count; i++ ) {
@@ -268,11 +281,13 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
     SaveWorld sw;
     SaveRender sr;
     SaveGibs sg;
+    SaveSprites ss;
     char name[16];
     short file;
-    short i, ok, gib_count = 0;
+    short i, ok, gib_count = 0, sprite_live = 0;
     long got;
     GibEnt far *gib = 0;
+    SpriteExplosion far *sprite = 0;
 
     savegame_name( slot, "sav", name );
     file = qglFileOpen( name );
@@ -283,7 +298,7 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
     }
     head.map[8] = 0;
     if ( head.magic != SG_MAGIC ||
-         ( head.version != SG_VERSION && head.version != SG_VERSION_OLD ) ||
+         ( head.version < SG_VERSION_OLD || head.version > SG_VERSION ) ||
          stricmp( head.map, map ) ||
          !savegame_counts_match( &head, world ) ) {
         qglFileClose( file );
@@ -324,6 +339,17 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
             }
         }
     }
+    if ( ok && head.version >= SG_VERSION ) {
+        if ( !savegame_read_block( file, (long) (void far *) &ss, sizeof(ss) ) ||
+             ss.magic != SG_SPR_MAGIC || ss.count != SPR_EXPLOSIONS ) ok = 0;
+        else {
+            sprite = d_sprite_map( rdr, 2 );
+            ok = (short) ( sprite && savegame_read_block( file, (long) sprite,
+                         (long) SPR_EXPLOSIONS * sizeof(SpriteExplosion) ) );
+            if ( ok ) for ( i = 0; i < SPR_EXPLOSIONS; i++ )
+                if ( sprite[i].live ) sprite_live++;
+        }
+    }
     qglFileClose( file );
     if ( !ok ) { strcpy( error, "Save file is truncated" ); return 0; }
 
@@ -354,6 +380,8 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
     rdr->dl_tick = sr.dl_tick;
     rdr->dl_seed = sr.dl_seed;
     rdr->gib_count = gib_count;
+    rdr->sprite_live = sprite_live;
+    rdr->sprite_drawn = 0;
     rdr->pvs_leaf = 0;
     if ( rdr->item_lc )
         for ( i = 0; i < world->item_count; i++ ) rdr->item_lc[i].ok = 0;

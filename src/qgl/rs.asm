@@ -169,6 +169,8 @@ GRADCHK         macro   fval:req, fxval:req, lbl:req
                 cmp     qgl$mode, QGL_M_PTEX
                 je      @F
                 cmp     qgl$mode, QGL_M_ATEX
+                je      @F
+                cmp     qgl$mode, QGL_M_MATEX
                 jne     aff
 @@:
                 fld     fval
@@ -767,7 +769,7 @@ qglRsPoly     proc    public uses bx cx dx si di ds es,\
                 ja      @@bad
 
                 mov     ax, mode
-                cmp     ax, QGL_M_ALIT
+                cmp     ax, QGL_M_MATEX
                 ja      @@bad
                 mov     qgl$mode, ax
 
@@ -828,6 +830,8 @@ qglRsPoly     proc    public uses bx cx dx si di ds es,\
                 cmp     qgl$mode, QGL_M_ALIT
                 je      @@persp
                 cmp     qgl$mode, QGL_M_ATEX
+                je      @@persp
+                cmp     qgl$mode, QGL_M_MATEX
                 jne     @F
 @@persp:
                 inc     ax
@@ -1129,6 +1133,8 @@ qglRsPolyBound proc public uses bx dx es,\
                 cmp     mode, QGL_M_PTEX
                 je      @F
                 cmp     mode, QGL_M_ATEX
+                je      @F
+                cmp     mode, QGL_M_MATEX
                 jne     @@bad
 @@:
                 les     bx, src

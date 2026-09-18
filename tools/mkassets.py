@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from dataclasses import field
 
 import mksnd
+import mksprite
 import lighthash
 import texquant
 
@@ -1981,10 +1982,11 @@ def main():
     models = build_models(pak, kinds, boss, os.path.join(outdir, '.mdl'))
     pickup_models = build_item_models(pak, item_models(ent_blobs, kinds), os.path.join(outdir, '.itemmdl'))
     effect_models = build_effect_models(pak, os.path.join(outdir, ".effectmdl"))
+    sprites = {"sprites.bin": mksprite.build_sprite_bank(open(pak, "rb").read())} if pak else {}
     sbar = build_sbar(pak, os.path.join(outdir, '.gfx'))
     sounds = build_sounds(pak, os.path.join(outdir, '.snd'))
     write_qmap(os.path.join(outdir, stem + '.qmp'), stem, d,
-               dict(OUT, **models, **pickup_models, **effect_models, **sbar, **sounds,
+               dict(OUT, **models, **pickup_models, **effect_models, **sprites, **sbar, **sounds,
                     **{'texr.raw': qmap_texr, 'texs.raw': qmap_texs, 'pal.raw': qmap_pal}))
 
 

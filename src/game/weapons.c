@@ -17,6 +17,7 @@
 
 #include "weapons.h"
 #include "part.h"
+#include "d_sprite.h"
 #include "snd.h"
 #include "mdl_ai.h"
 #include "pl_trace.h"
@@ -181,6 +182,7 @@ static void pl_grenade_explode( World *world, Player *player, Fight *fight,
     snd_play( &world->snd, player, SND_BOOM, &s->pos );
     dl_explosion( rdr, &s->pos );
     part_explosion( rdr, &s->pos );
+    d_sprite_explosion( rdr, &s->pos );
     combat_radius( world, player, fight, rdr, s->pos, (float) s->dmg,
                    s->owner, s->ignore );
 }
