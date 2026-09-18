@@ -33,5 +33,7 @@ void  v_init( Video *v, long pal );
 void  v_set_viewsize( Video *v, short viewsize );
 void  v_shutdown( Video *v );
 short v_present( Video *v, QSurf h_dst_dc, short page, short keep_sbar );
+short v_present_warp( Video *v, QSurf h_dst_dc, short page, short keep_sbar,
+                      float now );
 
 #endif

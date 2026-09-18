@@ -1538,7 +1538,10 @@ static void near host_present( Host *h )
 
     special = (short) ( h->fight.state == GS_EXIT || h->fight.state == GS_FINALE );
     menu = menu_is_open( h->menu );
-    v_present( v, h->h_dst_dc, 0, (short) ( !special && !menu ) );
+    if ( h->player.water_level == 3 && !special && !menu )
+        v_present_warp( v, h->h_dst_dc, 0, -1, h->rdr.anim_time );
+    else
+        v_present( v, h->h_dst_dc, 0, (short) ( !special && !menu ) );
     target = v->h_comp_dc;
     if ( menu ) {
         menu_draw( h->menu, h->keys, h->cmd, h->rdr.anim_time,

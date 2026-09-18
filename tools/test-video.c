@@ -11,6 +11,7 @@ static long blit_dst;
 static short ex_count;
 static short ex_w[2], ex_h[2], ex_stride[2], ex_kind[2];
 static short new_view_pitch, resize_view_pitch;
+static short row_reads, row_writes;
 
 void qglDrFill( long d, short x0, short y0, short x1, short y1, short col )
 {
@@ -23,6 +24,10 @@ void qglDrFill( long d, short x0, short y0, short x1, short y1, short col )
 
 void qglDrBlitScl( long d, short x, short y, short w, short h, long s )
 { blit_dst = d; (void) x; (void) y; (void) w; (void) h; (void) s; }
+void qglRowRead( long sf, short x, short y, short pixels, short fmt, long buff )
+{ row_reads++; (void) sf; (void) x; (void) y; (void) pixels; (void) fmt; (void) buff; }
+void qglRowWrite( long sf, short x, short y, short pixels, short fmt, long buff )
+{ row_writes++; (void) sf; (void) x; (void) y; (void) pixels; (void) fmt; (void) buff; }
 void qglMemInit( void ) {}
 short qglSfInit( void ) { return -1; }
 short qglGemInit( void ) { return -1; }
@@ -71,6 +76,9 @@ int main( void )
                    320, 200, 0, 0, 1, 0, 0 };
 
     check( &v, -1, 152, 9 );
+    row_reads = row_writes = 0;
+    v_present_warp( &v, 2, 0, -1, 0.0f );
+    assert( row_reads == v.y_res && row_writes == v.y_res );
     v.sbar_lines = 24;
     check( &v, -1, 176, 9 );
     v.sbar_lines = 0;

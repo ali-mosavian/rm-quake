@@ -13,6 +13,7 @@
 #include "qgl.h"
 #include "pal.h"
 #include "sys.h"
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -176,5 +177,35 @@ short v_present( Video *v, QSurf h_dst_dc, short page, short keep_sbar )
                   (short) ( v->x_res * v->view_scale ),
                   (short) ( v->y_res * v->view_scale ),
                   source );
+    return page;
+}
+
+/* D_WarpScreen's final-image pass, before the HUD touches the composite.
+   qglRowRead/Write own the EMS mappings, so the source and destination
+   never leave a stale window behind. The 320-wide maximum is the mode's
+   render width; enlarged views retain the regular scaler. */
+short v_present_warp( Video *v, QSurf h_dst_dc, short page, short keep_sbar,
+                      float now )
+{
+    static unsigned char row[320], warped[320];
+    short x, y, sx, phase;
+
+    if ( v->view_scale != 1 || v->x_res > (short) sizeof(row) )
+        return v_present( v, h_dst_dc, page, keep_sbar );
+
+    v_clear_border( v, v->h_comp_dc, keep_sbar );
+    phase = (short) ( now * 20.0f );
+    for ( y = 0; y < v->y_res; y++ ) {
+        qglRowRead( h_dst_dc, 0, y, v->x_res, QGL_FMT_8BIT,
+                    (long) (void far *) row );
+        for ( x = 0; x < v->x_res; x++ ) {
+            sx = (short) ( x + (short) ( sin( (float) ( y + phase ) * 0.09817477f ) * 3.0f ) );
+            if ( sx < 0 ) sx = 0;
+            if ( sx >= v->x_res ) sx = (short) ( v->x_res - 1 );
+            warped[x] = row[sx];
+        }
+        qglRowWrite( v->h_comp_dc, v->view_x, (short) ( v->view_y + y ),
+                     v->x_res, QGL_FMT_8BIT, (long) (void far *) warped );
+    }
     return page;
 }
