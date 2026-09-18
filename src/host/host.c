@@ -1097,6 +1097,10 @@ static void near host_map_init( Host *h )
     host_spawn( h );
     sprintf( buf, "ai_visible_selftest %d", mdl_ai_visible_selftest( &h->world, &h->player ) );
     mark( buf );
+    if ( !stricmp( h->args.map_name, "e1m1.qmp" ) ) {
+        sprintf( buf, "mdl_bottom_selftest %d", mdl_bottom_selftest( &h->world, &h->player ) );
+        mark( buf );
+    }
     host_view_setup( h );
 
     /* the largest DOS block once the map, caches and depth are in */

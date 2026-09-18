@@ -329,13 +329,50 @@ static short mdl_flystep( World *world, Player *player, MdlEnt far *ent,
     return 0;
 }
 
-/*
- * SV_movestep's vertical dance: one hull-1 trace from (new xy, z +
- * STEPSIZE) down to (new xy, z - STEPSIZE), so a step down finds its
- * floor and a step up climbs one. Nothing within the band is an edge,
- * and the step is refused. SV_CheckBottom's four-corner support test is
- * not ported, so a monster can teeter over a corner id would refuse.
- */
+/* A point trace, not the monster hull: this asks whether the four bottom
+   corners are supported within one step of the midpoint. BBOX items are
+   deliberately absent; id's MOVE_NOMONSTERS check only includes brushes. */
+static short mdl_check_bottom( World *world, BspVec3 *pos, short kind )
+{
+    BspVec3 start, stop;
+    TraceResult tr;
+    float half = MDL_MON_HALF( kind );
+    float foot = pos->z + MDL_ZLO;
+    float mid;
+    short x, y;
+
+    start.z = foot - 1.0f;
+    for ( x = -1; x <= 1; x += 2 ) {
+        start.x = pos->x + x * half;
+        for ( y = -1; y <= 1; y += 2 ) {
+            start.y = pos->y + y * half;
+            if ( pl_point_contents( &start, world ) != CONTENTS_SOLID ) goto realcheck;
+        }
+    }
+    return -1;
+
+realcheck:
+    start.x = stop.x = pos->x;
+    start.y = stop.y = pos->y;
+    start.z = foot;
+    stop.z = foot - 2.0f * MDL_STEPSIZE;
+    pl_trace_point( world, &start, &stop, &tr );
+    if ( tr.frac >= 1.0f ) return 0;
+    mid = tr.end_pos.z;
+
+    for ( x = -1; x <= 1; x += 2 ) {
+        start.x = stop.x = pos->x + x * half;
+        for ( y = -1; y <= 1; y += 2 ) {
+            start.y = stop.y = pos->y + y * half;
+            pl_trace_point( world, &start, &stop, &tr );
+            if ( tr.frac >= 1.0f || mid - tr.end_pos.z > MDL_STEPSIZE ) return 0;
+        }
+    }
+    return -1;
+}
+
+/* SV_movestep's vertical dance: the hull trace climbs or descends one
+   step, then SV_CheckBottom refuses a result dangling over a ledge. */
 static short mdl_movestep( World *world, Player *player, MdlEnt far *ent,
                             float dx, float dy )
 {
@@ -360,6 +397,7 @@ static short mdl_movestep( World *world, Player *player, MdlEnt far *ent,
         if ( tr.all_solid || tr.start_solid ) return 0;
     }
     if ( tr.frac > 0.999f ) return 0;
+    if ( !mdl_check_bottom( world, &tr.end_pos, ent->kind ) ) return 0;
 
     ent->pos = tr.end_pos;
     return -1;
@@ -1563,6 +1601,27 @@ short mdl_ai_visible_selftest( World *world, Player *player )
     i = mdl_visible( world, &eye, &peye );
     pl_trace( world, &eye, &peye, &tr );
     return (short) ( i | ( ( tr.frac == 1.0f && !tr.all_solid ) ? 2 : 0 ) );
+}
+
+short mdl_bottom_selftest( World *world, Player *player )
+{
+    MdlEnt ent, edge;
+    BspVec3 old;
+
+    memset( &ent, 0, sizeof(ent) );
+    ent.kind = MDL_KIND_ARMY;
+    ent.pos.x = -559.0f;
+    ent.pos.y = 2593.0f;
+    ent.pos.z = 56.03125f;
+    old = ent.pos;
+
+    if ( !mdl_movestep( world, player, &ent, 0.0f, 1.0f ) ||
+         ent.pos.x != old.x || ent.pos.y != old.y + 1.0f || ent.pos.z != old.z ) return 0;
+
+    edge = ent;
+    edge.pos = old;
+    if ( mdl_movestep( world, player, &edge, 0.0f, 16.0f ) ) return 0;
+    return (short) ( edge.pos.x == old.x && edge.pos.y == old.y && edge.pos.z == old.z );
 }
 
 short mdl_anim_selftest( void )

@@ -192,6 +192,7 @@ float mdl_vectoyaw( float dx, float dy );
 void mdl_ai_stats( World *world, short *hunting, short *moved );
 short mdl_anim_selftest( void );
 short mdl_ai_visible_selftest( World *world, Player *player );
+short mdl_bottom_selftest( World *world, Player *player );
 
 /* A monster's own sound: 0 sight, 1 attack, 2 pain, 3 death. */
 void mdl_say( Player *player, Sound *snd, MdlEnt far *ent, short which );
