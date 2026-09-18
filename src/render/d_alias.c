@@ -74,18 +74,31 @@ long mdl_bf_bad( void ) { return bf_bad; }
    vertex attribute yet, so this is one colormap row from the face normal. */
 static short near mdl_lit_row( const MdlTri *t, unsigned char far *vb,
                                BspVec3 *scale, BspVec3 *origin,
-                               float cyaw, float syaw )
+                               float cyaw, float syaw, float cpitch, float spitch,
+                               float croll, float sroll, short yaw_only )
 {
     short i[3], k;
     float x[3], y[3], z[3], ax, ay, az, bx, by, bz, nx, ny, nz, len, bright;
+    float rx, ry, rz, px, pz;
 
     i[0] = t->a; i[1] = t->b; i[2] = t->c;
     for ( k = 0; k < 3; k++ ) {
-        ax = (float) vb[i[k]*3] * scale->x + origin->x;
+        rx = (float) vb[i[k]*3] * scale->x + origin->x;
         ay = (float) vb[i[k]*3 + 1] * scale->y + origin->y;
-        z[k] = (float) vb[i[k]*3 + 2] * scale->z + origin->z;
-        x[k] = ax * cyaw - ay * syaw;
-        y[k] = ax * syaw + ay * cyaw;
+        az = (float) vb[i[k]*3 + 2] * scale->z + origin->z;
+        if ( yaw_only ) {
+            x[k] = rx * cyaw - ay * syaw;
+            y[k] = rx * syaw + ay * cyaw;
+            z[k] = az;
+        } else {
+            ry = ay * croll - az * sroll;
+            rz = ay * sroll + az * croll;
+            px = rx * cpitch + rz * spitch;
+            pz = rz * cpitch - rx * spitch;
+            x[k] = px * cyaw - ry * syaw;
+            y[k] = px * syaw + ry * cyaw;
+            z[k] = pz;
+        }
     }
     ax = x[1] - x[0]; ay = y[1] - y[0]; az = z[1] - z[0];
     bx = x[2] - x[0]; by = y[2] - y[0]; bz = z[2] - z[0];
@@ -118,6 +131,8 @@ static short mdl_draw_tris(
     float     syaw,
     float     cpitch,           /* and of the pitch, positive nose down */
     float     spitch,
+    float     croll,
+    float     sroll,
     BspVec3  *scale,            /* vertex byte -> model unit */
     BspVec3  *origin,
     const MdlState *ms,         /* its vertex pages and triangles */
@@ -133,26 +148,37 @@ static short mdl_draw_tris(
     MdlTri t;
     unsigned char far *vb;
     short v, j, k, k2, cp, nin, nout, ns, nd, drawn = 0, lit;
-    short bf_pre;
+    short bf_pre, yaw_only;
     ClipV *cs, *cw, *ct;
     short ia[3];
-    float rx, ry, rz, wx, wy, wz, rw, f, area, px, pz;
+    float rx, ry, rz, wx, wy, wz, rw, f, area, px, pz, rry, rrz;
     float det;
 
     /* The frame's vertices, three bytes each, from the page that holds
        the frame. qglGemMap's own record makes this free when nobody else
        has taken the slot since the last model. */
+    yaw_only = cpitch == 1.0f && spitch == 0.0f
+            && croll == 1.0f && sroll == 0.0f;
     vb = mdl_frame_verts( ms, frame, PAGE_SLOT );
     for ( v = 0; v < nvert; v++ ) {
         rx = (float) vb[v*3]     * scale->x + origin->x;
         ry = (float) vb[v*3 + 1] * scale->y + origin->y;
         rz = (float) vb[v*3 + 2] * scale->z + origin->z;
-        /* pitch about the model's own y, then yaw about the world's z */
-        px = rx * cpitch + rz * spitch;
-        pz = rz * cpitch - rx * spitch;
-        wx = org->x + ( px * cyaw - ry * syaw );
-        wy = org->y + ( px * syaw + ry * cyaw );
-        wz = org->z + pz;
+        if ( yaw_only ) {
+            wx = org->x + ( rx * cyaw - ry * syaw );
+            wy = org->y + ( rx * syaw + ry * cyaw );
+            wz = org->z + rz;
+        } else {
+            /* roll about model x, pitch about y, then yaw about world z:
+               R_RotateForEntity's order. */
+            rry = ry * croll - rz * sroll;
+            rrz = ry * sroll + rz * croll;
+            px = rx * cpitch + rrz * spitch;
+            pz = rrz * cpitch - rx * spitch;
+            wx = org->x + ( px * cyaw - rry * syaw );
+            wy = org->y + ( px * syaw + rry * cyaw );
+            wz = org->z + pz;
+        }
 
         /* Renderer space is Y up: x unchanged, z becomes y -- the same
            swap d_faces.c makes reading a raw BSP vertex. */
@@ -215,7 +241,9 @@ static short mdl_draw_tris(
             qv[1].v = (float) t.v2 / MDL_UV_SCALE * srw[b];
             qv[2].u = (float) t.u3 / MDL_UV_SCALE * srw[c];
             qv[2].v = (float) t.v3 / MDL_UV_SCALE * srw[c];
-            lit = mdl_lit_map( world, mdl_lit_row( &t, vb, scale, origin, cyaw, syaw ) );
+            lit = mdl_lit_map( world, mdl_lit_row( &t, vb, scale, origin,
+                                                   cyaw, syaw, cpitch, spitch,
+                                                   croll, sroll, yaw_only ) );
             qglRsPoly( dst, (void far *) qv, 3, lit ? QGL_M_ALIT : QGL_M_ATEX, skin );
             drawn++;
             continue;
@@ -308,7 +336,9 @@ static short mdl_draw_tris(
              - ( qv[2].x - qv[0].x ) * ( qv[1].y - qv[0].y );
         if ( bf_pre && area >= 0.0f ) bf_bad++;
         if ( area < 0.0f ) {
-            lit = mdl_lit_map( world, mdl_lit_row( &t, vb, scale, origin, cyaw, syaw ) );
+            lit = mdl_lit_map( world, mdl_lit_row( &t, vb, scale, origin,
+                                                   cyaw, syaw, cpitch, spitch,
+                                                   croll, sroll, yaw_only ) );
             qglRsPoly( dst, (void far *) qv, nout, lit ? QGL_M_ALIT : QGL_M_ATEX, skin );
             drawn++;
         }
@@ -317,17 +347,11 @@ static short mdl_draw_tris(
 }
 
 
-/* A pickup as a box: half wide either way, top high, spun by yaw, six
-   flat quads depth-tested like the model. Any corner behind the near
-   plane drops the whole box -- at ten units wide that means the player
-   is standing in it, which is the touch that takes it. */
-
 /*
- * r_mdl_vis_c, without the BASIC array descriptors: the box against
- * the frustum, then its eight corners and its centre against the PVS,
- * each a descent of the tree. The near corner alone decides the
- * frustum test, as r_cull_box does -- there are no children to hand a
- * clip mask to.
+ * The model bounds against the frustum, then its eight corners and its
+ * centre against the PVS, each a descent of the tree. The near corner
+ * alone decides the frustum test, as r_cull_box does -- there are no
+ * children to hand a clip mask to.
  */
 static short d_mdl_visible( World *world, Renderer *rdr, DiskPlane far *frustum,
                              BspVec3 *org, float radius, float zlo, float zhi,
@@ -430,10 +454,8 @@ static LeafCache far *lc_slot( Renderer *rdr, LeafCache far **arr, short n, shor
 }
 
 /*
- * A pickup as a box: half wide either way, top high, spun by yaw, six
- * flat quads. Any corner behind the near plane drops the whole box --
- * at ten units wide that means the player is standing in it, which is
- * the touch that takes it.
+ * The fallback pickup and exploding-box placeholder: half wide either
+ * way, top high, spun by yaw, six flat quads.
  */
 static short mdl_draw_box( BspVec3 *org, float half, float top,
                             float cyaw, float syaw, float *m,
@@ -540,7 +562,7 @@ short d_draw_items( World *world, Renderer *rdr, Player *player,
 
     for ( i = 0; i < world->item_count; i++ ) {
         ItemEnt far *it = &world->item[i];
-        ItemModel im;
+        AliasModel im;
         short have_mdl = 0;
 
         if ( it->gone ) continue;
@@ -598,7 +620,7 @@ short d_draw_items( World *world, Renderer *rdr, Player *player,
             QSurf skin = world->item_skin[i] == 1 ? im.skin1 :
                          world->item_skin[i] == 2 ? im.skin2 : im.state.skin;
             short n = mdl_draw_tris( world, im.state.ntri, im.state.nvert, 0, &bob,
-                                      cyaw, syaw, 1.0f, 0.0f,
+                                      cyaw, syaw, 1.0f, 0.0f, 1.0f, 0.0f,
                                       &im.state.scale, &im.state.origin, &im.state, skin,
                                       m, xresh, yresh, z_near, dst, QGL_Z_TEST );
             drawn = (short) ( drawn + n );
@@ -655,7 +677,7 @@ short d_draw_models( World *world, Renderer *rdr, DiskPlane far *frustum,
         a = e->yaw * 3.14159265f / 180.0f;
         drawn = (short) ( drawn + mdl_draw_tris(
             world, ms->ntri, ms->nvert, frame, &org,
-            (float) cos( a ), (float) sin( a ), 1.0f, 0.0f,
+            (float) cos( a ), (float) sin( a ), 1.0f, 0.0f, 1.0f, 0.0f,
             &ms->scale, &ms->origin, ms, ms->skin,
             m, xresh, yresh, z_near, dst, QGL_Z_TEST ) );
     }
@@ -728,7 +750,7 @@ short d_draw_boss( World *world, Renderer *rdr, DiskPlane far *frustum,
                               ms->radius, ms->zlo, ms->zhi, 0 ) ) return 0;
         a = t->speed * 3.14159265f / 180.0f;
         return mdl_draw_tris( world, ms->ntri, ms->nvert, frame, &org,
-                              (float) cos( a ), (float) sin( a ), 1.0f, 0.0f,
+                              (float) cos( a ), (float) sin( a ), 1.0f, 0.0f, 1.0f, 0.0f,
                               &ms->scale, &ms->origin, ms, ms->skin,
                               (float *) mtx_fin, xresh, yresh, z_near, dst,
                               QGL_Z_TEST );
@@ -785,38 +807,78 @@ short d_draw_view( World *world, Renderer *rdr, Camera *cam, Player *player,
     if ( frame >= ms->nframe ) frame = (short) ( ms->nframe - 1 );
 
     return mdl_draw_tris( world, ms->ntri, ms->nvert, frame, &eye,
-                          dx / len, dz / len, len, -dy,
+                          dx / len, dz / len, len, -dy, 1.0f, 0.0f,
                           &ms->scale, &ms->origin, ms, ms->skin,
                           (float *) mtx_fin, xresh, yresh, z_near, dst, QGL_Z_OFF );
 }
 
-/*
- * The projectiles in flight, a box each: a lava ball red and yellow and
- * twice the size, a grenade brown, a nail dark with a bright end. No
- * spike.mdl -- the vertex pages are spoken for.
- */
-short d_draw_spikes( Fight *fight, Mat4 *mtx_fin, float xresh, float yresh,
+static short near projectile_model( const Spike *s )
+{
+    if ( s->gib ) return MDL_FX_ZOMGIB;
+    if ( s->toss ) return MDL_FX_LAVABALL;
+    if ( s->rocket ) return MDL_FX_MISSILE;
+    if ( s->grenade ) return MDL_FX_GRENADE;
+    if ( s->wiz ) return MDL_FX_WSPIKE;
+    return s->dmg >= PL_SNG_DMG ? MDL_FX_SSPIKE : MDL_FX_SPIKE;
+}
+
+/* Original alias geometry for every projectile in flight. Straight
+   missiles point down velocity; Quake's grenade and zombie chunk spin
+   on all three axes. */
+short d_draw_spikes( World *world, Renderer *rdr, Fight *fight,
+                      Mat4 *mtx_fin, float xresh, float yresh,
                       float z_near, QSurf dst )
 {
     float *m = (float *) mtx_fin;
     short i, drawn = 0;
 
+    rdr->projectile_mdl_drawn = 0;
+
     for ( i = 0; i < PL_NAILS_MAX; i++ ) {
         Spike *s = &fight->nail[i];
+        AliasModel model;
         BspVec3 at;
+        float h, len, a, cyaw, syaw, cpitch, spitch, croll, sroll;
+        short id, frame, n;
 
         if ( !s->alive ) continue;
+        id = projectile_model( s );
+        if ( id < 0 || id >= world->fx_mdl_count ) continue;
+        _fmemcpy( &model, &world->fx_mdl[id], sizeof(model) );
+        if ( !model.state.loaded ) continue;
         at = s->pos;
-        at.z -= 1.0f;
-        if ( s->toss )
-            drawn = (short) ( drawn + mdl_draw_box( &at, 4.0f, 8.0f, 1.0f, 0.0f, m,
-                        xresh, yresh, z_near, dst, ENT_COL_RED, ENT_COL_YELLOW ) );
-        else if ( s->grenade )
-            drawn = (short) ( drawn + mdl_draw_box( &at, 2.0f, 4.0f, 1.0f, 0.0f, m,
-                        xresh, yresh, z_near, dst, ENT_COL_BROWN, ENT_COL_BROWN ) );
-        else
-            drawn = (short) ( drawn + mdl_draw_box( &at, 1.0f, 2.0f, 1.0f, 0.0f, m,
-                        xresh, yresh, z_near, dst, ENT_COL_BROWN, ENT_COL_WHITE ) );
+
+        cyaw = cpitch = croll = 1.0f;
+        syaw = spitch = sroll = 0.0f;
+        if ( s->grenade ) {
+            a = rdr->anim_time * ( s->gib ? 3000.0f : 300.0f ) * 3.14159265f / 180.0f;
+            cyaw = (float) cos( a ); syaw = (float) sin( a );
+            a = rdr->anim_time * ( s->gib ? 1000.0f : 300.0f ) * 3.14159265f / 180.0f;
+            cpitch = (float) cos( a ); spitch = (float) sin( a );
+            a = rdr->anim_time * ( s->gib ? 2000.0f : 300.0f ) * 3.14159265f / 180.0f;
+            croll = (float) cos( a ); sroll = (float) sin( a );
+        } else if ( !s->toss ) {
+            h = (float) sqrt( s->vel.x*s->vel.x + s->vel.y*s->vel.y );
+            len = (float) sqrt( h*h + s->vel.z*s->vel.z );
+            if ( len > 0.001f ) {
+                if ( h > 0.001f ) {
+                    cyaw = s->vel.x / h;
+                    syaw = s->vel.y / h;
+                }
+                cpitch = h / len;
+                spitch = -s->vel.z / len;
+            }
+        }
+
+        frame = model.state.nframe > 1
+              ? (short) ( (long) ( rdr->anim_time * 10.0f ) % model.state.nframe ) : 0;
+        n = mdl_draw_tris( world, model.state.ntri, model.state.nvert, frame, &at,
+                            cyaw, syaw, cpitch, spitch, croll, sroll,
+                            &model.state.scale, &model.state.origin,
+                            &model.state, model.state.skin, m, xresh, yresh,
+                            z_near, dst, QGL_Z_TEST );
+        drawn = (short) ( drawn + n );
+        rdr->projectile_mdl_drawn = (short) ( rdr->projectile_mdl_drawn + n );
     }
     return drawn;
 }

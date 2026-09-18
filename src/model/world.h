@@ -116,9 +116,12 @@ typedef struct {
     ItemEnt     far *item;
     short       item_mdl_count;
     short       backpack_mdl;
-    ItemModel   far *item_mdl;
+    AliasModel  far *item_mdl;
     signed char far *item_mdl_slot; /* per ItemEnt: model slot or -1 */
     signed char far *item_skin;     /* armor.mdl's green/yellow/red skin */
+
+    short       fx_mdl_count;
+    AliasModel  far *fx_mdl;        /* effects.bin's projectile models */
 
     short       crate_count;
     CrateModel  far *crate;

@@ -8,15 +8,13 @@
 #include "pl_move.h"   /* Player */
 
 /*
- * d_alias.h -- the things that are not world geometry: for now the
- * pickups, as flat boxes. The alias models themselves (d_mdl.bas) are
- * not ported.
+ * d_alias.h -- alias models and the other geometry outside the world BSP.
  */
 
 /*
  * name: d_draw_items
- * desc: Every pickup still there, spinning and bobbing on the same
- *       clock as the liquids. Depth-tested, so a box behind a wall is
+ * desc: Every pickup still there, spinning and bobbing on Quake's
+ *       EF_ROTATE clock. Depth-tested, so one behind a wall is
  *       behind it -- nothing orders these against the world walk.
  *       Returns the quads drawn.
  */
@@ -51,10 +49,11 @@ short d_draw_view( World *world, Renderer *rdr, Camera *cam, Player *player,
 
 /*
  * name: d_draw_spikes
- * desc: Everything in flight, a box each. Depth tested like the rest,
- *       and NOT gated by -nomdl: a nail is not a model.
+ * desc: Everything in flight, using its original alias model. Depth
+ *       tested like the rest and not gated by -nomdl.
  */
-short d_draw_spikes( Fight *fight, Mat4 *mtx_fin, float xresh, float yresh,
+short d_draw_spikes( World *world, Renderer *rdr, Fight *fight,
+                      Mat4 *mtx_fin, float xresh, float yresh,
                       float z_near, QSurf dst );
 
 #endif

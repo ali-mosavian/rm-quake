@@ -143,7 +143,7 @@ def parse_mdl(data: bytes, name: str) -> Model:
             # Frame group: count, min, max, then count intervals, then the
             # frames themselves. Flattened -- each becomes a plain frame.
             (count,) = struct.unpack_from("<i", data, pos)
-            pos += 4 + 8 + 8 + count * 4
+            pos += 4 + 8 + count * 4
             group_n = count
         else:
             group_n = 1

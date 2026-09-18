@@ -34,8 +34,8 @@
 #define QMAP_ENT   24
 /* Members a map may carry. 19 lumps, three atlases and the palette,
    the two bar pieces, the two sound files, three files per monster
-   kind the map spawns and three per view weapon -- e1m1 is 50 and a
-   map with every kind would be 68. tools/mkassets.py refuses to write
+   kind the map spawns, three per view weapon, map-specific pickup models,
+   and one projectile-model bundle. tools/mkassets.py refuses to write
    more than this. */
 #define QMAP_MAX   80
 

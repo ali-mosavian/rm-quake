@@ -590,7 +590,8 @@ static void near host_render_models( Host *h, RenderView *rv, Camera *cam )
     rdr->boss_drawn = d_draw_boss( world, rdr, rv->frustum, &rv->mtx_fin,
                                     rv->xresh, rv->yresh, z_near, dst );
     rdr->mdl_drawn = (short) ( rdr->mdl_drawn + rdr->boss_drawn );
-    d_draw_spikes( &h->fight, &rv->mtx_fin, rv->xresh, rv->yresh, z_near, dst );
+    d_draw_spikes( world, rdr, &h->fight, &rv->mtx_fin,
+                    rv->xresh, rv->yresh, z_near, dst );
     part_frame( rdr, &rv->mtx_fin, rv->xresh, rv->yresh, z_near, dst, h->z_dc );
     /* the weapon in hand LAST, with depth off inside d_draw_view: it is
        not in the world and nothing may hide it */
@@ -1748,6 +1749,8 @@ static void near host_report( Host *h )
     sprintf( buf, "boss drawn=%d", (int) h->rdr.boss_drawn );
     mark( buf );
     sprintf( buf, "pickup mdl=%d", (int) h->rdr.item_mdl_drawn );
+    mark( buf );
+    sprintf( buf, "projectile mdl=%d", (int) h->rdr.projectile_mdl_drawn );
     mark( buf );
 
     sprintf( buf, "fight=health %d shells %d nails %d rockets %d armor %d items %ld took %d kills %d booms %d deaths %d cells %d",

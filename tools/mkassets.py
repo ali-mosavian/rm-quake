@@ -122,6 +122,7 @@ KEY_MODELS = (
     ("m_s_key", "m_g_key"),
     ("b_s_key", "b_g_key"),
 )
+EFFECT_MODELS = ("spike", "s_spike", "grenade", "missile", "lavaball", "w_spike", "zom_gib")
 
 
 def build_sbar(pak: str, tmp: str) -> dict[str, bytes]:
@@ -191,21 +192,35 @@ def build_models(pak: str, kinds: set[int], boss: bool, tmp: str) -> dict[str, b
     return out
 
 
-def build_item_models(pak: str, names: set[str], tmp: str) -> dict[str, bytes]:
+def build_bundled_model(pak: str, name: str, tmp: str) -> bytes:
     import subprocess
 
-    out: dict[str, bytes] = {}
-    if not pak or not os.path.exists(pak):
-        return out
     os.makedirs(tmp, exist_ok=True)
-    for name in sorted(names):
-        r = subprocess.run([sys.executable, os.path.join(os.path.dirname(__file__), "mkmdl.py"),
-                            pak, name, tmp, "*"], capture_output=True, text=True)
-        if r.returncode != 0:
-            raise SystemExit(f"mkmdl {name}: {r.stderr.strip() or r.stdout.strip()}")
-        out[f"{name}.itm"] = open(os.path.join(tmp, f"{name[:8]}.itm"), "rb").read()
+    r = subprocess.run([sys.executable, os.path.join(os.path.dirname(__file__), "mkmdl.py"),
+                        pak, name, tmp, "*"], capture_output=True, text=True)
+    if r.returncode != 0:
+        raise SystemExit(f"mkmdl {name}: {r.stderr.strip() or r.stdout.strip()}")
+    return open(os.path.join(tmp, f"{name[:8]}.itm"), "rb").read()
+
+
+def build_item_models(pak: str, names: set[str], tmp: str) -> dict[str, bytes]:
+    if not pak or not os.path.exists(pak):
+        return {}
+    out = {f"{name}.itm": build_bundled_model(pak, name, tmp) for name in sorted(names)}
     print(f"  pickup models: {len(out)}")
     return out
+
+
+def build_effect_models(pak: str, tmp: str) -> dict[str, bytes]:
+    if not pak or not os.path.exists(pak):
+        return {}
+    models = [(name, build_bundled_model(pak, name, tmp)) for name in EFFECT_MODELS]
+    data = bytearray(struct.pack("<4sH", b"QFX1", len(models)))
+    for name, model in models:
+        data += struct.pack("<8sL", name.encode(), len(model))
+        data += model
+    print(f"  effect models: {len(models)} in one member")
+    return {"effects.bin": bytes(data)}
 
 
 def item_models(ents: list[bytes], monster_kinds: set[int]) -> set[str]:
@@ -1912,10 +1927,11 @@ def main():
     boss = b'"monster_boss"' in d[lumps[0][0]:lumps[0][0] + lumps[0][1]]
     models = build_models(pak, kinds, boss, os.path.join(outdir, '.mdl'))
     pickup_models = build_item_models(pak, item_models(ent_blobs, kinds), os.path.join(outdir, '.itemmdl'))
+    effect_models = build_effect_models(pak, os.path.join(outdir, ".effectmdl"))
     sbar = build_sbar(pak, os.path.join(outdir, '.gfx'))
     sounds = build_sounds(pak, os.path.join(outdir, '.snd'))
     write_qmap(os.path.join(outdir, stem + '.qmp'), stem, d,
-               dict(OUT, **models, **pickup_models, **sbar, **sounds,
+               dict(OUT, **models, **pickup_models, **effect_models, **sbar, **sounds,
                     **{'texr.raw': qmap_texr, 'texs.raw': qmap_texs, 'pal.raw': qmap_pal}))
 
 

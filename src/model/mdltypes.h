@@ -86,13 +86,24 @@ typedef struct {
     short   vpages, page_frames;
 } MdlState;
 
-/* A pickup model lives in far memory. Armor shares its geometry but has
-   three skins; every other pickup leaves the extra handles zero. */
+/* A small bundled alias model lives in far memory. Armor shares its
+   geometry but has three skins; other uses leave the extras zero. */
 typedef struct {
     MdlState state;
     QSurf    skin1, skin2;
     short    id;
-} ItemModel;
+} AliasModel;
+
+/* effects.bin order. Every projectile selects one from its existing
+   gameplay flags, so Spike gains no render-only state. */
+#define MDL_FX_SPIKE     0
+#define MDL_FX_SSPIKE    1
+#define MDL_FX_GRENADE   2
+#define MDL_FX_MISSILE   3
+#define MDL_FX_LAVABALL  4
+#define MDL_FX_WSPIKE    5
+#define MDL_FX_ZOMGIB    6
+#define MDL_FX_N         7
 
 /* One spawned monster: everything mdl_think owns, separate from the
    MdlState a whole kind shares. BSP space, Z up, like Player.pos, so it

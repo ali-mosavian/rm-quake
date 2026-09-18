@@ -273,11 +273,14 @@ static void near demo_snapshot_apply( Demo *dm, DemoFrame *frame, World *world,
             memset( s, 0, sizeof(*s) );
             s->alive = -1;
             s->pos.x = e.x; s->pos.y = e.y; s->pos.z = e.z;
-            s->grenade = (short) ( e.kind == 1 || e.kind == 5 );
-            s->toss = (short) ( e.kind == 2 );
-            s->wiz = (short) ( e.kind == 3 );
-            s->rocket = (short) ( e.kind == 4 );
-            s->gib = (short) ( e.kind == 5 );
+            s->grenade = (short) ( e.kind == MDL_FX_GRENADE || e.kind == MDL_FX_ZOMGIB );
+            s->toss = (short) ( e.kind == MDL_FX_LAVABALL );
+            s->wiz = (short) ( e.kind == MDL_FX_WSPIKE );
+            s->rocket = (short) ( e.kind == MDL_FX_MISSILE );
+            s->gib = (short) ( e.kind == MDL_FX_ZOMGIB );
+            s->dmg = (float) ( e.kind == MDL_FX_SSPIKE ? PL_SNG_DMG : PL_NG_DMG );
+            s->vel.x = (float) cos( e.yaw * 0.017453293f );
+            s->vel.y = (float) sin( e.yaw * 0.017453293f );
         }
     }
     fight->items = frame->items;

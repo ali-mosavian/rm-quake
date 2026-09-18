@@ -19,7 +19,7 @@ Emits (DOS 8.3 names, since the loader opens them by name):
                  compression the .mdl file itself already uses.
     <name>.vtx   one vertex array per frame as raw BYTES, no header
     <name>.skn   the skin: sw*sh palette indices, top-down, no header
-    <name>.itm   pickup bundle: .geo, .vtx, then every skin in order
+    <name>.itm   bundled alias model: .geo, .vtx, then every skin in order
 
 UVs are normalised 0..1 -- uGL's own convention, and the patched library
 scales by xRes rather than xRes-1 (see ugl-patch/README.md). The `onseam`
@@ -182,8 +182,8 @@ def main() -> int:
     for i, (_w, _h, pixels) in enumerate(skins[1:], 1):
         open(os.path.join(outdir, f"{name[:8]}{i}.skn"), "wb").write(pixels.tobytes())
 
-    # Pickups use one directory member apiece: header/triangles, vertices,
-    # then every skin. The regular monster loader keeps the split files.
+    # Small alias models use one stream: header/triangles, vertices, then
+    # every skin. The regular monster loader keeps the split files.
     open(os.path.join(outdir, f"{name[:8]}.itm"), "wb").write(
         bytes(out) + vtx + b"".join(pixels.tobytes() for _w, _h, pixels in skins)
     )

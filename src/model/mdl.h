@@ -59,6 +59,10 @@ void mdl_load_monsters( World *world, unsigned char far *buf, long *ofs, short c
 void mdl_load_items( World *world, short worldtype );
 void mdl_unload_items( World *world );
 
+/* Load and release effects.bin's original projectile alias models. */
+void mdl_load_effects( World *world );
+void mdl_unload_effects( World *world );
+
 /* The model for a kind, or NULL when the map spawns none of it. */
 MdlState *mdl_of( World *world, short kind );
 

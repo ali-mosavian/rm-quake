@@ -8,7 +8,8 @@ host.c | sprintf( buf, "asset_map ok %s" | %s of a char pointer
 host.c | sprintf( buf, "attract demo %s map %s" | demo names are bounded by DEMO_NAME and map by eight characters
 host.c | sprintf( value, "%.3f" | horizontal fov is atan-derived and therefore -180..180
 host.c | sprintf( buf, "gs_state %d map %s next %s secrets %d/%d skill  | %s of a char pointer
-mdl.c | sprintf( path, "%s.%s" | first %s is the model name pointer; extension is geo or itm
+mdl.c | sprintf( path, "%s.geo" | %s of the model name pointer
+mdl.c | sprintf( path, "%s.itm" | %s of the model name pointer
 mdl.c | sprintf( path, "%s.vtx" | %s of the model name pointer
 mdl.c | sprintf( path, "%s.skn" | %s of the model name pointer
 mdl.c | sprintf( buf, "mdl_sum %s %d %d %08lX" | %s of the model name pointer

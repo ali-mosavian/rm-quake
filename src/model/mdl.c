@@ -57,12 +57,12 @@ static short near mdl_sets_ok( const MdlHead *h, short need )
     return sum == h->nframe;
 }
 
-static void near mdl_load_stream( Pak *pak, MdlState *m, char *name, short need,
-                                  short bundled, QSurf *more, short nskins )
+static short near mdl_load_stream( Pak *pak, MdlState *m, char *name, short need,
+                                   short fh, short split, QSurf *more, short nskins )
 {
     char  path[24], msg[96];    /* path and the longest refusal's numbers */
     MdlHead h;
-    short fh, page, p, left;
+    short page, p, left;
     long  n, bytes;
     float ex, ey;
 
@@ -70,20 +70,24 @@ static void near mdl_load_stream( Pak *pak, MdlState *m, char *name, short need,
     m->vtx_hnd = 0;
     m->skin = 0;
 
-    sprintf( path, "%s.%s", name, bundled ? "itm" : "geo" );
-    fh = pak_seek( pak, path, &n );
+    if ( split ) {
+        sprintf( path, "%s.geo", name );
+        fh = pak_seek( pak, path, &n );
+    } else {
+        strcpy( path, name );
+    }
     if ( qglFileRead( fh, (long) (void far *) &h, (long) sizeof(h) ) != (long) sizeof(h) ) {
         sprintf( msg, "%s: header short read", path ); mdl_refuse( msg );
-        return;
+        return 0;
     }
     if ( h.magic != MDL_MAGIC ) {
         sprintf( msg, "%s: not a QMD3 .geo -- rebuild the map's container", path ); mdl_refuse( msg );
-        return;
+        return 0;
     }
     if ( !mdl_sets_ok( &h, need ) ) {
         sprintf( msg, "%s: %d sets, %d needed, or not its %d frames", path, h.nsets, need, h.nframe );
         mdl_refuse( msg );
-        return;
+        return 0;
     }
     m->ntri = h.ntri; m->nvert = h.nvert; m->nframe = h.nframe;
     m->scale = h.scale; m->origin = h.origin;
@@ -111,28 +115,28 @@ static void near mdl_load_stream( Pak *pak, MdlState *m, char *name, short need,
          (long) ( m->vpages - 1 ) * m->page_frames >= (long) m->nframe ) {
         sprintf( msg, "%s: %d verts %d tris %d frames %d pages -- will not fit",
                  path, m->nvert, m->ntri, m->nframe, m->vpages ); mdl_refuse( msg );
-        return;
+        return 0;
     }
     bytes = (long) m->ntri * MDL_TRI_BYTES;
-    if ( bytes > MDL_PAGE ) { sprintf( msg, "%s: triangles past one page", path ); mdl_refuse( msg ); return; }
+    if ( bytes > MDL_PAGE ) { sprintf( msg, "%s: triangles past one page", path ); mdl_refuse( msg ); return 0; }
 
     /* one handle: pages 0..vpages-1 the vertices, page vpages the triangles */
     m->vtx_hnd = qglGemAlloc( (long) ( m->vpages + 1 ) * MDL_PAGE );
     if ( !m->vtx_hnd ) {
         sprintf( msg, "%s: no EMS for %d pages", path, m->vpages + 1 ); mdl_refuse( msg );
-        return;
+        return 0;
     }
 
     /* the triangles, from where the header left the file */
     page = qglGemMap( m->vtx_hnd, m->vpages, PAGE_SLOT );
     if ( !page || qglFileRead( fh, (long) page << 16, bytes ) != bytes ) {
         sprintf( msg, "%s: triangles would not load", path ); mdl_refuse( msg );
-        qglGemFree( m->vtx_hnd ); m->vtx_hnd = 0; return;
+        qglGemFree( m->vtx_hnd ); m->vtx_hnd = 0; return 0;
     }
 
-    /* A pickup bundle continues into its vertices. Split monster files
+    /* A bundled model continues into its vertices. Split monster files
        reopen the .vtx member here. */
-    if ( !bundled ) {
+    if ( split ) {
         sprintf( path, "%s.vtx", name );
         fh = pak_seek( pak, path, &n );
     }
@@ -143,7 +147,7 @@ static void near mdl_load_stream( Pak *pak, MdlState *m, char *name, short need,
         page = qglGemMap( m->vtx_hnd, p, PAGE_SLOT );
         if ( !page || qglFileRead( fh, (long) page << 16, bytes ) != bytes ) {
             sprintf( msg, "%s: vertex page %d would not load", path, p ); mdl_refuse( msg );
-            qglGemFree( m->vtx_hnd ); m->vtx_hnd = 0; return;
+            qglGemFree( m->vtx_hnd ); m->vtx_hnd = 0; return 0;
         }
     }
 
@@ -152,7 +156,7 @@ static void near mdl_load_stream( Pak *pak, MdlState *m, char *name, short need,
        patches into itself and never remaps mid-polygon. mkmdl.py's
        resample keeps it true and writes the size it chose into the
        header, so the two cannot drift. */
-    if ( !bundled ) {
+    if ( split ) {
         sprintf( path, "%s.skn", name );
         fh = pak_seek( pak, path, &n );
     }
@@ -163,18 +167,19 @@ static void near mdl_load_stream( Pak *pak, MdlState *m, char *name, short need,
             if ( skin ) qglSfFree( skin );
             if ( m->skin ) { qglSfFree( m->skin ); m->skin = 0; }
             while ( --p > 0 ) { qglSfFree( more[p - 1] ); more[p - 1] = 0; }
-            qglGemFree( m->vtx_hnd ); m->vtx_hnd = 0; return;
+            qglGemFree( m->vtx_hnd ); m->vtx_hnd = 0; return 0;
         }
         if ( p == 0 ) m->skin = skin;
         else more[p - 1] = skin;
     }
 
     m->loaded = 1;
+    return -1;
 }
 
 void mdl_load( Pak *pak, MdlState *m, char *name, short need )
 {
-    mdl_load_stream( pak, m, name, need, 0, 0, 1 );
+    mdl_load_stream( pak, m, name, need, 0, -1, 0, 1 );
 }
 
 void mdl_unload( MdlState *m )
@@ -233,7 +238,9 @@ static short near item_mdl_slot( World *world, short id )
 void mdl_load_items( World *world, short worldtype )
 {
     short used[ITEM_MDL_N];
-    short i, id, n = 0;
+    short i, id, n = 0, fh;
+    long bytes;
+    char path[24];
 
     memset( used, 0, sizeof(used) );
     for ( i = 0; i < world->item_count; i++ ) {
@@ -246,8 +253,8 @@ void mdl_load_items( World *world, short worldtype )
 
     world->item_mdl_count = n;
     world->backpack_mdl = -1;
-    world->item_mdl = (ItemModel far *) qglMemAlloc(
-        (long) ( n ? n : 1 ) * sizeof(ItemModel) );
+    world->item_mdl = (AliasModel far *) qglMemAlloc(
+        (long) ( n ? n : 1 ) * sizeof(AliasModel) );
     world->item_mdl_slot = (signed char far *) qglMemAlloc( world->item_max ? world->item_max : 1 );
     world->item_skin = (signed char far *) qglMemAlloc( world->item_max ? world->item_max : 1 );
     if ( !world->item_mdl || !world->item_mdl_slot || !world->item_skin )
@@ -255,11 +262,13 @@ void mdl_load_items( World *world, short worldtype )
 
     n = 0;
     for ( id = 0; id < ITEM_MDL_N; id++ ) if ( used[id] ) {
-        ItemModel im;
+        AliasModel im;
         memset( &im, 0, sizeof(im) );
         im.id = id;
-        mdl_load_stream( &world->pak, &im.state, item_mdl_name[id], 1, 1,
-                         &im.skin1, (short) ( id == ITEM_MDL_ARMOR ? 3 : 1 ) );
+        sprintf( path, "%s.itm", item_mdl_name[id] );
+        fh = pak_seek( &world->pak, path, &bytes );
+        mdl_load_stream( &world->pak, &im.state, path, 1, fh, 0,
+                          &im.skin1, (short) ( id == ITEM_MDL_ARMOR ? 3 : 1 ) );
         _fmemcpy( &world->item_mdl[n], &im, sizeof(im) );
         if ( id == ITEM_MDL_BACKPACK ) world->backpack_mdl = n;
         n++;
@@ -284,7 +293,7 @@ void mdl_unload_items( World *world )
 {
     short i;
     for ( i = 0; i < world->item_mdl_count; i++ ) {
-        ItemModel im;
+        AliasModel im;
         _fmemcpy( &im, &world->item_mdl[i], sizeof(im) );
         if ( im.skin1 ) qglSfFree( im.skin1 );
         if ( im.skin2 ) qglSfFree( im.skin2 );
@@ -298,6 +307,65 @@ void mdl_unload_items( World *world )
     world->item_skin = 0;
     world->item_mdl_count = 0;
     world->backpack_mdl = -1;
+}
+
+typedef struct { char name[8]; long size; } FxModelEnt;
+typedef char rec_fxmodel_ok[ sizeof(FxModelEnt) == 12 ? 1 : -1 ];
+
+static char *fx_mdl_name[MDL_FX_N] = {
+    "spike", "s_spike", "grenade", "missile", "lavaball", "w_spike", "zom_gib"
+};
+
+void mdl_load_effects( World *world )
+{
+    struct { char magic[4]; short count; } head;
+    FxModelEnt ent;
+    AliasModel model;
+    char name[9], msg[80];
+    short fh, i;
+    long bytes, left;
+
+    fh = pak_seek( &world->pak, "effects.bin", &bytes );
+    if ( qglFileRead( fh, (long) (void far *) &head, sizeof(head) ) != sizeof(head) ||
+         memcmp( head.magic, "QFX1", 4 ) || head.count != MDL_FX_N )
+        sys_error( "effects.bin: bad header" );
+
+    left = bytes - sizeof(head);
+    world->fx_mdl_count = head.count;
+    world->fx_mdl = (AliasModel far *) qglMemAlloc( (long) head.count * sizeof(AliasModel) );
+    if ( !world->fx_mdl ) sys_error( "effects.bin: out of memory for models" );
+
+    for ( i = 0; i < head.count; i++ ) {
+        if ( left < sizeof(ent) ||
+             qglFileRead( fh, (long) (void far *) &ent, sizeof(ent) ) != sizeof(ent) )
+            sys_error( "effects.bin: directory short read" );
+        left -= sizeof(ent);
+        memcpy( name, ent.name, 8 ); name[8] = 0;
+        if ( strcmp( name, fx_mdl_name[i] ) || ent.size < sizeof(MdlHead) || ent.size > left )
+            sys_error( "effects.bin: bad model record" );
+        memset( &model, 0, sizeof(model) );
+        model.id = i;
+        if ( !mdl_load_stream( &world->pak, &model.state, name, 1, fh, 0, 0, 1 ) ) {
+            sprintf( msg, "effects.bin: %s would not load", name );
+            sys_error( msg );
+        }
+        _fmemcpy( &world->fx_mdl[i], &model, sizeof(model) );
+        left -= ent.size;
+    }
+    if ( left ) sys_error( "effects.bin: trailing bytes" );
+}
+
+void mdl_unload_effects( World *world )
+{
+    short i;
+    for ( i = 0; i < world->fx_mdl_count; i++ ) {
+        AliasModel model;
+        _fmemcpy( &model, &world->fx_mdl[i], sizeof(model) );
+        mdl_unload( &model.state );
+    }
+    if ( world->fx_mdl ) qglMemFree( (long) world->fx_mdl );
+    world->fx_mdl = 0;
+    world->fx_mdl_count = 0;
 }
 
 unsigned char far *mdl_frame_verts( const MdlState *m, short frame, short slot )

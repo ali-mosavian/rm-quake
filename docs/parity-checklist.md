@@ -53,9 +53,14 @@ PAK0 and are left out.
       qcport: alias models for armor and all three skins, keys by worldtype,
       weapon pickups, powerups, the rune and dropped backpacks; ammo and
       health retain their original `b_*.bsp` models; `src/render/d_alias.c`
-- [ ] Projectile, gib and head models
-      id: `weapons.qc`, `player.qc`; the `.mdl` files are in PAK0
-      qcport: nails, grenades and lava balls are boxes; no gibs or heads
+- [x] Projectile models
+      id: `weapons.qc`; the `.mdl` files are in PAK0
+      qcport: normal and super spikes, wizard spikes, grenades, rockets,
+      lava balls and zombie chunks use their original EMS-backed alias
+      models; `effects.bin`, `src/render/d_alias.c`
+- [ ] Gib and head models
+      id: `player.qc`; the `.mdl` files are in PAK0
+      qcport: no player or monster death gibs or heads
 - [ ] Full monster animation sets
       id: each monster's `.qc` (`soldier.qc`, `dog.qc`, ...) steps every
       frame by name

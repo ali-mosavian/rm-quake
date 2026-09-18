@@ -45,9 +45,9 @@ ENT_PROJECTILE = 9
 EF_MUZZLEFLASH = 2
 LOCAL_SOUNDS = {name.lower(): index for index, name in enumerate(SOUNDS)}
 PROJECTILES = {
-    "spike": 0, "s_spike": 0, "w_spike": 3,
-    "grenade": 1, "missile": 4, "lavaball": 2,
-    "h_zombie": 5, "zom_gib": 5, "gib1": 5, "gib2": 5, "gib3": 5,
+    "spike": 0, "s_spike": 1, "grenade": 2, "missile": 3,
+    "lavaball": 4, "w_spike": 5,
+    "h_zombie": 6, "zom_gib": 6, "gib1": 6, "gib2": 6, "gib3": 6,
 }
 
 MONSTERS = {
