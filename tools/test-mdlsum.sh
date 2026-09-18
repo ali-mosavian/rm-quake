@@ -10,7 +10,8 @@
 # should be. Every monster a map's container ships must print, Chthon on
 # e1m7 -- the one model over several pages -- and v_shot, the one view
 # model a short run loads: a model that failed to load prints nothing, and
-# nothing must not pass.
+# nothing must not pass. Every configured view model also has to select a
+# named frame set: v_axe's frames are `frame*`, not `shot*`.
 #
 # Then each set, fetched as the draw picks a state's frames through
 # mdl_set_frame. The whole-model sum walks frames 0..n and never asks
@@ -63,7 +64,15 @@ import qmapread
 
 blob, entries = mdl.read_pak(pak)
 
-specs = ({name: sets for name, sets in mkassets.MDL_SETS.values()} | {v: "shot" for v in mkassets.VIEW_MDLS}
+for name in mkassets.VIEW_MDLS:
+    model = mdl.parse_mdl(mdl.pak_read(blob, entries, f"progs/{name}.mdl"), name)
+    spec = mkassets.VIEW_MODEL_SET.get(name, "shot")
+    named = sum(len(mkmdl.kept(model, set_name, take)) for set_name, take in mkmdl.parse_sets(spec))
+    if named != len(mkmdl.select_frames(model, mkmdl.parse_sets(spec))):
+        raise SystemExit(f"FAIL: {name}: {spec} selected the fallback frame list, not its named frames")
+
+specs = ({name: sets for name, sets in mkassets.MDL_SETS.values()} |
+         {v: mkassets.VIEW_MODEL_SET.get(v, "shot") for v in mkassets.VIEW_MDLS}
          | dict([mkassets.BOSS_MDL]))
 monsters = {name for name, _ in mkassets.MDL_SETS.values()} | {mkassets.BOSS_MDL[0]}
 shipped = {m[:-4] for m in qmapread.members(qmp) if m.endswith(".geo")}

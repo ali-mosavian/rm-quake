@@ -43,6 +43,8 @@ int main( void )
 
     memset( &world, 0, sizeof(world) );
     test_world = &world;
+    /* The axe is a real view weapon, not the shotgun fallback. */
+    assert( pl_view_of( PL_IT_AXE ) == PL_VIEW_AXE );
     host_view_load( &world, PL_IT_SHOTGUN );
     host_view_load( &world, PL_IT_GL );
     assert( !world.vmdl[PL_VIEW_GL].loaded && world.vmdl[PL_VIEW_GL].ntri == -1 );

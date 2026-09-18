@@ -115,6 +115,9 @@
 #define SND_INV_END     170
 #define SND_INV_IDLE    171
 #define SND_DEMON_LAND  172
+#define SND_AX_SWING    173
+#define SND_AX_MEAT     174
+#define SND_AX_WALL     175
 
 /* sound()'s attenuations and entity channels, id's numbers */
 #define ATTN_NONE   0

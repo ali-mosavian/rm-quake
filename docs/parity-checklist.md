@@ -67,9 +67,11 @@ PAK0 and are left out.
 
 ## Gameplay
 
-- [ ] Axe
+- [x] Axe
       id: `weapons.qc` `W_FireAxe`; `v_axe.mdl`
-      qcport: no weapon bit, `src/game/fight.h:15`
+      qcport: Quake's 4096 bit, 64-unit hull-0 trace from `origin + 16`,
+      20 damage, view model and original swing/flesh/world sounds;
+      `src/game/weapons.c`, `tools/test-guns.sh`
 - [ ] Lightning gun and cells: `weapon_lightning` (1, start),
       `item_cells` (3, start), all deathmatch-only
       id: `weapons.qc` `W_FireLightning`, `LightningDamage`; `items.qc`

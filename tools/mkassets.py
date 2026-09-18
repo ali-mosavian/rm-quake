@@ -104,8 +104,9 @@ MDL_SETS = {
 
 # q_pl.bi's PL_IT_* order for the weapons that have one: shotgun,
 # super shotgun, nailgun, grenade launcher, super nailgun, rocket
-# launcher.
-VIEW_MDLS = ('v_shot', 'v_shot2', 'v_nail', 'v_rock', 'v_nail2', 'v_rock2')
+# launcher, axe.
+VIEW_MDLS = ('v_shot', 'v_shot2', 'v_nail', 'v_rock', 'v_nail2', 'v_rock2', 'v_axe')
+VIEW_MODEL_SET = {'v_axe': 'frame'}
 
 # Chthon's model, every set in mdltypes.h's MDL_BOSS_* order, for a map
 # with a monster_boss.
@@ -166,11 +167,11 @@ def build_models(pak: str, kinds: set[int], boss: bool, tmp: str) -> dict[str, b
     print(f"  models: {len(out) // 3} of the map's own monster kinds")
 
     # The view weapons. Not the map's -- a weapon can be picked up on
-    # any of them -- so all six ship and the runtime loads the one in
+    # any of them -- so all seven ship and the runtime loads the one in
     # hand. mkmdl's 'shot' set is v_*.mdl's whole frame list.
     for name in VIEW_MDLS:
         r = subprocess.run([sys.executable, os.path.join(os.path.dirname(__file__), 'mkmdl.py'),
-                            pak, name, tmp, 'shot'], capture_output=True, text=True)
+                            pak, name, tmp, VIEW_MODEL_SET.get(name, 'shot')], capture_output=True, text=True)
         if r.returncode != 0:
             raise SystemExit(f"mkmdl {name}: {r.stderr.strip() or r.stdout.strip()}")
         for ext, stem in (('geo', name[:8]), ('vtx', name), ('skn', name)):

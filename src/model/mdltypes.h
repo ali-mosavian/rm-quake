@@ -33,14 +33,15 @@
 #define MDL_VIEW_SETS   1
 
 /* the view weapons, in the order host_view_load and d_draw_view index
-   them -- v_shot, v_shot2, v_nail, v_rock, v_nail2, v_rock2 */
+   them -- v_shot, v_shot2, v_nail, v_rock, v_nail2, v_rock2, v_axe */
 #define PL_VIEW_SHOT   0
 #define PL_VIEW_SSG    1
 #define PL_VIEW_NAIL   2
 #define PL_VIEW_GL     3
 #define PL_VIEW_SNG    4
 #define PL_VIEW_RL     5
-#define PL_VIEW_N      6
+#define PL_VIEW_AXE    6
+#define PL_VIEW_N      7
 
 /* MDL_KIND_*, mkassets.py's own numbering */
 #define MDL_KIND_ARMY     0

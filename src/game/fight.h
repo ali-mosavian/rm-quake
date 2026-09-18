@@ -11,7 +11,7 @@
  * so it lives beside the Player rather than in World.
  */
 /* q_pl.bi's own values, not renumbered: the keys are 8 and 16 because
-   the three weapons the shareware game starts with take 1, 2 and 4. */
+   the early weapons take 1, 2 and 4; the axe remains at its id bit 4096. */
 #define PL_IT_SHOTGUN 1
 #define PL_IT_SSG     2
 #define PL_IT_NAILGUN 4
@@ -20,6 +20,7 @@
 #define PL_IT_GL      32
 #define PL_IT_SNG     64
 #define PL_IT_RL      128
+#define PL_IT_AXE     4096    /* q_pl.bi: not a compact local weapon bit */
 
 #define PL_HEALTH       100
 #define PL_HEALTH_MEGA  250   /* T_Heal ignoring the cap stops here */
@@ -50,6 +51,10 @@
 #define PL_SSG_SPREAD_X 0.14f
 #define PL_SSG_SPREAD_Y 0.08f
 #define PL_QUAD_MUL     4
+
+#define PL_AXE_RATE     0.5f
+#define PL_AXE_RANGE    64.0f
+#define PL_AXE_DMG      20
 
 #define PL_NG_RATE      0.2f
 #define PL_NG_SPEED     1000.0f

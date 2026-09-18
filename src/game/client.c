@@ -25,7 +25,7 @@ void pl_reset_player( Player *player, Fight *fight, Renderer *rdr )
     fight->armor      = 0;
     fight->armor_type = 0.0f;
     fight->secrets    = 0;
-    fight->items      = PL_IT_SHOTGUN;
+    fight->items      = PL_IT_SHOTGUN | PL_IT_AXE;
     fight->weapon     = PL_IT_SHOTGUN;
     pl_weapon_flash( fight, rdr->anim_time );
     fight->face_until = 0.0f;

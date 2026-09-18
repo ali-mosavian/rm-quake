@@ -849,7 +849,7 @@ static void near host_load( Host *h )
     /* what a level starts with: PlayerCombat's own, not zero */
     h->fight.health = PL_HEALTH;
     h->fight.shells = PL_SHELLS;
-    h->fight.items  = PL_IT_SHOTGUN;
+    h->fight.items  = PL_IT_SHOTGUN | PL_IT_AXE;
     h->fight.weapon = PL_IT_SHOTGUN;
     h->fight.state  = GS_PLAY;
 

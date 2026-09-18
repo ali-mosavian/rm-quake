@@ -12,12 +12,13 @@ short pl_view_of( short weapon )
     case PL_IT_GL:      return PL_VIEW_GL;
     case PL_IT_SNG:     return PL_VIEW_SNG;
     case PL_IT_RL:      return PL_VIEW_RL;
+    case PL_IT_AXE:     return PL_VIEW_AXE;
     }
     return PL_VIEW_SHOT;
 }
 
 static char *vmdl_name[PL_VIEW_N] = {
-    "v_shot", "v_shot2", "v_nail", "v_rock", "v_nail2", "v_rock2" };
+    "v_shot", "v_shot2", "v_nail", "v_rock", "v_nail2", "v_rock2", "v_axe" };
 
 char *pl_view_name( short view ) { return vmdl_name[view]; }
 

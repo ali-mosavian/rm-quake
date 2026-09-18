@@ -312,6 +312,53 @@ static void pl_fire_rocket( Player *player, Rng *rng, Sound *snd, Camera *cam, F
     fight->nail[i].alive = -1;
 }
 
+/* W_FireAxe: a hull-0 64-unit line from sixteen units above the player.
+   The view's eye is higher, but QuakeC uses self.origin + '0 0 16'. */
+static void pl_fire_axe( World *world, Player *player, Camera *cam,
+                         Fight *fight, Renderer *rdr )
+{
+    BspVec3 org, fin, aim, hit_at;
+    TraceResult tr;
+    float t, bt;
+    short i, best, dmg, stopped;
+
+    fight->next_fire = rdr->anim_time + PL_AXE_RATE;
+    fight->fire_at = rdr->anim_time;
+    fight->show_hostile = rdr->anim_time + 1.0f;
+    snd_self( &world->snd, player, CHAN_WEAPON, SND_AX_SWING );
+
+    aim.x = cam->look_at.x - cam->pos.x;
+    aim.y = cam->look_at.z - cam->pos.z;
+    aim.z = cam->look_at.y - cam->pos.y;
+    org = player->pos;
+    org.z += 16.0f;
+    fin.x = org.x + aim.x * PL_AXE_RANGE;
+    fin.y = org.y + aim.y * PL_AXE_RANGE;
+    fin.z = org.z + aim.z * PL_AXE_RANGE;
+    pl_trace_point( world, &org, &fin, &tr );
+
+    best = -1;
+    bt = PL_AXE_RANGE * tr.frac;
+    for ( i = 0; i < world->mon_count && i < MDL_MAX_ENTS; i++ ) {
+        if ( world->mon[i].state == MDL_ST_DEAD ) continue;
+        t = mdl_ray_box( &world->mon[i].pos, &org, &aim, bt );
+        if ( t >= 0.0f && t < bt ) { bt = t; best = i; }
+    }
+
+    dmg = (short) ( rdr->anim_time < fight->quad_until ? PL_AXE_DMG * PL_QUAD_MUL : PL_AXE_DMG );
+    if ( best >= 0 ) {
+        hit_at = world->mon[best].pos;
+        snd_play( &world->snd, player, SND_AX_MEAT, &hit_at );
+        combat_damage_monster( world, player, fight, rdr, &world->mon[best], dmg );
+        return;
+    }
+
+    stopped = 0;
+    pl_shot_touch( world, player, fight, rdr, &org, &aim, bt, dmg, &stopped );
+    if ( tr.frac < 1.0f || stopped )
+        snd_play( &world->snd, player, SND_AX_WALL, &tr.end_pos );
+}
+
 void pl_fire( World *world, Player *player, Camera *cam, Fight *fight,
                Renderer *rdr )
 {
@@ -326,6 +373,10 @@ void pl_fire( World *world, Player *player, Camera *cam, Fight *fight,
     if ( rdr->anim_time < fight->quad_until && rdr->anim_time >= fight->quad_snd_at ) {
         fight->quad_snd_at = rdr->anim_time + 1.0f;
         snd_self( &world->snd, player, CHAN_BODY, SND_QUAD_SHOT );
+    }
+    if ( fight->weapon == PL_IT_AXE ) {
+        pl_fire_axe( world, player, cam, fight, rdr );
+        return;
     }
     if ( fight->weapon == PL_IT_NAILGUN || fight->weapon == PL_IT_SNG ) {
         pl_fire_nail( player, &world->snd, cam, fight, rdr );
@@ -392,25 +443,27 @@ void pl_fire( World *world, Player *player, Camera *cam, Fight *fight,
 
 void pl_select_weapon( Fight *fight, short impulse )
 {
-    static short cycle[] = { PL_IT_SHOTGUN, PL_IT_SSG, PL_IT_NAILGUN,
-                              PL_IT_SNG, PL_IT_GL, PL_IT_RL };
+    static short cycle[] = { PL_IT_AXE, PL_IT_SHOTGUN, PL_IT_SSG,
+                              PL_IT_NAILGUN, PL_IT_SNG, PL_IT_GL, PL_IT_RL };
     short i, remaining;
 
     if ( impulse == 10 ) {
-        for ( i = 0; i < 6 && cycle[i] != fight->weapon; i++ ) {}
-        if ( i == 6 ) i = 0;
-        for ( remaining = 0; remaining < 6; remaining++ ) {
-            i = (short) ( ( i + 1 ) % 6 );
+        for ( i = 0; i < 7 && cycle[i] != fight->weapon; i++ ) {}
+        if ( i == 7 ) i = 0;
+        for ( remaining = 0; remaining < 7; remaining++ ) {
+            i = (short) ( ( i + 1 ) % 7 );
             if ( ( fight->items & cycle[i] ) &&
-                 ( cycle[i] == PL_IT_SHOTGUN || cycle[i] == PL_IT_SSG ? fight->shells > 0
-                   : cycle[i] == PL_IT_NAILGUN || cycle[i] == PL_IT_SNG ? fight->nails > 0
-                   : fight->rockets > 0 ) ) {
+                 ( cycle[i] == PL_IT_AXE ||
+                   ( cycle[i] == PL_IT_SHOTGUN || cycle[i] == PL_IT_SSG ? fight->shells > 0
+                     : cycle[i] == PL_IT_NAILGUN || cycle[i] == PL_IT_SNG ? fight->nails > 0
+                     : fight->rockets > 0 ) ) ) {
                 fight->weapon = cycle[i];
                 return;
             }
         }
         return;
     }
+    if ( impulse == 1 && ( fight->items & PL_IT_AXE ) ) fight->weapon = PL_IT_AXE;
     if ( impulse == 2 ) fight->weapon = PL_IT_SHOTGUN;
     if ( impulse == 3 && ( fight->items & PL_IT_SSG ) ) fight->weapon = PL_IT_SSG;
     if ( impulse == 4 && ( fight->items & PL_IT_NAILGUN ) ) fight->weapon = PL_IT_NAILGUN;

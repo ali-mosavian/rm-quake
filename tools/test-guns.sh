@@ -2,7 +2,9 @@
 # Regression test: the guns fire, what they hit takes it, and what is in
 # flight keeps flying.
 #
-# Three arms, one per path through the fight:
+# Four arms, one per path through the fight:
+#   axe     -- QuakeC's 64-unit point trace. A warp keeps the headless
+#              -fire walker in range for the second 20-point blow.
 #   shotgun -- hitscan pellets against a monster's box, the damage
 #              landing per monster once all six are in.
 #   nailgun -- the pickup puts it in hand, and the whole magazine
@@ -29,6 +31,16 @@ kit() { tr -d '\r' < "$OUT/cstep.txt" 2>/dev/null | grep -m1 '^fight='; }
 fld() { sed -n "s/.* $1 \([0-9-]*\).*/\1/p" <<< "$2"; }
 
 fail=0
+
+# The same dog, 50 units ahead. -fire deliberately holds forward for
+# projectile coverage, so put the player back one tick before the second
+# swing. Two 20-point axe hits kill the 25-health dog; shells stay at 25.
+run "e1m1.qmp -nostats -noai -at 88 1470 -190 -yaw 270 -fire -warp 28 88 1470 -190 -ticks 65 +impulse 1"
+k=$(kit)
+if [[ "$(fld kills "$k")" -lt 1 || "$(fld shells "$k")" -ne 25 ]]; then
+    echo "FAIL: two axe strikes at 64 units gave [$k], wanted a kill and 25 shells" >&2
+    fail=1
+fi
 
 # The dog at (88,1520,-200), 100 units ahead: 25 health against six
 # pellets of four, and four shots of the 25 shells in 2 seconds.
