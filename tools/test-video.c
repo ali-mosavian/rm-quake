@@ -7,7 +7,8 @@ typedef struct { long dst; short y0, y1; } Fill;
 
 static Fill fills[4];
 static short fill_count;
-static long blit_dst;
+static long blit_dst, blit_src, scaled_blit_dst, scaled_blit_src;
+static short blit_x, blit_y, scaled_blit_x, scaled_blit_y;
 static short ex_count;
 static short ex_w[2], ex_h[2], ex_stride[2], ex_kind[2];
 static short new_view_pitch, resize_view_pitch;
@@ -16,6 +17,7 @@ static short row_reads, row_writes;
 void qglDrFill( long d, short x0, short y0, short x1, short y1, short col )
 {
     (void) x0; (void) x1; (void) col;
+    assert( fill_count < (short) ( sizeof fills / sizeof fills[0] ) );
     fills[fill_count].dst = d;
     fills[fill_count].y0 = y0;
     fills[fill_count].y1 = y1;
@@ -23,7 +25,13 @@ void qglDrFill( long d, short x0, short y0, short x1, short y1, short col )
 }
 
 void qglDrBlitScl( long d, short x, short y, short w, short h, long s )
-{ blit_dst = d; (void) x; (void) y; (void) w; (void) h; (void) s; }
+{
+    scaled_blit_dst = d; scaled_blit_src = s;
+    scaled_blit_x = x; scaled_blit_y = y;
+    (void) w; (void) h;
+}
+void qglDrBlit( long d, short x, short y, long s )
+{ blit_dst = d; blit_src = s; blit_x = x; blit_y = y; }
 void qglRowRead( long sf, short x, short y, short pixels, short fmt, long buff )
 { row_reads++; (void) sf; (void) x; (void) y; (void) pixels; (void) fmt; (void) buff; }
 void qglRowWrite( long sf, short x, short y, short pixels, short fmt, long buff )
@@ -57,10 +65,13 @@ static void check( Video *v, short keep_sbar, short cutoff, long target )
     short i;
 
     fill_count = 0;
-    blit_dst = 0;
+    blit_dst = blit_src = scaled_blit_dst = scaled_blit_src = 0;
     v_present( v, 2, 0, keep_sbar );
     assert( fill_count == 4 );
     assert( blit_dst == target );
+    assert( blit_src == v->h_view );
+    assert( blit_x == v->view_x && blit_y == v->view_y );
+    assert( scaled_blit_dst == 0 );
     for ( i = 0; i < fill_count; i++ ) {
         assert( fills[i].dst == target );
         assert( fills[i].y1 < cutoff );
@@ -76,6 +87,7 @@ int main( void )
                    320, 200, 0, 0, 1, 0, 0 };
 
     check( &v, -1, 152, 9 );
+    fill_count = 0;
     row_reads = row_writes = 0;
     v_present_warp( &v, 2, 0, -1, 0.0f );
     assert( row_reads == v.y_res + 6 && row_writes == v.y_res );
@@ -87,6 +99,22 @@ int main( void )
     check( &v, 0, 200, 9 );
     check( &v, -1, 152, 9 );
 
+    v.view_scale = 2;
+    v.view_x = v.view_y = 0;
+    v.y_res = 76;
+    fill_count = 0;
+    blit_dst = scaled_blit_dst = 0;
+    v_present( &v, 2, 0, -1 );
+    assert( fill_count == 0 );
+    assert( blit_dst == 0 );
+    assert( scaled_blit_dst == v.h_comp_dc && scaled_blit_src == v.h_view );
+    assert( scaled_blit_x == 0 && scaled_blit_y == 0 );
+
+    scaled_blit_dst = 0;
+    v_present_warp( &v, 2, 0, -1, 0.0f );
+    assert( scaled_blit_dst == v.h_comp_dc );
+
+    fill_count = 0;
     v_init( &init, 0L );
     assert( ex_count == 2 );
     assert( ex_w[0] == 320 && ex_h[0] == 200 && ex_stride[0] == 512 );

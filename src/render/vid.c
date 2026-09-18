@@ -172,10 +172,13 @@ short v_present( Video *v, QSurf h_dst_dc, short page, short keep_sbar )
     QSurf source = v->h_view;
 
     v_clear_border( v, target, keep_sbar );
-    qglDrBlitScl( target, v->view_x, v->view_y,
-                  (short) ( v->x_res * v->view_scale ),
-                  (short) ( v->y_res * v->view_scale ),
-                  source );
+    if ( v->view_scale == 1 )
+        qglDrBlit( target, v->view_x, v->view_y, source );
+    else
+        qglDrBlitScl( target, v->view_x, v->view_y,
+                      (short) ( v->x_res * v->view_scale ),
+                      (short) ( v->y_res * v->view_scale ),
+                      source );
     return page;
 }
 
