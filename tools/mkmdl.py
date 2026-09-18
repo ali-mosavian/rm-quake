@@ -19,6 +19,7 @@ Emits (DOS 8.3 names, since the loader opens them by name):
                  compression the .mdl file itself already uses.
     <name>.vtx   one vertex array per frame as raw BYTES, no header
     <name>.skn   the skin: sw*sh palette indices, top-down, no header
+    <name>.itm   pickup bundle: .geo, .vtx, then every skin in order
 
 UVs are normalised 0..1 -- uGL's own convention, and the patched library
 scales by xRes rather than xRes-1 (see ugl-patch/README.md). The `onseam`
@@ -82,7 +83,7 @@ def parse_sets(spec: str | None) -> list[tuple[str, int]]:
 def kept(m: mdl.Model, name: str, n: int) -> list:
     # In frameset order, not file order: the .mdl keeps death before run
     # and the draw indexes the sets by position.
-    fs = [f for f in m.frames if re.sub(r"\d+$", "", f.name) == name]
+    fs = list(m.frames) if name == "*" else [f for f in m.frames if re.sub(r"\d+$", "", f.name) == name]
     return fs[:n] if n else fs
 
 
@@ -127,7 +128,10 @@ def main() -> int:
 
     UV_SCALE = 32767   # fixed-point Integer UV, 0..32767 = 0.0..1.0
 
-    sw, sh, res = resample_skin(skin)
+    skins = [resample_skin(s) for s in m.skins]
+    sw, sh, res = skins[0]
+    if any((w, h) != (sw, sh) for w, h, _ in skins):
+        raise SystemExit(f"{name}: skins resample to different sizes")
 
     # sw/sh, NOT skin.width/skin.height: the loader creates a Surface of
     # exactly this size and the source image's own dimensions would be a
@@ -174,6 +178,15 @@ def main() -> int:
     # the world atlas ships as texr.raw/texs.raw for the same reason.
     skn = os.path.join(outdir, f"{name[:8]}.skn")
     open(skn, "wb").write(res.tobytes())
+
+    for i, (_w, _h, pixels) in enumerate(skins[1:], 1):
+        open(os.path.join(outdir, f"{name[:8]}{i}.skn"), "wb").write(pixels.tobytes())
+
+    # Pickups use one directory member apiece: header/triangles, vertices,
+    # then every skin. The regular monster loader keeps the split files.
+    open(os.path.join(outdir, f"{name[:8]}.itm"), "wb").write(
+        bytes(out) + vtx + b"".join(pixels.tobytes() for _w, _h, pixels in skins)
+    )
 
     print(f"{name}: {len(m.tris)} tris, {len(m.st)} verts, {len(frames)} frames")
     print(f"  {os.path.basename(geo):<14} {len(out):,} B  (header + tris {len(m.tris)*18:,})")

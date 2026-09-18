@@ -1,6 +1,6 @@
 /*
- * d_alias.c -- what is drawn that is not world geometry. For now the
- * pickups, as flat boxes; the alias models (d_mdl.bas) are not ported.
+ * d_alias.c -- alias models and other non-world geometry: pickups,
+ * monsters, projectiles and the view weapon.
  *
  * Everything here is DEPTH TESTED. A box is an object of its own with
  * no place in the BSP order -- the walk cannot sort it against the
@@ -530,21 +530,35 @@ short d_draw_items( World *world, Renderer *rdr, Player *player,
     short i, side, top, drawn = 0;
     BspVec3 bob;
 
+    rdr->item_mdl_drawn = 0;
     if ( !world->item_count || rdr->no_items ) return 0;
 
-    /* spun and bobbed on the same clock as the liquids */
-    cyaw = (float) cos( rdr->anim_time * 2.0 );
-    syaw = (float) sin( rdr->anim_time * 2.0 );
+    /* R_RotateForEntity: EF_ROTATE models turn at 100 degrees/sec. */
+    cyaw = (float) cos( rdr->anim_time * 100.0 * 3.14159265 / 180.0 );
+    syaw = (float) sin( rdr->anim_time * 100.0 * 3.14159265 / 180.0 );
     qglSfZMode( dst, QGL_Z_TEST );
 
     for ( i = 0; i < world->item_count; i++ ) {
         ItemEnt far *it = &world->item[i];
+        ItemModel im;
+        short have_mdl = 0;
 
         if ( it->gone ) continue;
         bob = it->pos;
-        if ( !d_mdl_visible( world, rdr, frustum, &bob,
-                              ENT_BOX_HALF * 1.5f, 0.0f, ENT_BOX_TOP + 8.0f,
-                              lc_slot( rdr, &rdr->item_lc, world->item_count, i ) ) ) continue;
+        if ( world->item_mdl_slot[i] >= 0 && world->item_mdl_slot[i] < world->item_mdl_count ) {
+            _fmemcpy( &im, &world->item_mdl[world->item_mdl_slot[i]], sizeof(im) );
+            have_mdl = im.state.loaded;
+        }
+        if ( have_mdl ) {
+            /* The phase includes the map position exactly as Quake's
+               EF_ROTATE path does; there is no per-item state. */
+            bob.z += (float) sin( it->pos.x + it->pos.y + rdr->anim_time * 3.0 ) * 5.5f;
+            if ( !d_mdl_visible( world, rdr, frustum, &bob,
+                                  im.state.radius, im.state.zlo, im.state.zhi,
+                                  lc_slot( rdr, &rdr->item_lc, world->item_count, i ) ) ) continue;
+        } else if ( !d_mdl_visible( world, rdr, frustum, &bob,
+                                     ENT_BOX_HALF * 1.5f, 0.0f, ENT_BOX_TOP + 8.0f,
+                                     lc_slot( rdr, &rdr->item_lc, world->item_count, i ) ) ) continue;
 
         if ( it->crate >= 0 && it->crate < world->crate_count ) {
             /* the map's own b_*.bsp, still, and centred on the origin
@@ -577,6 +591,18 @@ short d_draw_items( World *world, Renderer *rdr, Player *player,
             drawn = (short) ( drawn + mdl_draw_box( &bob, ENT_BOX_HALF, ENT_BOX_TOP,
                                  1.0f, 0.0f, m, xresh, yresh, z_near, dst,
                                  ENT_COL_YELLOW, ENT_COL_BROWN ) );
+            continue;
+        }
+
+        if ( have_mdl ) {
+            QSurf skin = world->item_skin[i] == 1 ? im.skin1 :
+                         world->item_skin[i] == 2 ? im.skin2 : im.state.skin;
+            short n = mdl_draw_tris( world, im.state.ntri, im.state.nvert, 0, &bob,
+                                      cyaw, syaw, 1.0f, 0.0f,
+                                      &im.state.scale, &im.state.origin, &im.state, skin,
+                                      m, xresh, yresh, z_near, dst, QGL_Z_TEST );
+            drawn = (short) ( drawn + n );
+            rdr->item_mdl_drawn = (short) ( rdr->item_mdl_drawn + n );
             continue;
         }
 

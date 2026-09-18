@@ -47,13 +47,15 @@ PAK0 and are left out.
       id: `cl_tent.c` `CL_ParseTEnt`, `CL_ParseBeam`, `CL_UpdateTEnts`
       qcport (partial): the shambler's bolt hurts and draws nothing,
       `src/game/mdl_ai.c:460`
-- [ ] Item, projectile, gib and head models
-      id: each classname's `precache_model` in `items.qc`, `weapons.qc`,
-      `player.qc`; the `.mdl` files are in PAK0
-      qcport: armor, keys, weapons and powerups are flat boxes
-      (`src/render/d_alias.c:399`), ammo and health are `b_*.bsp` crates
-      (`:443`), nails, grenades and lava balls are boxes (`:659`); no gibs,
-      heads or backpack
+- [x] Item and backpack models
+      id: each classname's `precache_model` in `items.qc`; the `.mdl` files
+      are in PAK0
+      qcport: alias models for armor and all three skins, keys by worldtype,
+      weapon pickups, powerups, the rune and dropped backpacks; ammo and
+      health retain their original `b_*.bsp` models; `src/render/d_alias.c`
+- [ ] Projectile, gib and head models
+      id: `weapons.qc`, `player.qc`; the `.mdl` files are in PAK0
+      qcport: nails, grenades and lava balls are boxes; no gibs or heads
 - [ ] Full monster animation sets
       id: each monster's `.qc` (`soldier.qc`, `dog.qc`, ...) steps every
       frame by name

@@ -112,6 +112,17 @@ VIEW_MODEL_SET = {'v_axe': 'frame'}
 # with a monster_boss.
 BOSS_MDL = ('boss', 'rise,walk,death,attack,shocka,shockb,shockc')
 
+ITEM_MODELS = {
+    2: "armor", 3: "armor", 4: "g_shot", 6: "g_nail",
+    7: "quaddama", 8: "suit", 12: "g_rock", 14: "g_nail2",
+    15: "g_rock2", 16: "invulner", 18: "armor", 20: "invisibl",
+}
+KEY_MODELS = (
+    ("w_s_key", "w_g_key"),
+    ("m_s_key", "m_g_key"),
+    ("b_s_key", "b_g_key"),
+)
+
 
 def build_sbar(pak: str, tmp: str) -> dict[str, bytes]:
     """The packed single-player status and menu atlases from gfx.wad."""
@@ -178,6 +189,52 @@ def build_models(pak: str, kinds: set[int], boss: bool, tmp: str) -> dict[str, b
             out[f'{name}.{ext}'] = open(os.path.join(tmp, f'{stem}.{ext}'), 'rb').read()
     print(f"  view models: {len(VIEW_MDLS)}")
     return out
+
+
+def build_item_models(pak: str, names: set[str], tmp: str) -> dict[str, bytes]:
+    import subprocess
+
+    out: dict[str, bytes] = {}
+    if not pak or not os.path.exists(pak):
+        return out
+    os.makedirs(tmp, exist_ok=True)
+    for name in sorted(names):
+        r = subprocess.run([sys.executable, os.path.join(os.path.dirname(__file__), "mkmdl.py"),
+                            pak, name, tmp, "*"], capture_output=True, text=True)
+        if r.returncode != 0:
+            raise SystemExit(f"mkmdl {name}: {r.stderr.strip() or r.stdout.strip()}")
+        out[f"{name}.itm"] = open(os.path.join(tmp, f"{name[:8]}.itm"), "rb").read()
+    print(f"  pickup models: {len(out)}")
+    return out
+
+
+def item_models(ents: list[bytes], monster_kinds: set[int]) -> set[str]:
+    names: set[str] = set()
+    prefix = struct.calcsize("<3ff3fff")
+    item_size = struct.calcsize("<hhhhh3f")
+    for data in ents:
+        counts = struct.unpack_from("<13h", data, prefix)
+        ntele, nplat, nhide, nitem, nmon, worldtype = (
+            counts[1], counts[2], counts[3], counts[4], counts[7], counts[11]
+        )
+        ngate = struct.unpack_from("<h", data, struct.calcsize(ENTS_HEAD) - 2)[0]
+        ofs = (struct.calcsize(ENTS_HEAD) + nmon * struct.calcsize(ENTS_MON)
+               + ntele * struct.calcsize("<h3ffhh") + nplat * struct.calcsize("<hffh")
+               + nhide * 2 + ngate * struct.calcsize("<hhh"))
+        for i in range(nitem):
+            kind, amount, _target, crate, _order = struct.unpack_from("<hhhhh", data, ofs + i * item_size)
+            if crate >= 0 or kind == 9:
+                continue
+            if kind in (10, 11):
+                names.add(KEY_MODELS[worldtype][kind - 10])
+            elif kind == 17:
+                bit = next((b for b in range(4) if amount & (1 << b)), 0)
+                names.add(f"end{bit + 1}")
+            elif kind in ITEM_MODELS:
+                names.add(ITEM_MODELS[kind])
+    if 0 in monster_kinds:
+        names.add("backpack")
+    return names
 
 
 SKILLS     = 4   # easy, normal, hard, nightmare: an ents<N>.bin each
@@ -1847,16 +1904,18 @@ def main():
     # ents.bin just written rather than kept on the side: the file is
     # what the runtime loads, so it is what decides which models ship.
     head = struct.calcsize('<3ff3fff')
+    ent_blobs = [OUT[f'ents{skill}.bin'] for skill in range(SKILLS)]
     kinds = {struct.unpack_from('<h', ents, struct.calcsize(ENTS_HEAD) + i * struct.calcsize(ENTS_MON))[0]
-             for ents in (OUT[f'ents{skill}.bin'] for skill in range(SKILLS))
+             for ents in ent_blobs
              for i in range(struct.unpack_from('<13h', ents, head)[7])}
     # Chthon at any skill, as the kinds are: e1m7's monster_boss has no spawnflags
     boss = b'"monster_boss"' in d[lumps[0][0]:lumps[0][0] + lumps[0][1]]
     models = build_models(pak, kinds, boss, os.path.join(outdir, '.mdl'))
+    pickup_models = build_item_models(pak, item_models(ent_blobs, kinds), os.path.join(outdir, '.itemmdl'))
     sbar = build_sbar(pak, os.path.join(outdir, '.gfx'))
     sounds = build_sounds(pak, os.path.join(outdir, '.snd'))
     write_qmap(os.path.join(outdir, stem + '.qmp'), stem, d,
-               dict(OUT, **models, **sbar, **sounds,
+               dict(OUT, **models, **pickup_models, **sbar, **sounds,
                     **{'texr.raw': qmap_texr, 'texs.raw': qmap_texs, 'pal.raw': qmap_pal}))
 
 

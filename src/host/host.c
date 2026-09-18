@@ -1747,6 +1747,8 @@ static void near host_report( Host *h )
     mark( buf );
     sprintf( buf, "boss drawn=%d", (int) h->rdr.boss_drawn );
     mark( buf );
+    sprintf( buf, "pickup mdl=%d", (int) h->rdr.item_mdl_drawn );
+    mark( buf );
 
     sprintf( buf, "fight=health %d shells %d nails %d rockets %d armor %d items %ld took %d kills %d booms %d deaths %d cells %d",
              fight->health, fight->shells, fight->nails, fight->rockets,

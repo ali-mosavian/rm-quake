@@ -290,5 +290,7 @@ void pl_item_add( World *world, short kind, short amount, BspVec3 far *org )
     it->crate = -1;
     it->pos = *org;
     it->gone = 0;
+    world->item_mdl_slot[world->item_count] = (signed char) world->backpack_mdl;
+    world->item_skin[world->item_count] = 0;
     world->item_count++;
 }

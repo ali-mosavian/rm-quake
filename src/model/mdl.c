@@ -19,6 +19,7 @@
 
 #include "mdl.h"
 #include "fight.h"
+#include "item.h"
 #include "ent.h"
 #include "pak.h"
 #include "qgl.h"
@@ -56,7 +57,8 @@ static short near mdl_sets_ok( const MdlHead *h, short need )
     return sum == h->nframe;
 }
 
-void mdl_load( Pak *pak, MdlState *m, char *name, short need )
+static void near mdl_load_stream( Pak *pak, MdlState *m, char *name, short need,
+                                  short bundled, QSurf *more, short nskins )
 {
     char  path[24], msg[96];    /* path and the longest refusal's numbers */
     MdlHead h;
@@ -68,7 +70,7 @@ void mdl_load( Pak *pak, MdlState *m, char *name, short need )
     m->vtx_hnd = 0;
     m->skin = 0;
 
-    sprintf( path, "%s.geo", name );
+    sprintf( path, "%s.%s", name, bundled ? "itm" : "geo" );
     fh = pak_seek( pak, path, &n );
     if ( qglFileRead( fh, (long) (void far *) &h, (long) sizeof(h) ) != (long) sizeof(h) ) {
         sprintf( msg, "%s: header short read", path ); mdl_refuse( msg );
@@ -128,9 +130,12 @@ void mdl_load( Pak *pak, MdlState *m, char *name, short need )
         qglGemFree( m->vtx_hnd ); m->vtx_hnd = 0; return;
     }
 
-    /* whole frames a page, the last page short */
-    sprintf( path, "%s.vtx", name );
-    fh = pak_seek( pak, path, &n );
+    /* A pickup bundle continues into its vertices. Split monster files
+       reopen the .vtx member here. */
+    if ( !bundled ) {
+        sprintf( path, "%s.vtx", name );
+        fh = pak_seek( pak, path, &n );
+    }
     for ( p = 0; p < m->vpages; p++ ) {
         left = (short) ( m->nframe - p * m->page_frames );
         if ( left > m->page_frames ) left = m->page_frames;
@@ -147,16 +152,29 @@ void mdl_load( Pak *pak, MdlState *m, char *name, short need )
        patches into itself and never remaps mid-polygon. mkmdl.py's
        resample keeps it true and writes the size it chose into the
        header, so the two cannot drift. */
-    sprintf( path, "%s.skn", name );
-    fh = pak_seek( pak, path, &n );
-    m->skin = qglSfNew( h.skin_w, h.skin_h, QGL_SURF_EMS );
-    if ( !m->skin || !qglSfLoadFh( m->skin, fh ) ) {
-        sprintf( msg, "%s: skin would not load", path ); mdl_refuse( msg );
-        if ( m->skin ) { qglSfFree( m->skin ); m->skin = 0; }
-        qglGemFree( m->vtx_hnd ); m->vtx_hnd = 0; return;
+    if ( !bundled ) {
+        sprintf( path, "%s.skn", name );
+        fh = pak_seek( pak, path, &n );
+    }
+    for ( p = 0; p < nskins; p++ ) {
+        QSurf skin = qglSfNew( h.skin_w, h.skin_h, QGL_SURF_EMS );
+        if ( !skin || !qglSfLoadFh( skin, fh ) ) {
+            sprintf( msg, "%s: skin %d would not load", path, p ); mdl_refuse( msg );
+            if ( skin ) qglSfFree( skin );
+            if ( m->skin ) { qglSfFree( m->skin ); m->skin = 0; }
+            while ( --p > 0 ) { qglSfFree( more[p - 1] ); more[p - 1] = 0; }
+            qglGemFree( m->vtx_hnd ); m->vtx_hnd = 0; return;
+        }
+        if ( p == 0 ) m->skin = skin;
+        else more[p - 1] = skin;
     }
 
     m->loaded = 1;
+}
+
+void mdl_load( Pak *pak, MdlState *m, char *name, short need )
+{
+    mdl_load_stream( pak, m, name, need, 0, 0, 1 );
 }
 
 void mdl_unload( MdlState *m )
@@ -164,6 +182,122 @@ void mdl_unload( MdlState *m )
     if ( m->skin ) qglSfFree( m->skin );
     if ( m->vtx_hnd ) qglGemFree( m->vtx_hnd );
     memset( m, 0, sizeof(*m) );
+}
+
+#define ITEM_MDL_ARMOR    0
+#define ITEM_MDL_BACKPACK 20
+#define ITEM_MDL_N        21
+
+static char *item_mdl_name[ITEM_MDL_N] = {
+    "armor", "g_shot", "g_nail", "quaddama", "suit",
+    "g_rock", "g_nail2", "g_rock2", "invulner", "invisibl",
+    "w_s_key", "w_g_key", "m_s_key", "m_g_key", "b_s_key", "b_g_key",
+    "end1", "end2", "end3", "end4", "backpack"
+};
+
+static short near item_mdl_id( ItemEnt far *it, short worldtype )
+{
+    if ( it->crate >= 0 || it->kind == ENT_ITEM_EXPLOBOX ) return -1;
+    switch ( it->kind ) {
+    case ENT_ITEM_ARMOR1:
+    case ENT_ITEM_ARMOR2:
+    case ENT_ITEM_ARMOR3: return ITEM_MDL_ARMOR;
+    case ENT_ITEM_SSG: return 1;
+    case ENT_ITEM_NAILGUN: return 2;
+    case ENT_ITEM_QUAD: return 3;
+    case ENT_ITEM_SUIT: return 4;
+    case ENT_ITEM_GL: return 5;
+    case ENT_ITEM_SNG: return 6;
+    case ENT_ITEM_RL: return 7;
+    case ENT_ITEM_PENT: return 8;
+    case ENT_ITEM_INVIS: return 9;
+    case ENT_ITEM_KEY1: return (short) ( 10 + worldtype * 2 );
+    case ENT_ITEM_KEY2: return (short) ( 11 + worldtype * 2 );
+    case ENT_ITEM_SIGIL:
+        if ( it->amount & 2 ) return 17;
+        if ( it->amount & 4 ) return 18;
+        if ( it->amount & 8 ) return 19;
+        return 16;
+    }
+    return -1;
+}
+
+static short near item_mdl_slot( World *world, short id )
+{
+    short i;
+    for ( i = 0; i < world->item_mdl_count; i++ )
+        if ( world->item_mdl[i].id == id ) return i;
+    return -1;
+}
+
+void mdl_load_items( World *world, short worldtype )
+{
+    short used[ITEM_MDL_N];
+    short i, id, n = 0;
+
+    memset( used, 0, sizeof(used) );
+    for ( i = 0; i < world->item_count; i++ ) {
+        id = item_mdl_id( &world->item[i], worldtype );
+        if ( id >= 0 ) used[id] = 1;
+    }
+    for ( i = 0; i < world->mon_count; i++ )
+        if ( world->mon[i].kind == MDL_KIND_ARMY ) used[ITEM_MDL_BACKPACK] = 1;
+    for ( i = 0; i < ITEM_MDL_N; i++ ) if ( used[i] ) n++;
+
+    world->item_mdl_count = n;
+    world->backpack_mdl = -1;
+    world->item_mdl = (ItemModel far *) qglMemAlloc(
+        (long) ( n ? n : 1 ) * sizeof(ItemModel) );
+    world->item_mdl_slot = (signed char far *) qglMemAlloc( world->item_max ? world->item_max : 1 );
+    world->item_skin = (signed char far *) qglMemAlloc( world->item_max ? world->item_max : 1 );
+    if ( !world->item_mdl || !world->item_mdl_slot || !world->item_skin )
+        sys_error( "items: out of memory for models" );
+
+    n = 0;
+    for ( id = 0; id < ITEM_MDL_N; id++ ) if ( used[id] ) {
+        ItemModel im;
+        memset( &im, 0, sizeof(im) );
+        im.id = id;
+        mdl_load_stream( &world->pak, &im.state, item_mdl_name[id], 1, 1,
+                         &im.skin1, (short) ( id == ITEM_MDL_ARMOR ? 3 : 1 ) );
+        _fmemcpy( &world->item_mdl[n], &im, sizeof(im) );
+        if ( id == ITEM_MDL_BACKPACK ) world->backpack_mdl = n;
+        n++;
+    }
+
+    for ( i = 0; i < world->item_count; i++ ) {
+        ItemEnt far *it = &world->item[i];
+        id = item_mdl_id( it, worldtype );
+        world->item_mdl_slot[i] = (signed char) ( id < 0 ? -1 : item_mdl_slot( world, id ) );
+        world->item_skin[i] = (signed char) ( it->kind == ENT_ITEM_ARMOR2 ? 1 :
+                                              it->kind == ENT_ITEM_ARMOR3 ? 2 : 0 );
+    }
+    /* Slots after the map's items are reserved for dropped backpacks.
+       Demo snapshots use those slots directly rather than pl_item_add. */
+    for ( i = world->item_count; i < world->item_max; i++ ) {
+        world->item_mdl_slot[i] = (signed char) world->backpack_mdl;
+        world->item_skin[i] = 0;
+    }
+}
+
+void mdl_unload_items( World *world )
+{
+    short i;
+    for ( i = 0; i < world->item_mdl_count; i++ ) {
+        ItemModel im;
+        _fmemcpy( &im, &world->item_mdl[i], sizeof(im) );
+        if ( im.skin1 ) qglSfFree( im.skin1 );
+        if ( im.skin2 ) qglSfFree( im.skin2 );
+        mdl_unload( &im.state );
+    }
+    if ( world->item_mdl ) qglMemFree( (long) world->item_mdl );
+    if ( world->item_mdl_slot ) qglMemFree( (long) world->item_mdl_slot );
+    if ( world->item_skin ) qglMemFree( (long) world->item_skin );
+    world->item_mdl = 0;
+    world->item_mdl_slot = 0;
+    world->item_skin = 0;
+    world->item_mdl_count = 0;
+    world->backpack_mdl = -1;
 }
 
 unsigned char far *mdl_frame_verts( const MdlState *m, short frame, short slot )

@@ -114,6 +114,11 @@ typedef struct {
     short       item_count;
     short       item_max;        /* the map's own plus a backpack a monster */
     ItemEnt     far *item;
+    short       item_mdl_count;
+    short       backpack_mdl;
+    ItemModel   far *item_mdl;
+    signed char far *item_mdl_slot; /* per ItemEnt: model slot or -1 */
+    signed char far *item_skin;     /* armor.mdl's green/yellow/red skin */
 
     short       crate_count;
     CrateModel  far *crate;

@@ -86,6 +86,14 @@ typedef struct {
     short   vpages, page_frames;
 } MdlState;
 
+/* A pickup model lives in far memory. Armor shares its geometry but has
+   three skins; every other pickup leaves the extra handles zero. */
+typedef struct {
+    MdlState state;
+    QSurf    skin1, skin2;
+    short    id;
+} ItemModel;
+
 /* One spawned monster: everything mdl_think owns, separate from the
    MdlState a whole kind shares. BSP space, Z up, like Player.pos, so it
    can be handed to pl_trace with no copy. */

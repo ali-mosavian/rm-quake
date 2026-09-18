@@ -55,6 +55,10 @@ void mdl_report_sums( World *world );
  */
 void mdl_load_monsters( World *world, unsigned char far *buf, long *ofs, short count );
 
+/* Load the distinct alias models used by this map's pickups. */
+void mdl_load_items( World *world, short worldtype );
+void mdl_unload_items( World *world );
+
 /* The model for a kind, or NULL when the map spawns none of it. */
 MdlState *mdl_of( World *world, short kind );
 

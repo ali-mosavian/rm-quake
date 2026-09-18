@@ -232,6 +232,7 @@ void mod_unload( World *world )
     for ( i = 0; i < MDL_KINDS; i++ ) mdl_unload( &world->mdl[i] );
     for ( i = 0; i < PL_VIEW_N; i++ ) mdl_unload( &world->vmdl[i] );
     mdl_unload( &world->boss );
+    mdl_unload_items( world );
 
     if ( world->models )   qglMemFree( (long) world->models );
     if ( world->nodes )    qglMemFree( (long) world->nodes );
