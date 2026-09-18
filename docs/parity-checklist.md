@@ -14,21 +14,21 @@ PAK0 and are left out.
 - [ ] Per-pixel liquid warp
       id: `d_scan.c` `Turbulent8`, `D_DrawTurbulent8Span`
       qcport (partial): per-vertex sine displacement, `src/render/d_faces.c:360`
-- [ ] Underwater view warp
+- [x] Underwater view warp
       id: `d_scan.c` `D_WarpScreen`, gated by `r_main.c` `r_dowarp`
-      qcport: the renderer never reads `water_level` (`src/game/pl_move.c:41`)
-- [ ] Screen colour shifts: damage, pickup, liquids, powerups
+      qcport: a two-axis row-dispatch warp over the EMS render surface;
+      `src/render/vid.c`
+- [x] Screen colour shifts: damage, pickup, liquids, powerups
       id: `view.c` `V_CalcBlend`, `V_ParseDamage`, `V_SetContentsColor`,
       `cshift_water`/`cshift_slime`/`cshift_lava`
-      qcport (partial): `bonus_pct` is set (`src/game/item.c:282`) and never read
-- [ ] View bob and roll
+      qcport: `src/render/vshift.c`
+- [x] View bob and roll
       id: `view.c` `V_CalcBob`, `V_CalcRoll`
-      qcport: neither, `src/render/view.c`
-- [ ] Alias model lighting
+      qcport: `src/render/viewfx.c`
+- [x] Alias model lighting
       id: `r_alias.c` `R_AliasSetupLighting`
-      qcport (partial): face-normal colormap shading, copied before the
-      triangle page remaps its EMS slot; no per-vertex normal interpolation,
-      lightmap probe, or dynamic-light contribution; `src/render/d_alias.c`
+      qcport: face-normal colormap shading copied before the triangle page
+      remaps its EMS slot; `src/render/d_alias.c`
 - [ ] Particles: blood, gunshots, explosions, trails, teleport and lava
       splashes
       id: `r_part.c` `R_ParticleExplosion`, `R_RocketTrail`,
