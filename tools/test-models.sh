@@ -52,10 +52,25 @@ PY
 )
 
 fail=0
-if [[ "$frame_md5" != 12783c0736255420b4be5ee6f3798ee2 ]]; then
+if [[ "$frame_md5" != 90f20ed0ce82586bac6e28ab0ed8afb1 ]]; then
     echo "FAIL: model frame is $frame_md5; alias projection or lighting changed" >&2
     fail=1
 fi
+
+# The first view is wholly inside the frustum. These two exercise the
+# same id winding through side-plane and near-plane clipping.
+for arm in \
+    "side|-at -85 1420 -190 -yaw 270|d86e6e442a7a79729497273969c0b52d" \
+    "near|-at 8 1500 -190 -yaw 270|c52eb84131e815c7acc475b6314f4c79"
+do
+    IFS='|' read -r name at expected <<< "$arm"
+    run "e1m1.qmp -nostats -noai -nosound $at -ticks 4" || true
+    got=$(md5 -q "$OUT/BENCH.BMP" 2>/dev/null || md5sum "$OUT/BENCH.BMP" | cut -d' ' -f1)
+    if [[ "$got" != "$expected" ]]; then
+        echo "FAIL: $name-clipped alias frame is $got; winding or clipping changed" >&2
+        fail=1
+    fi
+done
 if [[ "${on:-0}" -lt 1 ]]; then
     echo "FAIL: mdl=$on triangles submitted with two monsters in front of the camera" >&2
     fail=1

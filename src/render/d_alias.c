@@ -72,6 +72,23 @@ static long near bf_bad;
 
 long mdl_bf_bad( void ) { return bf_bad; }
 
+static short near mdl_front_area( float area )
+{
+    return (short) ( area > 0.0f );
+}
+
+static short near mdl_front_det( float det )
+{
+    return (short) ( det < 0.0f );
+}
+
+short d_alias_selftest( void )
+{
+    /* id's d_xdenom is the negative of this screen-space area. */
+    return (short) ( mdl_front_area( 1.0f ) && !mdl_front_area( -1.0f ) &&
+                     mdl_front_det( -1.0f ) && !mdl_front_det( 1.0f ) );
+}
+
 /* id's alias light points along world -x. qgl's alias path has no light
    vertex attribute yet, so this is one colormap row from the face normal. */
 static short near mdl_lit_row( const MdlTri *t, unsigned char far *vb,
@@ -236,7 +253,7 @@ static short mdl_draw_tris(
              * 241 of them die in there, each having paid for a texture
              * map, a gradient and a clip first.
              */
-            if ( area > -2.0f ) continue;
+            if ( !mdl_front_area( area ) || area < 2.0f ) continue;
             qv[0].u = (float) t.u1 / MDL_UV_SCALE * srw[a];
             qv[0].v = (float) t.v1 / MDL_UV_SCALE * srw[a];
             qv[1].u = (float) t.u2 / MDL_UV_SCALE * srw[b];
@@ -270,7 +287,7 @@ static short mdl_draw_tris(
             det = vx[a] * ( vy[b] * vw[c] - vy[c] * vw[b] )
                 - vy[a] * ( vx[b] * vw[c] - vx[c] * vw[b] )
                 + vw[a] * ( vx[b] * vy[c] - vx[c] * vy[b] );
-            if ( det <= 0.0f ) continue;
+            if ( !mdl_front_det( det ) ) continue;
             bf_pre = 1;
         }
 
@@ -338,8 +355,8 @@ static short mdl_draw_tris(
            first three corners answer for all of them. */
         area = ( qv[1].x - qv[0].x ) * ( qv[2].y - qv[0].y )
              - ( qv[2].x - qv[0].x ) * ( qv[1].y - qv[0].y );
-        if ( bf_pre && area >= 0.0f ) bf_bad++;
-        if ( area < 0.0f ) {
+        if ( bf_pre && !mdl_front_area( area ) ) bf_bad++;
+        if ( mdl_front_area( area ) ) {
             /* The previous polygon mapped its EMS destination over PAGE_SLOT. */
             vb = mdl_frame_verts( ms, frame, PAGE_SLOT );
             lit = mdl_lit_map( world, mdl_lit_row( &t, vb, scale, origin,

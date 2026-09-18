@@ -11,6 +11,8 @@
  * d_alias.h -- alias models and the other geometry outside the world BSP.
  */
 
+short d_alias_selftest( void );
+
 /*
  * name: d_draw_items
  * desc: Every pickup still there, spinning and bobbing on Quake's
