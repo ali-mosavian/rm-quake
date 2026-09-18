@@ -808,6 +808,29 @@ static float near mdl_pain_heading( const MdlEnt far *ent, short dist )
     return dist > 0 ? ent->ideal_yaw : ent->yaw;
 }
 
+static void near mdl_zombie_wait_step( MdlEnt far *ent, short can_stand )
+{
+    ent->health = ZOMBIE_HEALTH;
+    if ( ent->anim_frame == 10 ) {
+        ent->anim_frame = 11;
+        ent->ai_count = can_stand ? 0 : MDL_ZOMBIE_RETRY;
+    } else if ( ent->anim_frame == 11 && ent->ai_count == MDL_ZOMBIE_RETRY ) {
+        ent->anim_frame = 10;
+        ent->ai_count = 0;
+        ent->next_think += 5.0f;
+    }
+}
+
+void mdl_zombie_wait_migrate( MdlEnt far *ent )
+{
+    if ( ent->kind == MDL_KIND_ZOMBIE && ent->state == MDL_ST_PAIN &&
+         ent->anim_set == MDL_SET_PAIN5 && ent->anim_frame == 10 &&
+         ent->pain_finished > ent->next_think ) {
+        ent->next_think = ent->pain_finished;
+        ent->pain_finished = 0.0f;
+    }
+}
+
 /* SV_CheckWaterTransition: a splash crossing a liquid's surface, sky
    counting as one as id's test has it */
 static void near ai_water( Think *t )
@@ -826,21 +849,23 @@ static void near ai_water( Think *t )
 static void near ai_pain( Think *t )
 {
     MdlEnt far *ent = t->ent;
-    Renderer *rdr = t->rdr;
     short lies = (short) ( mon_info[ ent->kind ].pain_lies && ent->anim_set == MDL_SET_PAIN5 );
     short count = mdl_set_count( t->m, ent->anim_set );
     short dist;
 
-    /* zombie_paine11 lies non-solid for five seconds. paine12 restores
-       solidity only when walkmove(0, 0) says the standing box fits. */
+    /* paine11 waits five seconds. A blocked paine12 displays for one
+       think, goes non-solid again, then re-enters paine11. */
     if ( lies && ent->anim_frame == 10 ) {
-        if ( ent->pain_finished == 0.0f ) ent->pain_finished = rdr->anim_time + ZOMBIE_DOWN_WAIT;
-        if ( rdr->anim_time < ent->pain_finished ) return;
-        if ( !mdl_zombie_can_stand( t->world, t->player, t->fight->health > 0,
-                                    ent, t->world->mon, t->world->mon_count, -1 ) ) {
-            ent->pain_finished = rdr->anim_time + ZOMBIE_DOWN_WAIT;
-            return;
-        }
+        short can_stand;
+        mdl_voice( t->player, &t->world->snd, ent, CHAN_VOICE, SND_MON2, ATTN_IDLE );
+        can_stand = mdl_zombie_can_stand( t->world, t->player, t->fight->health > 0,
+                                         ent, t->world->mon, t->world->mon_count, -1 );
+        mdl_zombie_wait_step( ent, can_stand );
+        return;
+    }
+    if ( lies && ent->anim_frame == 11 && ent->ai_count == MDL_ZOMBIE_RETRY ) {
+        mdl_zombie_wait_step( ent, 0 );
+        return;
     }
     ent->anim_frame++;
     if ( ent->anim_frame >= count ) {
@@ -855,7 +880,11 @@ static void near ai_pain( Think *t )
     }
     if ( lies && ent->anim_frame == 9 )
         mdl_voice( t->player, &t->world->snd, ent, CHAN_BODY, SND_Z_FALL, ATTN_NORM );
-    if ( lies && ent->anim_frame == 10 ) ent->pain_finished = rdr->anim_time + ZOMBIE_DOWN_WAIT;
+    if ( lies && ent->anim_frame == 10 ) {
+        ent->health = ZOMBIE_HEALTH;
+        ent->ai_count = 0;
+        ent->next_think += 5.0f;
+    }
 }
 
 static short near mdl_attack_dist( const MdlEnt far *ent )
@@ -1763,6 +1792,73 @@ done:
     return result;
 }
 
+short mdl_nightmare_pain_selftest( World *world, Player *player, Fight *fight,
+                                   Renderer *rdr )
+{
+    MdlEnt ent;
+    MdlState *model = &world->mdl[MDL_KIND_ZOMBIE];
+    BspVec3 saved_pos = player->pos;
+    unsigned long saved_hash = world->snd.hash;
+    float saved_time = rdr->anim_time;
+    float deadline;
+    short saved_health = fight->health;
+    short saved_count = world->mon_count;
+    short saved_sound = world->snd.on;
+    short i, result = 0;
+
+    for ( i = 0; i < world->mon_count; i++ )
+        if ( world->mon[i].kind == MDL_KIND_ZOMBIE && !world->mon[i].cruc ) break;
+    if ( i == world->mon_count || !model->loaded ) return -1;
+    ent = world->mon[i];
+    ent.kind = MDL_KIND_ZOMBIE;
+    ent.health = ZOMBIE_HEALTH;
+    ent.state = MDL_ST_PAIN;
+    ent.anim_set = MDL_SET_PAIN5;
+    ent.anim_frame = 9;
+    ent.next_think = 10.1f;
+    ent.pain_finished = 15.0f;
+    world->snd.on = 0;
+    rdr->anim_time = 10.0f;
+    mdl_think( world, player, fight, rdr, &ent, model, -1 );
+    if ( ent.anim_frame != 9 || ent.next_think != 10.1f ) goto done;
+
+    rdr->anim_time = ent.next_think;
+    mdl_think( world, player, fight, rdr, &ent, model, -1 );
+    if ( ent.anim_frame != 10 || ent.pain_finished != 15.0f ||
+         ent.next_think < 15.19f || ent.next_think > 15.21f ) goto done;
+    deadline = ent.next_think;
+
+    player->pos = ent.pos;
+    fight->health = 100;
+    rdr->anim_time = deadline - 0.01f;
+    mdl_think( world, player, fight, rdr, &ent, model, -1 );
+    if ( ent.anim_frame != 10 || ent.next_think != deadline ) goto done;
+    rdr->anim_time = deadline;
+    mdl_think( world, player, fight, rdr, &ent, model, -1 );
+    if ( ent.anim_frame != 11 || ent.ai_count != MDL_ZOMBIE_RETRY ||
+         !MDL_IS_DOWN( &ent ) ) goto done;
+
+    rdr->anim_time = ent.next_think;
+    mdl_think( world, player, fight, rdr, &ent, model, -1 );
+    if ( ent.anim_frame != 10 || ent.ai_count != 0 || !MDL_IS_DOWN( &ent ) ||
+         ent.next_think < 20.39f || ent.next_think > 20.41f ) goto done;
+
+    world->mon_count = 0;
+    fight->health = 0;
+    rdr->anim_time = ent.next_think;
+    mdl_think( world, player, fight, rdr, &ent, model, -1 );
+    result = (short) ( ent.anim_frame == 11 && ent.ai_count == 0 &&
+                       !MDL_IS_DOWN( &ent ) );
+done:
+    world->mon_count = saved_count;
+    fight->health = saved_health;
+    player->pos = saved_pos;
+    rdr->anim_time = saved_time;
+    world->snd.hash = saved_hash;
+    world->snd.on = saved_sound;
+    return result;
+}
+
 short mdl_anim_selftest( void )
 {
     MdlEnt ent, mons[2];
@@ -1830,6 +1926,9 @@ short mdl_anim_selftest( void )
          ZOMBIE_DOWN_WAIT < 5.09f || ZOMBIE_DOWN_WAIT > 5.11f ) return 0;
     ent.anim_frame = 11;
     if ( !MDL_IS_SOLID( &ent ) ) return 0;
+    ent.ai_count = MDL_ZOMBIE_RETRY;
+    if ( MDL_IS_SOLID( &ent ) ) return 0;
+    ent.ai_count = 0;
 
     memset( mons, 0, sizeof(mons) );
     mons[0].kind = MDL_KIND_ZOMBIE;

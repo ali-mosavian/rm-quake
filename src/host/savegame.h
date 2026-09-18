@@ -19,5 +19,6 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
                      Camera *cam, Fight *fight, PlayerCarry *spawn_carry,
                      Renderer *rdr,
                      short *mouse_x, short *mouse_y, char *error );
+short savegame_selftest( World *world );
 
 #endif

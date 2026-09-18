@@ -787,7 +787,6 @@ static void near host_selftests( void )
     mark( buf );
     sprintf( buf, "ent_trig_selftest %d", ent_trig_selftest() );
     mark( buf );
-
     /* sys_time's calibration: tick_hz near 144 on this emulator, not the
        1000 it falls back to uncalibrated -- that fallback once ran the
        whole game 7x too slow. */
@@ -1102,6 +1101,16 @@ static void near host_map_init( Host *h )
         mark( buf );
         sprintf( buf, "mdl_nightmare_selftest %d",
                  mdl_nightmare_selftest( &h->world, &h->player, &h->fight, &h->rdr ) );
+        mark( buf );
+    }
+    if ( !stricmp( h->args.map_name, "e1m3.qmp" ) ) {
+        sprintf( buf, "combat_nightmare_selftest %d",
+                 combat_nightmare_selftest( &h->world, &h->player, &h->fight, &h->rdr ) );
+        mark( buf );
+        sprintf( buf, "mdl_nightmare_pain_selftest %d",
+                 mdl_nightmare_pain_selftest( &h->world, &h->player, &h->fight, &h->rdr ) );
+        mark( buf );
+        sprintf( buf, "savegame_selftest %d", savegame_selftest( &h->world ) );
         mark( buf );
     }
     host_view_setup( h );

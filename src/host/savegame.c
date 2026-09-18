@@ -15,11 +15,12 @@
 #include "mdl_ai.h"
 
 #define SG_MAGIC   0x31565351L
-#define SG_VERSION 7
+#define SG_VERSION 8
 #define SG_VERSION_ITEMS 2
 #define SG_VERSION_SPR3 5
 #define SG_VERSION_ANIM 6
 #define SG_VERSION_SPAWN 7
+#define SG_VERSION_ZWAIT 8
 #define SG_VERSION_OLD 1
 #define SG_GIB_MAGIC 0x31424947L
 #define SG_SPR_MAGIC 0x31525053L
@@ -62,6 +63,44 @@ typedef struct {
     BspVec3 fog_org[ENT_FOGS];
     float fog_at[ENT_FOGS];
 } SaveWorld;
+
+static void near savegame_zombie_wait_v7( MdlEnt far *ent )
+{
+    mdl_zombie_wait_migrate( ent );
+}
+
+static short near savegame_monsters( World *world, short version );
+
+short savegame_selftest( World *world )
+{
+    MdlEnt ent;
+    MdlEnt far *saved_mon = world->mon;
+    short saved_count = world->mon_count;
+    short ok;
+
+    memset( &ent, 0, sizeof(ent) );
+    ent.kind = MDL_KIND_ZOMBIE;
+    ent.state = MDL_ST_PAIN;
+    ent.anim_set = MDL_SET_PAIN5;
+    ent.anim_frame = 10;
+    ent.next_think = 2.0f;
+    ent.pain_finished = 7.0f;
+    world->mon = &ent;
+    world->mon_count = 1;
+    ok = savegame_monsters( world, 7 );
+    if ( !ok || ent.next_think != 7.0f || ent.pain_finished != 0.0f ) {
+        ok = 0;
+        goto done;
+    }
+    ent.next_think = 8.0f;
+    ent.pain_finished = 12.0f;
+    ok = savegame_monsters( world, SG_VERSION );
+    ok = (short) ( ok && ent.next_think == 8.0f && ent.pain_finished == 12.0f );
+done:
+    world->mon = saved_mon;
+    world->mon_count = saved_count;
+    return ok;
+}
 
 typedef struct {
     float anim_time;
@@ -358,6 +397,7 @@ static short near savegame_monsters( World *world, short version )
             if ( mdl_set_count( model, ent->anim_set ) )
                 savegame_old_anim( ent, mdl_set_count( model, ent->anim_set ) );
         }
+        if ( version < SG_VERSION_ZWAIT ) savegame_zombie_wait_v7( ent );
         if ( ent->state == MDL_ST_DEMO || ent->state == MDL_ST_GIBBED ) continue;
         if ( ent->anim_set >= MDL_NSETS || !mdl_set_count( model, ent->anim_set ) ||
              ent->anim_frame < 0 || ent->anim_frame >= mdl_set_count( model, ent->anim_set ) ) return 0;

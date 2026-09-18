@@ -25,10 +25,12 @@
 #define MDL_ST_LEAP    5      /* the dog in the air, on its velocity */
 #define MDL_ST_DEMO    6      /* anim_frame is an absolute recorded frame */
 #define MDL_ST_GIBBED  7      /* the body is gone; gib.c owns what remains */
+#define MDL_ZOMBIE_RETRY -3
 #define MDL_IS_DEAD(e) ( (e)->state == MDL_ST_DEAD || (e)->state == MDL_ST_GIBBED )
 #define MDL_IS_DOWN(e) ( (e)->kind == MDL_KIND_ZOMBIE && (e)->state == MDL_ST_PAIN && \
-                         (e)->anim_set == MDL_SET_PAIN5 && (e)->anim_frame >= 9 && \
-                         (e)->anim_frame <= 10 )
+                         (e)->anim_set == MDL_SET_PAIN5 && \
+                         ( ( (e)->anim_frame >= 9 && (e)->anim_frame <= 10 ) || \
+                           ( (e)->anim_frame == 11 && (e)->ai_count == MDL_ZOMBIE_RETRY ) ) )
 #define MDL_IS_SOLID(e) ( !MDL_IS_DEAD(e) && !MDL_IS_DOWN(e) )
 
 #define MDL_HEALTH      30    /* monster_army's */
@@ -195,6 +197,9 @@ short mdl_ai_visible_selftest( World *world, Player *player );
 short mdl_bottom_selftest( World *world, Player *player );
 short mdl_nightmare_selftest( World *world, Player *player, Fight *fight,
                               Renderer *rdr );
+short mdl_nightmare_pain_selftest( World *world, Player *player, Fight *fight,
+                                   Renderer *rdr );
+void mdl_zombie_wait_migrate( MdlEnt far *ent );
 
 /* A monster's own sound: 0 sight, 1 attack, 2 pain, 3 death. */
 void mdl_say( Player *player, Sound *snd, MdlEnt far *ent, short which );

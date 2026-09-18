@@ -38,5 +38,7 @@ void combat_damage_box( World *world, Player *player, Fight *fight,
                         Renderer *rdr, short i, float dmg );
 short combat_selftest( void );
 short combat_brush_selftest( void );
+short combat_nightmare_selftest( World *world, Player *player, Fight *fight,
+                                 Renderer *rdr );
 
 #endif

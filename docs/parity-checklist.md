@@ -172,7 +172,9 @@ PAK0 and are left out.
       qcport: `ents<N>.bin` a skill, `ENT_TRIG_SKILL`, carried in
       `CARRY.BIN`, `-skill`; `tools/test-skill.sh`. Nightmare removes stock
       missile cooldowns, soldiers refire once while visible and monster
-      attack selection retains v1.01's RNG order; `tools/test-nightmare-ai.sh`
+      attack selection retains v1.01's RNG order. Its five-second pain
+      suppression remains independent of zombie knockdown recovery;
+      `tools/test-nightmare-ai.sh`, `tools/test-nightmare-pain.sh`
 - [x] Episode end text
       id: `client.qc` `ExitIntermission` sends the finale on e1m7;
       `sbar.c` `Sbar_FinaleOverlay`
