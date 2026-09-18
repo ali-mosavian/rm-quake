@@ -94,7 +94,7 @@ typedef struct {
     short   grenade;      /* gravity, a bounce, a fuse and a blast */
     short   gib;          /* a zombie's: bites where it lands, no blast */
     short   rocket;       /* straight, the blast where it stops */
-    short   toss;         /* a hostile one under gravity: the lava ball */
+    short   toss;         /* lava ball: 1 falling fire_fly, 2 Chthon's flying */
     short   wiz;          /* a wizard's: wizard/hit on a wall, not a tink */
     short   water;        /* SV_CheckWaterTransition's: 1 in a liquid, -1
                              out, 0 before its first look */

@@ -797,8 +797,12 @@ void ent_reset( World *world, Fight *fight )
         world->trig[k].left = world->trig[k].count;
         world->trig[k].wait_left = 0.0f;
         world->trig[k].delay_left = 0.0f;
-        if ( world->trig[k].kind == ENT_TRIG_BOSS )
+        if ( world->trig[k].kind == ENT_TRIG_BOSS ) {
             world->trig[k].speed = world->trig[k].wait;
+            world->trig[k].delay = 0.0f;
+            world->trig[k].ofs_out.x = 1.0f;
+            world->trig[k].ofs_out.z = 0.0f;
+        }
         if ( world->trig[k].kind == ENT_TRIG_FIREBALL ) ent_fireball_spawn( world, &world->trig[k] );
         if ( world->trig[k].kind == ENT_TRIG_BUTTON ||
              world->trig[k].kind == ENT_TRIG_SHOOT_BUTTON ) {

@@ -60,6 +60,10 @@ void mdl_spike( World *world, Player *player, Fight *fight, Renderer *rdr,
 void mdl_grenade( Player *player, Sound *snd, Fight *fight, Renderer *rdr, MdlEnt far *ent );
 void mdl_gib( Player *player, Sound *snd, Fight *fight, Renderer *rdr, MdlEnt far *ent );
 
+/* boss_missile: Chthon's straight, player-leading lava ball. */
+short mdl_boss_lava( Player *player, Fight *fight, Renderer *rdr,
+                      BspVec3 *boss, float yaw, short side );
+
 /*
  * name: pl_ray_box / pl_spread_dir / pl_nail_free
  * desc: Shared with the monsters' own fire (mdl_ai.c): a ray against a

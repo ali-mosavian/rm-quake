@@ -17,6 +17,11 @@
 #include "mdl_ai.h"
 #include "center.h"
 #include "part.h"
+#include "weapons.h"
+
+#define ENT_BOSS_RISE_TIME 1.7f
+#define ENT_BOSS_SHOCK_TIME 1.0f
+#define ENT_BOSS_FIRST_SHOT 0.8f
 
 void ent_say( Fight *fight, Renderer *rdr, char far *msg )
 {
@@ -88,6 +93,8 @@ static void ent_lightning( World *world, Player *player, Renderer *rdr, short k 
         boss->wait_left = now;
         if ( boss->left > 0 ) {
             boss->snd = (short) ( boss->left >= 2 ? MDL_BOSS_SHOCKA : MDL_BOSS_SHOCKB );
+            boss->delay = now + ENT_BOSS_SHOCK_TIME + ENT_BOSS_FIRST_SHOT;
+            boss->ofs_out.x = 1.0f;
             return;
         }
         boss->snd = MDL_BOSS_SHOCKC;
@@ -149,6 +156,9 @@ void ent_use_targets( World *world, Player *player, Fight *fight,
                 part_lava( rdr, &org );
                 world->trig[k].snd = MDL_BOSS_RISE;
                 world->trig[k].wait_left = rdr->anim_time;
+                world->trig[k].delay = rdr->anim_time + ENT_BOSS_RISE_TIME + ENT_BOSS_FIRST_SHOT;
+                world->trig[k].ofs_out.x = 1.0f;
+                world->trig[k].ofs_out.z = 0.0f;
             }
             /* fall through */
         case ENT_TRIG_SHOOTER:
@@ -238,7 +248,10 @@ void ent_move_trigs( World *world, Player *player, Camera *cam, Fight *fight,
         was = b->ofs;
         before = t->delay_left;
 
-        if ( t->kind == ENT_TRIG_BOSS && t->state == ENT_TRIG_ARMED ) {
+        if ( t->kind == ENT_TRIG_BOSS && t->state == ENT_TRIG_ARMED &&
+             ( ( t->snd == MDL_BOSS_RISE && rdr->anim_time - t->wait_left >= ENT_BOSS_RISE_TIME ) ||
+               ( ( t->snd == MDL_BOSS_SHOCKA || t->snd == MDL_BOSS_SHOCKB ) &&
+                 rdr->anim_time - t->wait_left >= ENT_BOSS_SHOCK_TIME ) ) ) {
             float want = (float) ( atan2( player->pos.y - t->mins.y,
                                            player->pos.x - t->mins.x ) * 57.29577951 );
             float turn = want - t->speed;
@@ -248,6 +261,22 @@ void ent_move_trigs( World *world, Player *player, Camera *cam, Fight *fight,
             if ( turn > step ) turn = step;
             if ( turn < -step ) turn = -step;
             t->speed += turn;
+            if ( rdr->anim_time >= t->delay ) {
+                at = t->mins;
+                if ( mdl_boss_lava( player, fight, rdr, &at, t->speed,
+                                    t->ofs_out.x >= 0.0f ? 1 : -1 ) ) {
+                    snd_start( &world->snd, player, (short) ( SND_ENT_TRIG + k ),
+                               CHAN_WEAPON, SND_BOSS_THROW, &at, ATTN_NORM );
+                    t->ofs_out.z += 1.0f;
+                }
+                if ( t->ofs_out.x >= 0.0f ) {
+                    t->ofs_out.x = -1.0f;
+                    t->delay += 1.1f;
+                } else {
+                    t->ofs_out.x = 1.0f;
+                    t->delay += 1.2f;
+                }
+            }
         }
 
         if ( t->delay_left > 0.0f ) {
@@ -415,5 +444,7 @@ short ent_fireballs_sent( World *world )
 
     for ( k = 0; k < world->trig_count; k++ )
         if ( world->trig[k].kind == ENT_TRIG_FIREBALL ) n += world->trig[k].left;
+        else if ( world->trig[k].kind == ENT_TRIG_BOSS )
+            n += (short) world->trig[k].ofs_out.z;
     return n;
 }

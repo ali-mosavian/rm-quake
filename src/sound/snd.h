@@ -118,6 +118,7 @@
 #define SND_AX_SWING    173
 #define SND_AX_MEAT     174
 #define SND_AX_WALL     175
+#define SND_BOSS_THROW  176
 
 /* sound()'s attenuations and entity channels, id's numbers */
 #define ATTN_NONE   0

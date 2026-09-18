@@ -135,6 +135,43 @@ short pl_nail_free( Fight *fight )
     return -1;
 }
 
+short mdl_boss_lava( Player *player, Fight *fight, Renderer *rdr,
+                      BspVec3 *boss, float yaw, short side )
+{
+    Spike *s;
+    BspVec3 aim;
+    float a, cy, sy, dx, dy, dz, len, lead;
+    short n = pl_nail_free( fight );
+
+    if ( n < 0 ) return 0;
+    s = &fight->nail[n];
+    a = yaw * 3.14159265f / 180.0f;
+    cy = (float) cos( a ); sy = (float) sin( a );
+    s->pos.x = boss->x + cy * 100.0f + sy * side * 100.0f;
+    s->pos.y = boss->y + sy * 100.0f - cy * side * 100.0f;
+    s->pos.z = boss->z + 200.0f;
+    aim = player->pos;
+    dx = aim.x - s->pos.x; dy = aim.y - s->pos.y; dz = aim.z - s->pos.z;
+    len = (float) sqrt( dx*dx + dy*dy + dz*dz );
+    if ( fight->skill > 1 && len > 0.001f ) {
+        lead = len / 300.0f;
+        aim.x += player->vel.x * lead;
+        aim.y += player->vel.y * lead;
+        dx = aim.x - s->pos.x; dy = aim.y - s->pos.y; dz = aim.z - s->pos.z;
+        len = (float) sqrt( dx*dx + dy*dy + dz*dz );
+    }
+    if ( len < 0.001f ) len = 1.0f;
+    s->vel.x = dx / len * 300.0f;
+    s->vel.y = dy / len * 300.0f;
+    s->vel.z = dz / len * 300.0f;
+    s->die_at = rdr->anim_time + 5.0f;
+    s->hostile = -1;
+    s->toss = 2;
+    s->dmg = PL_FIREBALL_DMG;
+    s->alive = -1;
+    return -1;
+}
+
 /* barrel_explode: T_RadiusDamage's 160 from the box's centre */
 /* GrenadeExplode: T_RadiusDamage from where it lies */
 static void pl_grenade_explode( World *world, Player *player, Fight *fight,
@@ -598,7 +635,7 @@ void pl_spikes_tick( World *world, Player *player, Fight *fight,
                off its wall, inside hull 1's grown solid, so it walks as
                a point through hull 0: a step into solid ends it. */
             t = mdl_ray_player( &player->pos, &s->pos, &dir, reach );
-            if ( s->toss ) s->vel.z -= fight->gravity * dt;
+            if ( s->toss == 1 ) s->vel.z -= fight->gravity * dt;
             if ( pl_point_contents( &fin, world ) == CONTENTS_SOLID ) {
                 s->alive = 0;
                 /* TE_WIZSPIKE or TE_SPIKE; a lava ball says nothing */
@@ -704,7 +741,7 @@ void pl_traps_tick( World *world, Player *player, Fight *fight, Renderer *rdr )
             fight->nail[n].vel.z = t->speed + rng_float( &world->rng ) * 200.0f;
             fight->nail[n].die_at = rdr->anim_time + 5.0f;
             fight->nail[n].hostile = -1;
-            fight->nail[n].toss = -1;
+            fight->nail[n].toss = 1;
             fight->nail[n].dmg = PL_FIREBALL_DMG;
             fight->nail[n].alive = -1;
             t->left++;

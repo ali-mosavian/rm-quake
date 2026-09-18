@@ -23,3 +23,13 @@ live=$(sed -n 's/^particles live=\([0-9][0-9]*\).*/\1/p' "$OUT/cstep.txt" | head
   exit 1
 }
 echo "ok: awakened Chthon drew $drawn boss.mdl triangles with $live lava particles"
+
+TIMEOUT="${TIMEOUT:-600}" "$HERE/run.sh" "$OUT" \
+  "e1m7.qmp -noai -at 8 64 8 -warp 30 352 376 208 -warp 60 352 -248 208 -ticks 240 -nostats -bench 4000" \
+  >/dev/null
+balls=$(sed -n 's/^ai .* balls=\([0-9][0-9]*\).*/\1/p' "$OUT/cstep.txt" | head -1)
+[[ "${balls:-0}" -ge 2 ]] || {
+  echo "FAIL: Chthon launched ${balls:-no} lava balls, want at least 2" >&2
+  exit 1
+}
+echo "ok: Chthon launched $balls lava balls"

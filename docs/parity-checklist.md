@@ -60,11 +60,12 @@ PAK0 and are left out.
       qcport (partial): one EMS page a model keeps no walk set, no soldier or
       dog attack, no leap frames (`tools/mkassets.py:93`); a leap plays the
       run cycle, `src/render/d_alias.c:584`
-- [ ] Chthon drawn
+- [x] Chthon drawn and fighting
       id: `boss.qc` `monster_boss`, `boss_missile`, `lightning_use`
-      qcport (partial): the loaded alias model rises from an id-style lava
-      splash, faces the player, and animates rise, attack, shock and death;
-      the trigger counts bolts and fires the exit. Missing: lava-ball attacks.
+      qcport: the loaded alias model rises from an id-style lava splash,
+      faces the player, animates rise, attack, shock and death, and fires the
+      paired 300-unit/s lava balls from attack frames 9 and 20. Lightning
+      counts bolts and fires the exit; `tools/test-boss.sh`.
 - [x] Runtime view size and fov
       id: `screen.c` `scr_viewsize`, `SCR_SizeUp_f`, `scr_fov`
       qcport: archived `viewsize`/`fov` cvars and `sizeup`/`sizedown`, with

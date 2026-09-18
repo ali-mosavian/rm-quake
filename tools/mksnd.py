@@ -102,6 +102,7 @@ SOUNDS = [
     "items/inv1", "items/inv2", "items/inv3",                                       # 169..171 the Ring of Shadows: taken, fading, its whisper
     "demon/dland2",                                                                   # 172 the fiend landing after a leap
     "weapons/ax1", "player/axhit1", "player/axhit2",                              # 173..175 axe: swing, flesh, world
+    "boss1/throw",                                                                  # 176 Chthon's lava ball
 ]
 
 
