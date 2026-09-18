@@ -12,10 +12,8 @@
  * walkmonster with no path_corner target sets pausetime 99999999 and
  * never leaves stand. Constants are id's, not approximated.
  *
- * NOT here: the three attacks that spawn a projectile -- the ogre's
- * grenade, the zombie's gib and the wizard's spike -- which want the
- * Spike array the weapons subsystem owns. Those monsters still enter
- * the attack state and play its frames; nothing leaves them yet.
+ * Projectile creation stays in weapons.c; this module schedules it on
+ * the matching QuakeC animation frame.
  */
 
 /* MdlEnt.state */
@@ -28,6 +26,10 @@
 #define MDL_ST_DEMO    6      /* anim_frame is an absolute recorded frame */
 #define MDL_ST_GIBBED  7      /* the body is gone; gib.c owns what remains */
 #define MDL_IS_DEAD(e) ( (e)->state == MDL_ST_DEAD || (e)->state == MDL_ST_GIBBED )
+#define MDL_IS_DOWN(e) ( (e)->kind == MDL_KIND_ZOMBIE && (e)->state == MDL_ST_PAIN && \
+                         (e)->anim_set == MDL_SET_PAIN5 && (e)->anim_frame >= 9 && \
+                         (e)->anim_frame <= 10 )
+#define MDL_IS_SOLID(e) ( !MDL_IS_DEAD(e) && !MDL_IS_DOWN(e) )
 
 #define MDL_HEALTH      30    /* monster_army's */
 #define MDL_PELLETS     4     /* army_fire: FireBullets(4, '0.1 0.1 0') */
@@ -39,9 +41,13 @@
 #define MDL_ATK_NEAR_MELEE 0.2f
 #define MDL_ATK_MID     0.05f
 #define MDL_HALF        16.0f /* monster_army's setsize */
-#define MDL_THROWN      (-2)  /* leapt: a trigger_monsterjump throw, no bite */
+#define MDL_MON_HALF(k) ( (k) == MDL_KIND_OGRE || (k) == MDL_KIND_DEMON || \
+                          (k) == MDL_KIND_SHAMBLER || (k) == MDL_KIND_DOG ? 32.0f : MDL_HALF )
+#define MDL_THROWN      (-2)  /* leap_touch: a trigger_monsterjump throw, no bite */
 #define MDL_ZLO         (-24.0f)
 #define MDL_ZHI         40.0f
+#define MDL_MON_ZHI(k)  ( (k) == MDL_KIND_OGRE || (k) == MDL_KIND_DEMON || \
+                          (k) == MDL_KIND_SHAMBLER ? 64.0f : MDL_ZHI )
 #define MDL_FLASH       0.12f /* seconds the muzzle flash shows */
 #define MDL_YAW_SPEED   20.0f /* walkmonster_start_go's yaw_speed */
 #define MDL_RANGE_MELEE 120.0f
@@ -77,7 +83,7 @@
 #define OGRE_SAW_RANGE  100.0f
 #define OGRE_SAW_DMG    4.0f
 #define OGRE_SWING      1.4f     /* a swing's 14 frames */
-#define OGRE_GREN_FRAME 2        /* ogre_nail4, $shoot3, throws */
+#define OGRE_GREN_FRAME 3        /* ogre_nail4, after shoot2's repeated step */
 #define OGRE_GREN_SPEED 600.0f
 #define OGRE_GREN_UP    200.0f
 #define OGRE_GREN_FUSE  2.5f
@@ -100,8 +106,8 @@
 #define ZOMBIE_PAIN_MIN  9       /* a hit under this is ignored */
 #define ZOMBIE_FALL_DMG  25      /* and one of this drops it */
 #define ZOMBIE_FALL_TIME 3.0f
+#define ZOMBIE_DOWN_WAIT 5.1f    /* paine11's 0.1 think plus five seconds */
 #define ZOMBIE_FLINCH    1.0f
-#define ZOMBIE_GIB_FRAME 12      /* atta13, 0-based */
 #define ZOMBIE_GIB_SPEED 600.0f
 #define ZOMBIE_GIB_UP    200.0f
 #define ZOMBIE_GIB_LIFE  2.5f
@@ -109,15 +115,14 @@
 #define ZOMBIE_GIB_Z     6.0f    /* '-10 -22 30' less the 24 to the origin */
 #define ZOMBIE_ATK_NEAR  0.4f
 #define ZOMBIE_ATK_MID   0.1f
-#define ZOMBIE_CRUC_CYCLE 0.85f /* zombie_cruc1..6: 0.1, then 0.1 + random * 0.1 five times */
 
 #define WIZARD_HEALTH     80
 #define WIZARD_FLY_LO     30.0f  /* held 30..40 above the player, 8 a step */
 #define WIZARD_FLY_HI     40.0f
 #define WIZARD_FLY_STEP   8.0f
 #define WIZARD_FLY_DIST   16.0f  /* wiz_run's ai_run(16) */
-#define WIZARD_FIRE_A     2      /* the attack frames the spikes leave */
-#define WIZARD_FIRE_B     7
+#define WIZARD_FIRE_A     3      /* Wiz_StartFast's +0.3/+0.8 timers */
+#define WIZARD_FIRE_B     8
 #define WIZARD_SPIKE_SPEED 600.0f
 #define WIZARD_SPIKE_DMG  9
 #define WIZARD_SPIKE_Z    30.0f
@@ -134,9 +139,9 @@
 #define SHAMBLER_BOLT_DMG   10
 #define SHAMBLER_BOLT_UP    40.0f
 #define SHAMBLER_BOLT_AIM   16.0f
-#define SHAMBLER_BOLT_A     5     /* 0-based magic frames */
-#define SHAMBLER_BOLT_B     8
-#define SHAMBLER_BOLT_C     9
+#define SHAMBLER_BOLT_A     5     /* magic6, then packed magic9..11 */
+#define SHAMBLER_BOLT_B     6
+#define SHAMBLER_BOLT_C     7
 #define SHAMBLER_ATK_WAIT   2.0f  /* + 2 * random */
 
 /* The wander, which is this port's own and not id's. */
@@ -144,7 +149,6 @@
 #define MDL_WANDER_MAX      256.0f
 #define MDL_WANDER_ARRIVE   24.0f
 #define MDL_WANDER_MAXTICKS 100    /* give up after 10 s of think-ticks */
-#define MDL_PATROL_STEP     2.0f   /* ai_walk's stride: army_walk's average */
 #define MDL_STAND_MIN       1.0f
 #define MDL_STAND_MAX       4.0f
 
@@ -162,6 +166,8 @@ void mdl_spawn( World *world, MdlEnt far *ent );
  */
 void mdl_think( World *world, Player *player, Fight *fight, Renderer *rdr,
                  MdlEnt far *ent, MdlState *m, short can_chase );
+
+void mdl_anim_start( MdlEnt far *ent, short state, short set );
 
 /*
  * name: mdl_tick
@@ -184,6 +190,7 @@ float mdl_vectoyaw( float dx, float dy );
  *       spawn by more than 32 units.
  */
 void mdl_ai_stats( World *world, short *hunting, short *moved );
+short mdl_anim_selftest( void );
 short mdl_ai_visible_selftest( World *world, Player *player );
 
 /* A monster's own sound: 0 sight, 1 attack, 2 pain, 3 death. */

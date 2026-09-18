@@ -69,6 +69,24 @@ short pak_seek( Pak *pak, char *member, long *out_bytes )
     return 0;
 }
 
+short pak_seek_part( Pak *pak, char *member, long offset, long bytes )
+{
+    short i;
+
+    if ( !pak->fh ) pak_fatal( member, "no map container is open" );
+    for ( i = 0; i < pak->n; i++ ) {
+        if ( strncmp( pak->dir[i].name, member, QMAP_NAME ) != 0 ) continue;
+        if ( offset < 0 || bytes < 0 || offset > pak->dir[i].size ||
+             bytes > pak->dir[i].size - offset )
+            pak_fatal( member, "range out of bounds" );
+        if ( !qglFileSeek( pak->fh, pak->dir[i].ofs + offset ) )
+            pak_fatal( member, "seek failed" );
+        return pak->fh;
+    }
+    pak_fatal( member, "no such member" );
+    return 0;
+}
+
 short pak_has( const Pak *pak, char *member )
 {
     short i;

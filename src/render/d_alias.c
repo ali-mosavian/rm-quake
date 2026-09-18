@@ -709,17 +709,9 @@ short d_draw_models( World *world, Renderer *rdr, DiskPlane far *frustum,
                               ms->radius, ms->zlo, ms->zhi,
                               lc_slot( rdr, &rdr->mdl_lc, world->mon_count, i ) ) ) continue;
 
-        /* A leaper has no leap frames on the page and flies through the
-           run cycle. */
-        switch ( e->state ) {
-        case MDL_ST_STAND: frame = mdl_set_frame( ms, MDL_SET_STAND, e->anim_frame ); break;
-        case MDL_ST_RUN:
-        case MDL_ST_LEAP:  frame = mdl_set_frame( ms, MDL_SET_RUN, e->anim_frame ); break;
-        case MDL_ST_DEAD:  frame = mdl_set_frame( ms, MDL_SET_DEATH, e->anim_frame ); break;
-        case MDL_ST_PAIN:  frame = mdl_set_frame( ms, MDL_SET_PAIN, e->anim_frame ); break;
-        case MDL_ST_DEMO:  frame = e->anim_frame; break;
-        default:           frame = mdl_set_frame( ms, MDL_SET_ATK, e->anim_frame ); break;
-        }
+        frame = e->state == MDL_ST_DEMO
+              ? e->anim_frame
+              : mdl_set_frame( ms, e->anim_set, e->anim_frame );
         if ( frame >= ms->nframe ) frame = (short) ( ms->nframe - 1 );
 
         a = e->yaw * 3.14159265f / 180.0f;
@@ -754,10 +746,10 @@ short d_draw_gibs( World *world, Renderer *rdr, DiskPlane far *frustum,
         if ( !pool ) break;
         _fmemcpy( &gib, &pool[i], sizeof(gib) );
         if ( !gib.model || gib.model >= world->fx_mdl_count ) continue;
-        _fmemcpy( &model, &world->fx_mdl[gib.model], sizeof(model) );
+        if ( !mdl_effect_model( world, gib.model, &model ) ) continue;
         if ( !d_mdl_visible( world, rdr, frustum, &gib.pos,
                               model.state.radius, model.state.zlo, model.state.zhi, 0 ) ) continue;
-        skin = mdl_effect_skin( world, gib.model );
+        skin = mdl_effect_skin( world, gib.model, &model );
         if ( !skin ) continue;
         pitch = gib.ang.x * 3.14159265f / 180.0f;
         yaw   = gib.ang.y * 3.14159265f / 180.0f;
@@ -790,7 +782,7 @@ static short near boss_frame( TrigEnt far *t, MdlState *ms, float now )
         } else {
             set = MDL_BOSS_DEATH;
             frame = (short) ( ( elapsed - 1.0f ) * 10.0f );
-            if ( frame >= ms->set_n[set] ) frame = (short) ( ms->set_n[set] - 1 );
+            if ( frame >= mdl_set_count( ms, set ) ) frame = (short) ( mdl_set_count( ms, set ) - 1 );
         }
         return mdl_set_frame( ms, set, frame );
     }
@@ -799,7 +791,7 @@ static short near boss_frame( TrigEnt far *t, MdlState *ms, float now )
     if ( elapsed < 0.0f ) elapsed = 0.0f;
     set = t->snd;
     if ( set == MDL_BOSS_RISE ) {
-        float rise = (float) ms->set_n[set] * 0.1f;
+        float rise = (float) mdl_set_count( ms, set ) * 0.1f;
         if ( elapsed < rise )
             return mdl_set_frame( ms, set, (short) ( elapsed * 10.0f ) );
         elapsed -= rise;
@@ -807,7 +799,7 @@ static short near boss_frame( TrigEnt far *t, MdlState *ms, float now )
     } else if ( set == MDL_BOSS_SHOCKA || set == MDL_BOSS_SHOCKB ) {
         if ( elapsed < 1.0f ) {
             frame = (short) ( elapsed * 10.0f );
-            if ( frame >= ms->set_n[set] ) frame -= ms->set_n[set];
+            if ( frame >= mdl_set_count( ms, set ) ) frame -= mdl_set_count( ms, set );
             return mdl_set_frame( ms, set, frame );
         }
         elapsed -= 1.0f;
@@ -815,7 +807,7 @@ static short near boss_frame( TrigEnt far *t, MdlState *ms, float now )
     } else {
         set = MDL_BOSS_ATTACK;
     }
-    frame = (short) ( elapsed * 10.0f ) % ms->set_n[set];
+    frame = (short) ( elapsed * 10.0f ) % mdl_set_count( ms, set );
     return mdl_set_frame( ms, set, frame );
 }
 
@@ -935,9 +927,9 @@ short d_draw_spikes( World *world, Renderer *rdr, Fight *fight,
         if ( !s->alive ) continue;
         id = projectile_model( s );
         if ( id < 0 || id >= world->fx_mdl_count ) continue;
-        _fmemcpy( &model, &world->fx_mdl[id], sizeof(model) );
+        if ( !mdl_effect_model( world, id, &model ) ) continue;
         if ( !model.state.loaded ) continue;
-        skin = mdl_effect_skin( world, id );
+        skin = mdl_effect_skin( world, id, &model );
         if ( !skin ) continue;
         at = s->pos;
 
@@ -1007,9 +999,9 @@ short d_draw_beams( World *world, Renderer *rdr, DiskPlane far *frustum,
         }
         live++;
         if ( b.model < 0 || b.model >= world->fx_mdl_count ) continue;
-        _fmemcpy( &model, &world->fx_mdl[b.model], sizeof(model) );
+        if ( !mdl_effect_model( world, b.model, &model ) ) continue;
         if ( !model.state.loaded ) continue;
-        skin = mdl_effect_skin( world, b.model );
+        skin = mdl_effect_skin( world, b.model, &model );
         if ( !skin ) continue;
 
         dist.x = b.end.x - b.start.x;

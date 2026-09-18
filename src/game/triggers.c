@@ -465,19 +465,6 @@ void ent_fireball_spawn( World *world, TrigEnt far *t )
     t->wait_left = rng_float( &world->rng ) * 5.0f;
 }
 
-/* setsize: the ogre, demon and shambler 32 wide and 64 up, the dog 32
-   and 40, the rest monster_army's 16 and 40 */
-static float near ent_mon_half( short kind )
-{
-    return kind == MDL_KIND_OGRE || kind == MDL_KIND_DEMON || kind == MDL_KIND_SHAMBLER ||
-           kind == MDL_KIND_DOG ? 32.0f : MDL_HALF;
-}
-
-static float near ent_mon_zhi( short kind )
-{
-    return kind == MDL_KIND_OGRE || kind == MDL_KIND_DEMON || kind == MDL_KIND_SHAMBLER ? 64.0f : MDL_ZHI;
-}
-
 void ent_monster_jump( World *world, MdlEnt far *e )
 {
     short k;
@@ -486,8 +473,8 @@ void ent_monster_jump( World *world, MdlEnt far *e )
     /* flags & (FL_MONSTER|FL_FLY|FL_SWIM) != FL_MONSTER: qcc binds & tighter
        than !=, so the flyer is left alone */
     if ( mon_facts[ e->kind ].flyer ) return;
-    half = ent_mon_half( e->kind ) + 1.0f;
-    zhi  = ent_mon_zhi( e->kind ) + 1.0f;
+    half = MDL_MON_HALF( e->kind ) + 1.0f;
+    zhi  = MDL_MON_ZHI( e->kind ) + 1.0f;
     for ( k = 0; k < world->trig_count; k++ ) {
         TrigEnt far *t = &world->trig[k];
 
@@ -500,9 +487,9 @@ void ent_monster_jump( World *world, MdlEnt far *e )
         e->vel.y = t->ofs_out.y;
         if ( e->state == MDL_ST_LEAP ) continue;   /* off the ground: xy alone */
         e->vel.z = t->ofs_out.z;
-        e->state = MDL_ST_LEAP;
-        e->leapt = MDL_THROWN;
-        e->anim_frame = 0;
+        mdl_anim_start( e, MDL_ST_LEAP,
+                        mdl_set_count( &world->mdl[e->kind], MDL_SET_LEAP ) ? MDL_SET_LEAP : MDL_SET_RUN );
+        e->leap_touch = MDL_THROWN;
     }
 }
 

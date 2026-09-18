@@ -18,10 +18,10 @@ members = qmapread.members(sys.argv[2])
 if "effects.bin" not in members:
     raise SystemExit("FAIL: map has no effects.bin projectile bundle")
 data = qmapread.read(sys.argv[2], "effects.bin")
-if data[:4] != b"QFX2":
-    raise SystemExit("FAIL: effects.bin has no QFX2 shared-bank header")
+if data[:4] != b"QFX3":
+    raise SystemExit("FAIL: effects.bin has no QFX3 shared-bank header")
 count = struct.unpack_from("<H", data, 4)[0]
-names = [struct.unpack_from("<8s", data, 14 + i * 68)[0].rstrip(b"\0").decode()
+names = [struct.unpack_from("<8s", data, 14 + i * 76)[0].rstrip(b"\0").decode()
          for i in range(count)]
 
 wanted = {"spike", "s_spike", "grenade", "missile", "lavaball", "w_spike", "zom_gib"}

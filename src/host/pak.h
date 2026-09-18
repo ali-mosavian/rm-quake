@@ -64,6 +64,10 @@ void pak_close( Pak *pak );
    two loaders below are this with an allocation and a read on top. */
 short pak_seek( Pak *pak, char *member, long *out_bytes );
 
+/* Positions at a byte range within a member. The range is checked
+   against the directory before the shared handle moves. */
+short pak_seek_part( Pak *pak, char *member, long offset, long bytes );
+
 /* Is member in the directory? The only non-fatal question this layer
    answers: a container built without the PAK has no sounds, and that
    is a quiet run rather than a dead one. */

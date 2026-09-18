@@ -48,7 +48,7 @@ void r_recursive_world_node( World *world, Renderer *rdr, DiskPlane far *frustum
             frst = world->leaves[leafnr].lface_id;
             last = frst + world->leaves[leafnr].lface_num;
             for ( i = frst; i < last; i++ )
-                {   short fi = world->lfc[i];
+                {   short fi = rdr->lfc_map[i];
                     rdr->pflag[fi >> 3] |= (unsigned char)( 1 << (fi & 7) );
                 }
 #if QR_PROF

@@ -10,6 +10,9 @@
 /* Cell heights are powers of two and a cell is at most one EMS page,
    so 1..16384 -- nine of them can matter and the rest cannot exist. */
 #define TEX_HEIGHTS 15
+#define WORLD_EMS_PAGE_SHIFT 14
+#define WORLD_EMS_PAGE_BYTES ( 1L << WORLD_EMS_PAGE_SHIFT )
+#define WORLD_EMS_PAGE_MASK  ( ( 1U << WORLD_EMS_PAGE_SHIFT ) - 1U )
 #include "mdltypes.h"
 
 /* A light of style 32 or more: light_use toggles the style between "m"
@@ -23,7 +26,7 @@ typedef struct {
 /*
  * World -- the loaded map. Grows a field at a time as the module that
  * owns it gets ported; this is ent.bas's, pl_move.bas's and r_bsp.bas's
- * slice (models/nodes/planes/clip/leaves/lfc/pvs_data, plus the entity
+ * slice (models/nodes/planes/clip/leaves/lfc/PVS store, plus the entity
  * arrays ent.bas owns), plus faces/texinfo/miptex -- sb_build.c (d_surf.bas)
  * needs them, even though model.bas's own loader that would fill them
  * isn't ported yet. The surface cache itself is not here: SurfCache is
@@ -58,14 +61,9 @@ typedef struct {
                                       writes over whatever follows the
                                       array if this isn't checked */
     Leaf        far *leaves;
-    short       far *lfc;        /* the marksurface list: leaf.lface_id
-                                     .. +lface_num indexes into this, and
-                                     each entry is a face index */
-    unsigned char far *pvs_data; /* the PVS lump, run-length compressed;
-                                     leaf.vis_list is a byte offset into
-                                     this. A plain far pointer here, not
-                                     BASIC's packed-long + DEF SEG/PEEK --
-                                     see r_bsp.c's r_mark_leaves */
+    short       lfc_hnd;          /* one EMS page: leaf marksurface indices */
+    short       pvs_hnd;         /* EMS: the run-length compressed PVS blob */
+    long        pvs_bytes;       /* leaf.vis_list is a byte offset into it */
 
     short       face_count;      /* r_draw_world's frame_stamp-reset loop
                                      bound; the walk itself never needs
@@ -122,7 +120,7 @@ typedef struct {
     signed char far *item_skin;     /* armor.mdl's green/yellow/red skin */
 
     short       fx_mdl_count;
-    EffectModel far *fx_mdl;        /* effects.bin's shared-bank models */
+    short       fx_mdl_hnd;          /* EMS page of effects.bin model descriptors */
     short       fx_geom_hnd;
     QSurf       fx_skin_atlas, fx_skin_view;
     short       fx_skin_aim;

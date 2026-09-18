@@ -111,8 +111,8 @@ for name in sorted(want & set(got)):
     model = mdl.parse_mdl(mdl.pak_read(blob, entries, f"progs/{name}.mdl"), name)
     sets = mkmdl.parse_sets(specs[name])
     counts = [len(mkmdl.kept(model, s, n)) for s, n in sets]
-    if list(geo[40:48]) != (counts + [0] * 8)[:8]:
-        print(f"FAIL: {map_name}: {name}.geo's set counts {list(geo[40:48])}; the PAK's are {counts}")
+    if list(geo[40:56]) != (counts + [0] * 16)[:16]:
+        print(f"FAIL: {map_name}: {name}.geo's set counts {list(geo[40:56])}; the PAK's are {counts}")
         bad += 1
     printed = {s for n, s in got_set if n == name}
     if printed != {s for s, n in enumerate(counts) if n}:
@@ -150,7 +150,7 @@ m = qmapread.members(src)
 so = m["soldier.geo"][0]
 d[so:so + 4] = b"QMD2"
 do = m["dog.geo"][0]
-struct.pack_into("<H", d, do + 48, struct.unpack_from("<H", d, do + 48)[0] + 1)
+struct.pack_into("<H", d, do + 56, struct.unpack_from("<H", d, do + 56)[0] + 1)
 vo = m["v_shot.geo"][0]
 d[vo + 40] -= 1
 open(dst, "wb").write(d)
@@ -159,7 +159,7 @@ PY
     log=$(tr -d '\r' < "$OUT/cstep.txt" 2>/dev/null)
     rm -f "$OUT/e1m1bad.qmp"
     why=""
-    grep -q "^soldier.geo: not a QMD3 .geo" <<< "$log" || why="$why; soldier.geo's old magic said nothing on E9"
+    grep -q "^soldier.geo: not a QMD4 .geo" <<< "$log" || why="$why; soldier.geo's old magic said nothing on E9"
     grep -qE "^dog.geo: .* -- will not fit" <<< "$log" || why="$why; dog.geo's page too many said nothing on E9"
     grep -qE "^v_shot.geo: .* needed, or not its" <<< "$log" || why="$why; v_shot.geo's short set count said nothing on E9"
     grep -q "^mdl_sum soldier " <<< "$log" && why="$why; soldier loaded from a QMD2 header"

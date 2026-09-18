@@ -168,10 +168,8 @@ void r_set_frustum( DiskPlane far *frustum, Mat4 *mtx )
  *       coded: a zero byte is a marker plus a repeat count, any other
  *       byte is eight leaves' worth of bits) into rdr->pvsb.
  *
- *       world->pvs_data + v replaces the original's DEF SEG/PEEK pair
- *       (v was the lump offset, DEF SEG the segment reconstructed from
- *       a packed long) with a plain far pointer -- same address, no
- *       segment arithmetic to get wrong.
+ *       The compressed blob lives in EMS. A decode maps its current
+ *       16K page and only remaps when the byte offset crosses one.
  */
 /* Any leaf below nodenr in pvsb? One post-order pass, no parent
    pointers needed, run only when pvsb is rebuilt. pvs_now is a SUBSET of
@@ -230,10 +228,27 @@ void r_build_parents( World *world, Renderer *rdr )
     }
 }
 
+static unsigned char near r_pvs_byte( World *world, long ofs, short *page,
+                                      unsigned char far **base )
+{
+    short want;
+
+    if ( ofs < 0 || ofs >= world->pvs_bytes ) sys_error( "PVS decode ran past its blob" );
+    want = (short) ( ofs >> WORLD_EMS_PAGE_SHIFT );
+    if ( want != *page ) {
+        short seg = qglGemMap( world->pvs_hnd, want, 2 /* PAGE_SLOT */ );
+        if ( !seg ) sys_error( "PVS page would not map" );
+        *base = (unsigned char far *) ((long) seg << 16);
+        *page = want;
+    }
+    return (*base)[ (unsigned short) ofs & WORLD_EMS_PAGE_MASK ];
+}
+
 void r_mark_leaves( World *world, Renderer *rdr, short nodenr, Vec3 *campos )
 {
-    unsigned char far *v;
-    short leafnr, l, j, byte, bit, head = 0;
+    unsigned char far *pvs = 0;
+    long ofs;
+    short leafnr, l, j, byte, bit, run, page = -1, head = 0;
 
     head = nodenr;              /* the root of the walk, before the descent */
     while ( !(nodenr & 0x8000) ) {
@@ -259,19 +274,18 @@ void r_mark_leaves( World *world, Renderer *rdr, short nodenr, Vec3 *campos )
         return;
     }
 
-    v = world->pvs_data + world->leaves[leafnr].vis_list;
+    ofs = world->leaves[leafnr].vis_list;
 
     l = 1;
     while ( l < world->leaf_count ) {
-        if ( *v == 0 ) {
+        byte = r_pvs_byte( world, ofs++, &page, &pvs );
+        if ( byte == 0 ) {
+            run = r_pvs_byte( world, ofs++, &page, &pvs );
             j = l;
-            l += 8 * (short) v[1];
+            l += 8 * run;
             if ( l > world->leaf_count ) l = world->leaf_count;
             for ( ; j < l; j++ ) rdr->pvsb[j] = 0;
-            v++;    /* one here, one below: a zero run is marker plus
-                        count, both consumed */
         } else {
-            byte = *v;
             for ( bit = 0; bit < 8; bit++ ) {
                 /* a run can carry past the last leaf */
                 if ( l >= world->leaf_count ) break;
@@ -279,7 +293,6 @@ void r_mark_leaves( World *world, Renderer *rdr, short nodenr, Vec3 *campos )
                 l++;
             }
         }
-        v++;
     }
 
     r_mark_subtrees( world, rdr, head, 0 );
@@ -323,7 +336,7 @@ void r_draw_world( World *world, Renderer *rdr, DiskPlane far *frustum,
                     short model, Vec3 *campos, Mat4 *mtx_fin,
                     float xresh, float yresh, float z_near )
 {
-    short i;
+    short i, seg;
 
     rdr->ord_count  = 0;
     rdr->cul_leafs  = 0;
@@ -402,6 +415,9 @@ void r_draw_world( World *world, Renderer *rdr, DiskPlane far *frustum,
         }
     }
 
+    seg = qglGemMap( world->lfc_hnd, 0, 3 /* CM_SLOT, idle during the walk */ );
+    if ( !seg ) sys_error( "marksurfaces would not map" );
+    rdr->lfc_map = (short far *) ((long) seg << 16);
     r_recursive_world_node( world, rdr, frustum, (short) world->models[model].head_node0, campos, 0, CLIP_ALL );
 
     /* With a depth buffer every brush entity comes after the world and
@@ -443,7 +459,17 @@ void r_load_leaves( World *world )
 
 void r_load_lfaces( World *world, long lump_bytes )
 {
-    world->lfc = (short far *) pak_load( &world->pak, "lface.bld", lump_bytes );
+    long n;
+    short fh, seg;
+
+    fh = pak_seek( &world->pak, "lface.bld", &n );
+    if ( n != lump_bytes || n < 2 || n > WORLD_EMS_PAGE_BYTES )
+        sys_error( "marksurfaces do not fit one EMS page" );
+    world->lfc_hnd = qglGemAlloc( n );
+    if ( !world->lfc_hnd ) sys_error( "marksurfaces need EMS" );
+    seg = qglGemMap( world->lfc_hnd, 0, 2 /* PAGE_SLOT */ );
+    if ( !seg || qglFileRead( fh, (long) seg << 16, n ) != n )
+        sys_error( "marksurfaces would not load" );
 }
 
 void r_load_portals( World *world, Renderer *rdr, long leaf_count )

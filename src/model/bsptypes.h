@@ -51,7 +51,7 @@ typedef struct {
     long  ptype;
 } DiskPlane;
 
-/* bspfile.bi's Leaf. vis_list is an offset into World's pvs_data blob,
+/* bspfile.bi's Leaf. vis_list is an offset into World's EMS PVS blob,
    -1 for "no visibility restriction" (draw from everywhere) and -2 for
    "no pvs data at all" (r_mark_leaves treats that as a load-time
    error). cont is one of the CONTENTS_ codes above; amb is the leaf's

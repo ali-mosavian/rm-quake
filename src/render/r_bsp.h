@@ -57,9 +57,8 @@ void  r_portal_outline( World *world, Renderer *rdr, QSurf dc, Mat4 *mtx_fin,
    already-narrowed leaves.pag (fatal if it won't load). */
 void r_load_leaves( World *world );
 
-/* Builds world->lfc (the marksurface list) from lump_bytes, the raw
-   .bsp's own lface lump size -- the file's own byte count sizes the
-   read; nothing here needs a derived count. */
+/* Loads the marksurface list into one EMS page from lump_bytes, the
+   raw .bsp's own lface lump size. The walk maps it once per frame. */
 void r_load_lfaces( World *world, long lump_bytes );
 
 /* Builds world->pt_idx/pt_ref from mkportals.py's own portalidx.bld/

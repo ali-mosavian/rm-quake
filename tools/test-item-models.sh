@@ -23,7 +23,7 @@ if missing:
 
 armor = qmapread.read(path, "armor.itm")
 _magic, ntri, nvert, nframe, sw, sh = struct.unpack_from("<4s5H", armor)
-skin_at = 52 + ntri * 18 + nvert * nframe * 3
+skin_at = 60 + ntri * 18 + nvert * nframe * 3
 size = sw * sh
 skins = [armor[skin_at + i * size:skin_at + (i + 1) * size] for i in range(3)]
 if any(len(s) != size for s in skins) or len(set(skins)) != 3:

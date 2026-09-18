@@ -742,6 +742,10 @@ static void near host_selftests( void )
     mark( buf );
     sprintf( buf, "combat_selftest %d", combat_selftest() );
     mark( buf );
+    sprintf( buf, "mdl_anim_selftest %d", mdl_anim_selftest() );
+    mark( buf );
+    sprintf( buf, "d_alias_selftest %d", d_alias_selftest() );
+    mark( buf );
     sprintf( buf, "combat_brush_selftest %d", combat_brush_selftest() );
     mark( buf );
     sprintf( buf, "ent_trig_selftest %d", ent_trig_selftest() );

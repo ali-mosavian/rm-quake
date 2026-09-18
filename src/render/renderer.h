@@ -136,6 +136,7 @@ typedef struct {
     short far *pvs_now;   /* pvsb narrowed to what the portals actually
                               reach from this eye -- r_portal.c, not yet
                               ported; unused until it is */
+    short far *lfc_map;   /* marksurfaces mapped once for the BSP walk */
 
     short frame_stamp;    /* stamped into pflag for visible faces */
     long  ord_count;      /* entries written to ord */

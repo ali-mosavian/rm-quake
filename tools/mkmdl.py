@@ -31,7 +31,6 @@ triangle, so the u belongs to the CORNER and not to the vertex.
 from __future__ import annotations
 
 import os
-import re
 import struct
 import sys
 
@@ -39,6 +38,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mdlview as mdl  # noqa: E402
+from mdlsets import MDL_NSETS, parse_sets, select_indices, set_indices  # noqa: E402
 
 
 def resample_skin(skin) -> tuple[int, int, np.ndarray]:
@@ -73,22 +73,16 @@ def resample_skin(skin) -> tuple[int, int, np.ndarray]:
     return sw, sh, skin.pixels[yi][:, xi]  # nearest neighbour: stays in palette indices
 
 
-def parse_sets(spec: str | None) -> list[tuple[str, int]]:
-    # name, or name:n for the first n frames of that set -- the dog's 236
-    # vertices leave the page room for 23 frames
-    return [(e.split(":")[0], int(e.split(":")[1]) if ":" in e else 0)
-            for e in (spec.split(",") if spec is not None else ["stand", "walk", "run"])]
-
-
 def kept(m: mdl.Model, name: str, n: int) -> list:
-    # In frameset order, not file order: the .mdl keeps death before run
-    # and the draw indexes the sets by position.
-    fs = list(m.frames) if name == "*" else [f for f in m.frames if re.sub(r"\d+$", "", f.name) == name]
-    return fs[:n] if n else fs
+    return [m.frames[i] for i in set_indices([f.name for f in m.frames], name, n)]
 
 
 def select_frames(m: mdl.Model, sets: list[tuple[str, int]]) -> list:
-    return [f for name, n in sets for f in kept(m, name, n)] or list(m.frames)
+    spec = ",".join(name + (f":{n}" if n else "") for name, n in sets)
+    indices, _counts = select_indices([f.name for f in m.frames], spec)
+    if not indices:
+        raise ValueError("model selection contains no frames")
+    return [m.frames[i] for i in indices]
 
 
 def quantise(frames: list) -> tuple[np.ndarray, np.ndarray, bytes]:
@@ -138,15 +132,16 @@ def main() -> int:
     # fact it has no use for. They were written here before anything read
     # them, which is how they stayed wrong for free.
     counts = [len(kept(m, s, n)) for s, n in sets]
-    if len(counts) > 8 or max(counts) > 255 or sum(counts) != len(frames):
-        raise SystemExit(f"{name}: sets {counts} for {len(frames)} frames: the header holds eight"
-                         " counts of up to 255 that add up to the frames")
+    if (len(counts) > MDL_NSETS or max(counts) > 31 or len(frames) > 255
+            or sum(counts) != len(frames)):
+        raise SystemExit(f"{name}: sets {counts} for {len(frames)} frames: the header holds {MDL_NSETS}"
+                         " counts of up to 31 that add up to the frames")
 
-    # "QMD3": "QMD2" had five named set counts and "QMDL" no pages; mdl.c refuses both by name.
-    out = bytearray(struct.pack("<4sHHHHH", b"QMD3", len(m.tris), len(m.st),
+    # QMD4 expands the semantic animation slots from eight to sixteen.
+    out = bytearray(struct.pack("<4sHHHHH", b"QMD4", len(m.tris), len(m.st),
                                 len(frames), sw, sh))
     out += struct.pack("<6f", *vscale.tolist(), *vmin.tolist())
-    out += struct.pack("<H8B", len(counts), *(counts + [0] * 8)[:8])
+    out += struct.pack("<H16B", len(counts), *(counts + [0] * MDL_NSETS)[:MDL_NSETS])
     # Frames one 16K EMS page holds, and the pages they take: the loader
     # maps page frame // page_frames, so no frame straddles two.
     page_frames = 16384 // (len(m.st) * 3)

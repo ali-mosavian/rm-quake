@@ -15,12 +15,23 @@
 /* A model's frame sets, contiguous in its vertex pages in this order:
    a monster's as mkassets.py's MDL_SETS writes them, Chthon's as
    BOSS_MDL does, and a view model's one. */
-#define MDL_NSETS       8
+#define MDL_NSETS      16
 #define MDL_SET_STAND   0
 #define MDL_SET_RUN     1
 #define MDL_SET_DEATH   2
 #define MDL_SET_PAIN    3
 #define MDL_SET_ATK     4
+#define MDL_SET_WALK    5
+#define MDL_SET_DEATH2  6
+#define MDL_SET_PAIN2   7
+#define MDL_SET_PAIN3   8
+#define MDL_SET_PAIN4   9
+#define MDL_SET_PAIN5  10
+#define MDL_SET_ATK2   11
+#define MDL_SET_ATK3   12
+#define MDL_SET_LEAP   13
+#define MDL_SET_CRUC   14
+#define MDL_SET_ATK4   15
 #define MDL_MON_NEED    2       /* stand and run: the AI cycles modulo both */
 #define MDL_BOSS_RISE   0
 #define MDL_BOSS_WALK   1
@@ -53,9 +64,9 @@
 #define MDL_KIND_WIZARD   6
 #define MDL_KIND_SHAMBLER 7
 
-/* mkmdl.py's .geo header, 52 bytes. Read whole and picked apart, so
+/* mkmdl.py's .geo header, 60 bytes. Read whole and picked apart, so
    the field order here is the file's. */
-#define MDL_MAGIC   0x33444D51L     /* "QMD3"; "QMD2" had five named set counts, "QMDL" no pages */
+#define MDL_MAGIC   0x34444D51L     /* "QMD4": sixteen semantic animation slots */
 typedef struct {
     long  magic;
     short ntri, nvert, nframe;
@@ -67,7 +78,7 @@ typedef struct {
     short vpages, page_frames;  /* vertex pages 0..vpages-1, whole frames a page */
 } MdlHead;
 
-#define REC_MDLHEAD 52
+#define REC_MDLHEAD 60
 typedef char rec_mdlhead_ok[ sizeof(MdlHead) == REC_MDLHEAD ? 1 : -1 ];
 
 /* One .geo triangle: three vertex indices and a texture corner for each. */
@@ -76,15 +87,16 @@ typedef char rec_mdltri_ok[ sizeof(MdlTri) == MDL_TRI_BYTES ? 1 : -1 ];
 
 /* One loaded model, shared by every monster of its kind. */
 typedef struct {
-    short   loaded;
-    short   ntri, nvert, nframe;
+    short   ntri, nvert;
+    unsigned char nframe, loaded;
     QSurf   skin;
     short   vtx_hnd;            /* qglGemAlloc: vertex pages, then one of triangles */
     BspVec3 scale, origin;
     float   radius, zlo, zhi;   /* the box any frame at any yaw fits in */
-    unsigned char set_n[MDL_NSETS];
+    unsigned char set_bits[10]; /* sixteen 5-bit frame counts */
     short   vpages, page_frames;
 } MdlState;
+typedef char rec_mdlstate_ok[ sizeof(MdlState) == 62 ? 1 : -1 ];
 
 /* A small bundled alias model lives in far memory. Armor shares its
    geometry but has three skins; other uses leave the extras zero. */
@@ -148,13 +160,17 @@ typedef struct {
     float   pain_finished;      /* no new flinch before this */
     BspVec3 spawn;
     BspVec3 vel;                /* a leaper's, MOVETYPE_STEP off the ground */
-    short   leapt;              /* this leap has landed its damage, or MDL_THROWN */
+    signed char leap_touch;     /* landed its damage, or MDL_THROWN */
+    unsigned char anim_set;     /* MDL_SET_*, separate from behavioural state */
     short   patrol, corner;     /* the map's path_corner, and the one bound for */
     float   idle_at;            /* the next roll for an idle sound */
     short   water;              /* SV_CheckWaterTransition's: 1 in a liquid,
                                    -1 out, 0 before its first look */
     short   cruc;               /* SPAWN_CRUCIFIED: still, moaning, unhurt */
 } MdlEnt;
+
+#define REC_MDLENT 104
+typedef char rec_mdlent_ok[ sizeof(MdlEnt) == REC_MDLENT ? 1 : -1 ];
 
 
 #endif

@@ -6,6 +6,7 @@ import re
 import struct
 import sys
 
+from mdlsets import DEMO_MONSTERS, parse_sets, set_indices
 from pakget import member
 from mksnd import SOUNDS
 
@@ -50,16 +51,7 @@ PROJECTILES = {
     "h_zombie": 6, "zom_gib": 6, "gib1": 6, "gib2": 6, "gib3": 6,
 }
 
-MONSTERS = {
-    "soldier": (0, "stand,run,death,pain"),
-    "knight": (1, "stand,runb,death,pain,attackb"),
-    "dog": (2, "stand:1,run,death,pain:1"),
-    "ogre": (3, "stand:1,run,death,pain:3,shoot"),
-    "demon": (4, "stand:1,run,death,pain:3,attacka"),
-    "zombie": (5, "stand:1,run:8,death,paina:8,atta"),
-    "wizard": (6, "hover,fly,death,pain,magatt"),
-    "shambler": (7, "stand:1,run,death,pain,magic"),
-}
+MONSTERS = DEMO_MONSTERS
 
 ITEMS = {
     "health": 0,
@@ -436,18 +428,19 @@ def compact_frame_map(pak: bytes, name: str, spec: str) -> dict[int, int]:
     names = mdl_frame_names(member(pak, f"progs/{name}.mdl"))
     chosen = []
     groups = []
-    for part in spec.split(","):
-        prefix, _, limit = part.partition(":")
-        matches = [i for i, frame in enumerate(names) if re.sub(r"\d+$", "", frame) == prefix]
-        kept = matches[: int(limit)] if limit else matches
+    selectors = parse_sets(spec)
+    for selector, limit in selectors:
+        kept = set_indices(names, selector, limit)
         groups.append(kept)
         chosen.extend(kept)
-    reverse = {original: compact for compact, original in enumerate(chosen)}
+    reverse = {}
+    for compact, original in enumerate(chosen):
+        reverse.setdefault(original, compact)
     for original, frame in enumerate(names):
         if original in reverse:
             continue
         base = re.sub(r"\d+$", "", frame)
-        if "death" in base:
+        if "death" in base and groups[2]:
             group = groups[2]
         elif "pain" in base:
             group = groups[3]
@@ -459,6 +452,8 @@ def compact_frame_map(pak: bytes, name: str, spec: str) -> dict[int, int]:
             group = groups[4] if len(groups) > 4 and groups[4] else groups[0]
         same = [i for i, candidate in enumerate(names) if re.sub(r"\d+$", "", candidate) == base]
         ordinal = same.index(original)
+        if not group:
+            group = groups[0]
         fallback = group[min(ordinal, len(group) - 1)]
         reverse[original] = reverse[fallback]
     return reverse

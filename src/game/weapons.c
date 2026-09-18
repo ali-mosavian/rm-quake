@@ -388,7 +388,7 @@ static void pl_fire_axe( World *world, Player *player, Camera *cam,
     best = -1;
     bt = PL_AXE_RANGE * tr.frac;
     for ( i = 0; i < world->mon_count && i < MDL_MAX_ENTS; i++ ) {
-        if ( MDL_IS_DEAD( &world->mon[i] ) ) continue;
+        if ( !MDL_IS_SOLID( &world->mon[i] ) ) continue;
         t = mdl_ray_box( &world->mon[i].pos, &org, &aim, bt );
         if ( t >= 0.0f && t < bt ) { bt = t; best = i; }
     }
@@ -474,7 +474,7 @@ void pl_fire( World *world, Player *player, Camera *cam, Fight *fight,
         best = -1;
         bt = PL_SHOT_RANGE * tr.frac;
         for ( i = 0; i < world->mon_count && i < MDL_MAX_ENTS; i++ ) {
-            if ( MDL_IS_DEAD( &world->mon[i] ) ) continue;
+            if ( !MDL_IS_SOLID( &world->mon[i] ) ) continue;
             t = mdl_ray_box( &world->mon[i].pos, &org, &dir, bt );
             if ( t >= 0.0f && t < bt ) { bt = t; best = i; }
         }
@@ -556,7 +556,7 @@ static void pl_grenade_tick( World *world, Player *player, Fight *fight,
         if ( t >= 0.0f ) { pl_grenade_explode( world, player, fight, rdr, s ); return; }
     } else {
         for ( i = 0; i < world->mon_count; i++ ) {
-            if ( MDL_IS_DEAD( &world->mon[i] ) ) continue;
+            if ( !MDL_IS_SOLID( &world->mon[i] ) ) continue;
             if ( mdl_ray_box( &world->mon[i].pos, &s->pos, dir, reach ) >= 0.0f ) {
                 pl_grenade_explode( world, player, fight, rdr, s );
                 return;
@@ -664,7 +664,7 @@ void pl_spikes_tick( World *world, Player *player, Fight *fight,
         bt = reach * tr.frac;
         best = -1;
         for ( i = 0; i < world->mon_count; i++ ) {
-            if ( MDL_IS_DEAD( &world->mon[i] ) ) continue;
+            if ( !MDL_IS_SOLID( &world->mon[i] ) ) continue;
             t = mdl_ray_box( &world->mon[i].pos, &s->pos, &dir, bt );
             if ( t >= 0.0f && t < bt ) { bt = t; best = i; }
         }

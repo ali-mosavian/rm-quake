@@ -96,7 +96,7 @@ TITLE_DEMO_OUT := $(addprefix $(BUILD)/,$(TITLE_DEMOS))
 title: build $(TITLE_MAP_OUT) $(TITLE_DEMO_OUT) ## build the no-argument title-demo setup
 
 $(foreach m,$(TITLE_MAPS),$(eval $(BUILD)/$(m).qmp: data/maps/$(m)/$(m).qmp | $(BUILD); cp $$< $$@))
-$(BUILD)/demo%.qdc: $(PAK) tools/mkidcam.py tools/mksnd.py tools/pakget.py | $(BUILD)
+$(BUILD)/demo%.qdc: $(PAK) tools/mkidcam.py tools/mdlsets.py tools/mksnd.py tools/pakget.py | $(BUILD)
 	@python3 tools/mkidcam.py $(PAK) demo$*.dem $@
 
 # Named one by one, not a `$(BUILD)/%:` pattern -- that pattern also
@@ -153,7 +153,7 @@ $(EXE): $(OBJS)
 ASSETS     := data/assets/assets.zip
 MAP_ROOT   ?= data/maps
 MAP_ASSETS := $(if $(wildcard $(PAK)),$(foreach m,$(MAPS),$(MAP_ROOT)/$(m)/assets.zip))
-MKASSETS   := tools/mkassets.py tools/lighthash.py tools/mkportals.py tools/mksnd.py tools/texquant.py tools/fsdither.c \
+MKASSETS   := tools/mkassets.py tools/mdlsets.py tools/lighthash.py tools/mkportals.py tools/mksnd.py tools/texquant.py tools/fsdither.c \
               tools/mkmdl.py tools/mksprite.py tools/mkgfx.py tools/mdlview.py
 MKASSETS_CMD ?= python3 tools/mkassets.py
 

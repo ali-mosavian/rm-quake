@@ -26,6 +26,8 @@
  */
 void mdl_load( Pak *pak, MdlState *m, char *name, short need );
 void mdl_unload( MdlState *m );
+short mdl_set_count( const MdlState *m, short set );
+void mdl_set_counts( MdlState *m, const unsigned char *counts );
 
 /* Chthon's model, when the map's triggers hold ENT_TRIG_BOSS. */
 void mdl_load_boss( World *world );
@@ -50,10 +52,10 @@ void mdl_report_sums( World *world );
 
 /*
  * name: mdl_load_monsters
- * desc: ents.bin's monster records, from the reader's own offset, and
- *       the models the kinds among them need.
+ * desc: ents.bin's monster records, from the reader's own offset.
  */
 void mdl_load_monsters( World *world, unsigned char far *buf, long *ofs, short count );
+void mdl_load_monster_models( World *world );
 
 /* Load the distinct alias models used by this map's pickups. */
 void mdl_load_items( World *world, short worldtype );
@@ -62,7 +64,10 @@ void mdl_unload_items( World *world );
 /* Load and release effects.bin's projectile, gib and head alias bank. */
 void mdl_load_effects( World *world );
 void mdl_unload_effects( World *world );
-QSurf mdl_effect_skin( World *world, short id );
+QSurf mdl_effect_skin( World *world, short id, const EffectModel *model );
+
+/* Copy one immutable effects.bin descriptor out of its EMS page. */
+short mdl_effect_model( World *world, short id, EffectModel *out );
 
 /* The model for a kind, or NULL when the map spawns none of it. */
 MdlState *mdl_of( World *world, short kind );

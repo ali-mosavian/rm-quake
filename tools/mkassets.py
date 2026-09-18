@@ -24,6 +24,7 @@ import mksnd
 import mksprite
 import lighthash
 import texquant
+from mdlsets import MDL_SETS
 
 # every output lands here and becomes one assets.zip member
 OUT: dict[str, bytes] = {}
@@ -84,25 +85,6 @@ def write_zip(path: str) -> None:
 #    34   pad to QMAP_HEAD
 #    64   directory: ndir x { char name[16]; long ofs; long size; }
 #   ...   member data, each aligned to 16
-# The monster models a map needs, by MDL_KIND_*: the .mdl to cut and
-# the frame sets to keep, which IS the frame layout -- d_mdl.bas and
-# cport's mdl.c index the sets by position, so the order here is the
-# order they read. Vertex counts decide what fits one EMS page, which
-# is why the dog keeps one stand frame and the zombie eight of its run.
-# The Makefile has the same list as fourteen rules, for the BASIC build
-# that still stages these loose; this is the one a container uses.
-MDL_SETS = {
-    0: ('soldier',  'stand,run,death,pain'),
-    1: ('knight',   'stand,runb,death,pain,attackb'),
-    2: ('dog',      'stand:1,run,death,pain:1'),
-    3: ('ogre',     'stand:1,run,death,pain:3,shoot'),
-    4: ('demon',    'stand:1,run,death,pain:3,attacka'),
-    5: ('zombie',   'stand:1,run:8,death,paina:8,atta'),
-    6: ('wizard',   'hover,fly,death,pain,magatt'),
-    7: ('shambler', 'stand:1,run,death,pain,magic'),
-}
-
-
 # q_pl.bi's PL_IT_* order for the weapons that have one: shotgun,
 # super shotgun, nailgun, grenade launcher, super nailgun, rocket
 # launcher, axe.
@@ -130,7 +112,7 @@ EFFECT_MODELS = (
 )
 EFFECT_PAGE = 16384
 EFFECT_SKIN_W = 256
-MDL_HEAD_FMT = "<4s5h6fh8B2h"
+MDL_HEAD_FMT = "<4s5h6fh16B2h"
 MDL_HEAD_SIZE = struct.calcsize(MDL_HEAD_FMT)
 
 
@@ -252,7 +234,7 @@ def build_effect_models(pak: str, tmp: str) -> dict[str, bytes]:
         tri_n = ntri * 18
         vtx_n = nvert * nframe * 3
         skin_n = sw * sh
-        if magic != b"QMD3" or MDL_HEAD_SIZE + tri_n + vtx_n + skin_n != len(model):
+        if magic != b"QMD4" or MDL_HEAD_SIZE + tri_n + vtx_n + skin_n != len(model):
             raise SystemExit(f"{name}: bundled model layout is not one header, geometry and skin")
         if tri_n > EFFECT_PAGE or vtx_n > EFFECT_PAGE:
             raise SystemExit(f"{name}: effect geometry crosses an EMS page")
@@ -267,7 +249,7 @@ def build_effect_models(pak: str, tmp: str) -> dict[str, bytes]:
         raise SystemExit(f"effect geometry is {len(geom)} bytes; its offsets are 16-bit")
     skin_h = -(-len(skins) // EFFECT_SKIN_W)
     skins.extend(bytes(skin_h * EFFECT_SKIN_W - len(skins)))
-    data = bytearray(struct.pack("<4sHHHI", b"QFX2", len(records), EFFECT_SKIN_W,
+    data = bytearray(struct.pack("<4sHHHI", b"QFX3", len(records), EFFECT_SKIN_W,
                                  skin_h, len(geom)))
     for name, head, vtx_ofs, tri_ofs, skin_ofs in records:
         data += struct.pack("<8s", name.encode()) + head

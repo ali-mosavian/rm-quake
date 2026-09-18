@@ -16,10 +16,10 @@ sys.path.insert(0, sys.argv[1])
 import qmapread
 
 data = qmapread.read(sys.argv[2], "effects.bin")
-if data[:4] != b"QFX2":
-    raise SystemExit("FAIL: effects.bin is not the shared QFX2 alias bank")
+if data[:4] != b"QFX3":
+    raise SystemExit("FAIL: effects.bin is not the shared QFX3 alias bank")
 count = struct.unpack_from("<H", data, 4)[0]
-names = [struct.unpack_from("<8s", data, 14 + i * 68)[0].rstrip(b"\0").decode() for i in range(count)]
+names = [struct.unpack_from("<8s", data, 14 + i * 76)[0].rstrip(b"\0").decode() for i in range(count)]
 wanted = [
     "spike", "s_spike", "grenade", "missile", "lavaball", "w_spike", "zom_gib",
     "gib1", "gib2", "gib3", "h_player", "h_guard", "h_knight", "h_dog",
@@ -28,10 +28,10 @@ wanted = [
 if names != wanted:
     raise SystemExit(f"FAIL: effect bank contains {names}, wanted {wanted}")
 for i, name in enumerate(names):
-    base = 14 + i * 68
-    head = struct.unpack_from("<4s5h6fh8B2h", data, base + 8)
+    base = 14 + i * 76
+    head = struct.unpack_from("<4s5h6fh16B2h", data, base + 8)
     skin_w, skin_h = head[4], head[5]
-    skin_ofs = struct.unpack_from("<I", data, base + 64)[0]
+    skin_ofs = struct.unpack_from("<I", data, base + 72)[0]
     if skin_ofs % 16384 + skin_w * skin_h > 16384:
         raise SystemExit(f"FAIL: {name} skin crosses an EMS page")
 print("ok: shared effect bank carries the projectiles, gibs and heads")

@@ -4,6 +4,7 @@
  */
 
 #include <math.h>
+#include <string.h>
 
 #include "combat.h"
 #include "gib.h"
@@ -28,12 +29,70 @@ static short combat_take( float dmg, float armor_type, short armor,
     return (short) ceil( dmg - save );
 }
 
+static void near combat_pain_start( MdlEnt far *ent, short set, float now );
+
+#define ZPAIN_IGNORE  0
+#define ZPAIN_FALL    1
+#define ZPAIN_EXTEND  2
+#define ZPAIN_FAST    3
+
+static short combat_monster_gibs( const MdlEnt far *ent,
+                                  const MonsterFacts far *facts )
+{
+    return (short) ( ent->kind == MDL_KIND_ZOMBIE || ent->health < facts->gib_below );
+}
+
+static short combat_radius_target( const MdlEnt far *ent )
+{
+    return (short) ( MDL_IS_SOLID( ent ) && !ent->cruc );
+}
+
+static short combat_demon_jump_immune( const MdlEnt far *ent )
+{
+    return (short) ( ent->state == MDL_ST_LEAP &&
+                     ( ent->vel.x != 0.0f || ent->vel.y != 0.0f || ent->vel.z != 0.0f ) );
+}
+
+static short combat_zombie_pain_action( const MdlEnt far *ent, short take,
+                                        float now )
+{
+    if ( ent->state == MDL_ST_PAIN && ent->anim_set == MDL_SET_PAIN5 ) return ZPAIN_IGNORE;
+    if ( take >= ZOMBIE_FALL_DMG ) return ZPAIN_FALL;
+    if ( ent->state == MDL_ST_PAIN ) return ZPAIN_EXTEND;
+    if ( now < ent->pain_finished ) return ZPAIN_FALL;
+    return ZPAIN_FAST;
+}
+
 short combat_selftest( void )
 {
+    MdlEnt ent;
     short save, save2;
     short take = combat_take( 3.1f, 0.3f, 100, &save );
     short take2 = combat_take( 10.0f, 0.8f, 100, &save2 );
-    return (short) ( save == 1 && take == 3 && save2 == 8 && take2 == 2 );
+    memset( &ent, 0, sizeof(ent) );
+    ent.next_think = 99.0f;
+    combat_pain_start( &ent, MDL_SET_PAIN2, 7.0f );
+    if ( save != 1 || take != 3 || save2 != 8 || take2 != 2 ||
+         ent.state != MDL_ST_PAIN || ent.anim_set != MDL_SET_PAIN2 ||
+         ent.anim_frame != 0 || ent.next_think < 7.09f || ent.next_think > 7.11f ) return 0;
+
+    ent.kind = MDL_KIND_ZOMBIE; ent.health = 1;
+    if ( !combat_monster_gibs( &ent, &mon_facts[MDL_KIND_ZOMBIE] ) ) return 0;
+    ent.state = MDL_ST_PAIN; ent.anim_set = MDL_SET_PAIN5; ent.anim_frame = 10;
+    if ( combat_radius_target( &ent ) ||
+         combat_zombie_pain_action( &ent, ZOMBIE_FALL_DMG, 1.0f ) != ZPAIN_IGNORE ) return 0;
+    ent.anim_frame = 11;
+    if ( !combat_radius_target( &ent ) ) return 0;
+    ent.anim_set = MDL_SET_PAIN; ent.pain_finished = 2.0f;
+    if ( combat_zombie_pain_action( &ent, ZOMBIE_PAIN_MIN, 1.0f ) != ZPAIN_EXTEND ) return 0;
+
+    memset( &ent, 0, sizeof(ent) );
+    ent.kind = MDL_KIND_DEMON; ent.state = MDL_ST_LEAP;
+    if ( combat_demon_jump_immune( &ent ) ) return 0;
+    ent.vel.x = 1.0f;
+    if ( !combat_demon_jump_immune( &ent ) ) return 0;
+    ent.vel.x = 0.0f; ent.anim_frame = 11;
+    return (short) !combat_demon_jump_immune( &ent );
 }
 
 static short combat_push_target( short kind, short trig_kind )
@@ -129,23 +188,38 @@ void combat_damage_player( Player *player, World *world, Fight *fight, Renderer 
     snd_self( snd, player, CHAN_VOICE, (short) ( save < 3 ? SND_PAIN1 + save : SND_PAIN4 + save - 3 ) );
 }
 
+static void near combat_pain_start( MdlEnt far *ent, short set, float now )
+{
+    mdl_anim_start( ent, MDL_ST_PAIN, set );
+    ent->next_think = now + 0.1f;
+}
+
 void combat_damage_monster( World *world, Player *player, Fight *fight, Renderer *rdr,
                   MdlEnt far *ent, float dmg )
 {
     const MonsterFacts far *f = &mon_facts[ ent->kind ];
     float r;
     short take = (short) ceil( dmg );
+    short set;
 
     if ( ent->cruc ) return;    /* never walkmonster_start: takedamage stays DAMAGE_NO */
     ent->health = (short) ( ent->health - take );
     if ( ent->health <= 0 ) {
-        ent->state = MDL_ST_DEAD;
-        ent->anim_frame = 0;
         ent->next_think = rdr->anim_time + 0.1f;
-        if ( ent->health < f->gib_below ) {
-            mdl_voice( player, &world->snd, ent, CHAN_VOICE, SND_UDEATH, ATTN_NORM );
+        if ( combat_monster_gibs( ent, f ) ) {
+            if ( ent->kind == MDL_KIND_ZOMBIE )
+                mdl_say( player, &world->snd, ent, 3 );
+            else
+                mdl_voice( player, &world->snd, ent, CHAN_VOICE, SND_UDEATH, ATTN_NORM );
             gib_spawn_monster( world, rdr, ent, rdr->anim_time );
+            ent->state = MDL_ST_GIBBED;
+            ent->anim_set = MDL_SET_STAND;
+            ent->anim_frame = 0;
         } else {
+            set = MDL_SET_DEATH;
+            if ( mdl_set_count( &world->mdl[ent->kind], MDL_SET_DEATH2 ) &&
+                 rng_float( &world->rng ) >= 0.5f ) set = MDL_SET_DEATH2;
+            mdl_anim_start( ent, MDL_ST_DEAD, set );
             mdl_say( player, &world->snd, ent, 3 );
         }
         fight->kills++;
@@ -155,47 +229,83 @@ void combat_damage_monster( World *world, Player *player, Fight *fight, Renderer
     ent->ideal_yaw = mdl_vectoyaw( player->pos.x - ent->pos.x,
                                     player->pos.y - ent->pos.y );
 
-    if ( f->pain_resets ) {
-        /* zombie_pain: z_pain at every hit, the health always back, so
-           only one hit of 60 kills; under 9 ignored, 25 or more drops it
-           for three seconds. Half the flinches are painb and painc, whose
-           frames say z_pain1. */
+    if ( ent->kind == MDL_KIND_ZOMBIE ) {
+        /* zombie_pain uses the active set as its inpain state. A second
+           hit during a fast flinch arms the three-second knockdown window. */
         ent->health = ZOMBIE_HEALTH;
-        mdl_say( player, &world->snd, ent, 2 );
         if ( take < ZOMBIE_PAIN_MIN ) return;
-        if ( rdr->anim_time < ent->pain_finished ) return;
-        ent->pain_finished = rdr->anim_time +
-            ( take >= ZOMBIE_FALL_DMG ? ZOMBIE_FALL_TIME : ZOMBIE_FLINCH );
+        set = combat_zombie_pain_action( ent, take, rdr->anim_time );
+        if ( set == ZPAIN_IGNORE ) return;
+        if ( set == ZPAIN_FALL ) {
+            ent->pain_finished = 0.0f;
+            combat_pain_start( ent, MDL_SET_PAIN5, rdr->anim_time );
+            mdl_say( player, &world->snd, ent, 2 );
+            return;
+        }
+        if ( set == ZPAIN_EXTEND ) {
+            ent->pain_finished = rdr->anim_time + ZOMBIE_FALL_TIME;
+            return;
+        }
         r = rng_float( &world->rng );
-        if ( take < ZOMBIE_FALL_DMG && r >= 0.25f && r < 0.75f )
+        set = r < 0.25f ? MDL_SET_PAIN :
+              ( r < 0.5f ? MDL_SET_PAIN2 : ( r < 0.75f ? MDL_SET_PAIN3 : MDL_SET_PAIN4 ) );
+        combat_pain_start( ent, set, rdr->anim_time );
+        if ( set == MDL_SET_PAIN2 || set == MDL_SET_PAIN3 )
             mdl_voice( player, &world->snd, ent, CHAN_VOICE, SND_Z_PAIN1, ATTN_NORM );
-        ent->state = MDL_ST_PAIN;
-        ent->anim_frame = 0;
+        else
+            mdl_say( player, &world->snd, ent, 2 );
         return;
     }
 
-    if ( rdr->anim_time < ent->pain_finished ) return;
-    if ( f->pain_time > 0.0f ) {
-        ent->pain_finished = rdr->anim_time + f->pain_time;
-    } else {
+    switch ( ent->kind ) {
+    case MDL_KIND_ARMY:
+        if ( rdr->anim_time < ent->pain_finished ) return;
         r = rng_float( &world->rng );
-        ent->pain_finished = rdr->anim_time +
-            ( r < MDL_PAIN_SHORT_P ? MDL_PAIN_SHORT : MDL_PAIN_LONG );
-        /* army_pain: pain1 with the short flinch, pain2 with the others */
-        if ( f->pain_long_snd && r >= MDL_PAIN_SHORT_P ) {
-            mdl_voice( player, &world->snd, ent, CHAN_VOICE, f->pain_long_snd, ATTN_NORM );
-            ent->state = MDL_ST_PAIN;
-            ent->anim_frame = 0;
-            return;
-        }
+        set = r < 0.2f ? MDL_SET_PAIN : ( r < 0.6f ? MDL_SET_PAIN2 : MDL_SET_PAIN3 );
+        ent->pain_finished = rdr->anim_time + ( set == MDL_SET_PAIN ? MDL_PAIN_SHORT : MDL_PAIN_LONG );
+        if ( set == MDL_SET_PAIN ) mdl_say( player, &world->snd, ent, 2 );
+        else mdl_voice( player, &world->snd, ent, CHAN_VOICE, f->pain_long_snd, ATTN_NORM );
+        break;
+    case MDL_KIND_KNIGHT:
+        if ( rdr->anim_time < ent->pain_finished ) return;
+        set = rng_float( &world->rng ) < 0.85f ? MDL_SET_PAIN : MDL_SET_PAIN2;
+        ent->pain_finished = rdr->anim_time + KNIGHT_PAIN;
+        mdl_say( player, &world->snd, ent, 2 );
+        break;
+    case MDL_KIND_DOG:
+        set = rng_float( &world->rng ) > 0.5f ? MDL_SET_PAIN : MDL_SET_PAIN2;
+        mdl_say( player, &world->snd, ent, 2 );
+        break;
+    case MDL_KIND_OGRE:
+        if ( rdr->anim_time < ent->pain_finished ) return;
+        r = rng_float( &world->rng );
+        set = r < 0.25f ? MDL_SET_PAIN : ( r < 0.5f ? MDL_SET_PAIN2 :
+              ( r < 0.75f ? MDL_SET_PAIN3 : ( r < 0.88f ? MDL_SET_PAIN4 : MDL_SET_PAIN5 ) ) );
+        ent->pain_finished = rdr->anim_time + ( set >= MDL_SET_PAIN4 ? 2.0f : 1.0f );
+        mdl_say( player, &world->snd, ent, 2 );
+        break;
+    case MDL_KIND_DEMON:
+        if ( combat_demon_jump_immune( ent ) ||
+             rdr->anim_time < ent->pain_finished ) return;
+        ent->pain_finished = rdr->anim_time + 1.0f;
+        mdl_say( player, &world->snd, ent, 2 );
+        if ( rng_float( &world->rng ) * 200.0f > take ) return;
+        set = MDL_SET_PAIN;
+        break;
+    case MDL_KIND_WIZARD:
+        mdl_say( player, &world->snd, ent, 2 );
+        if ( rng_float( &world->rng ) * 70.0f > take ) return;
+        set = MDL_SET_PAIN;
+        break;
+    default:
+        mdl_say( player, &world->snd, ent, 2 );
+        if ( rng_float( &world->rng ) * SHAMBLER_PAIN_ROLL > take ||
+             rdr->anim_time < ent->pain_finished ) return;
+        ent->pain_finished = rdr->anim_time + SHAMBLER_PAIN;
+        set = MDL_SET_PAIN;
+        break;
     }
-    mdl_say( player, &world->snd, ent, 2 );
-    /* demon1_pain and sham_pain: a hit under the roll does not flinch;
-       only they draw it */
-    if ( f->flinch_roll > 0.0f && rng_float( &world->rng ) * f->flinch_roll > take ) return;
-
-    ent->state = MDL_ST_PAIN;
-    ent->anim_frame = 0;
+    combat_pain_start( ent, set, rdr->anim_time );
 }
 
 static short combat_can_damage( World *world, BspVec3 *org, BspVec3 *target,
@@ -273,7 +383,7 @@ void combat_radius( World *world, Player *player, Fight *fight, Renderer *rdr,
         model = 0;
         if ( kind == 0 ) {
             MdlEnt far *e = &world->mon[index];
-            if ( MDL_IS_DEAD( e ) || e->cruc ) continue;
+            if ( !combat_radius_target( e ) ) continue;
             center = target = e->pos;
             center.z += ( e->kind == MDL_KIND_OGRE || e->kind == MDL_KIND_DEMON ||
                           e->kind == MDL_KIND_SHAMBLER ) ? 20.0f : 8.0f;

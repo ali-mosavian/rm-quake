@@ -3,11 +3,9 @@
  *
  * The per-frame math (ent_find_node, ent_place_models,
  * ent_check_teleport, ent_point_leaf) and the loading functions (ent_load_spawn,
- * ent_load_world, built on pak.h's pak_load_whole rather
- * than a port of ent_get/ent_open_bin's own sequential UAR reads --
- * ents.bin is tiny, so reading it whole and walking a far pointer
- * through the records in memory is simpler than replicating BASIC's
- * GET-one-record-at-a-time shape).
+ * ent_load_world, built mostly on pak.h's pak_load_whole. The trigger
+ * block is reread after that scratch buffer is freed: large maps do not
+ * have room for both it and the expanded runtime trigger records.
  */
 
 #include <mem.h>    /* _fmemcpy */
@@ -330,118 +328,143 @@ void ent_load_spawn( World *world, Camera *cam, Fight *fight )
 
 
 /*
- * The movers, in the order ents.bin puts them. Each takes the running
- * offset by pointer: a record skipped by the wrong size lands the next
- * loader in the middle of a record, and the only symptom is nonsense
- * geometry several loaders later.
+ * Doors and triggers expand after the packed record scratch is freed.
+ * Their source offset still advances with the other record blocks, so
+ * a wrong disk size remains visible to the final message-table check.
  */
-static void near ent_load_doors( World *world, unsigned char far *buf, long *ofs, short count )
+static void near ent_store_door( World *world, const EntsDoor *dr )
 {
-    short i, m;
+    short m = dr->model;
     float fx, fz;
+    DoorEnt far *d;
+
+    if ( m <= 0 || m >= world->model_count ) return;
+
+    d = &world->door[ world->door_count ];
+    d->model   = m;
+    d->speed   = dr->speed;
+    d->hold    = dr->hold;
+    d->hold_left = 0.0f;
+    d->pause_left = 0.0f;
+    d->nolink  = dr->nolink;
+    d->targeted = dr->targeted;
+    d->secret  = dr->secret;
+    d->shoot   = dr->shoot;
+    d->snd     = dr->snd;
+    d->key     = dr->key;
+    d->say_at  = 0.0f;
+    d->ofs_mid = dr->mid;
+    d->msg     = dr->msg;
+    d->order   = dr->order;
+    d->state   = ENT_DOOR_SHUT;
+    d->link    = world->door_count;
+
+    /* DOOR_START_OPEN: drawn shut where the map put it, which is
+       the far end of its travel. */
+    d->ofs_shut.x = d->ofs_shut.y = d->ofs_shut.z = 0.0f;
+    d->ofs_open = dr->travel;
+    if ( dr->start_open ) {
+        d->ofs_shut = dr->travel;
+        d->ofs_open.x = d->ofs_open.y = d->ofs_open.z = 0.0f;
+    }
+    world->brush[m].ofs = d->ofs_shut;
+
+    /* spawn_field: the brush where it sits, grown 60 in x and y and
+       8 in z. A targeted, secret or key door has no field -- touching
+       the brush itself is what says its message (door_touch). */
+    fx = ENT_DOOR_FIELD; fz = ENT_DOOR_FIELDZ;
+    if ( d->targeted || d->secret || d->key ) { fx = ENT_TOUCH_SLACK; fz = ENT_TOUCH_SLACK; }
+    d->mins.x = world->models[m].mins.x + d->ofs_shut.x - fx;
+    d->mins.y = world->models[m].mins.y + d->ofs_shut.y - fx;
+    d->mins.z = world->models[m].mins.z + d->ofs_shut.z - fz;
+    d->maxs.x = world->models[m].maxs.x + d->ofs_shut.x + fx;
+    d->maxs.y = world->models[m].maxs.y + d->ofs_shut.y + fx;
+    d->maxs.z = world->models[m].maxs.z + d->ofs_shut.z + fz;
+
+    world->door_count++;
+}
+
+static void near ent_load_doors( World *world, char *name, long ofs, short count )
+{
+    EntsDoor dr;
+    short fh, i;
+    long want = (long) ( count ? count : 1 ) * sizeof(DoorEnt);
 
     world->door_count = 0;
-    world->door = (DoorEnt far *) qglMemAlloc( (long) ( count ? count : 1 ) * sizeof(DoorEnt) );
-    if ( !world->door ) sys_error( "ents: no room for the doors" );
+    world->door = (DoorEnt far *) qglMemAlloc( want );
+    if ( !world->door ) {
+        char error[80];
+        sprintf( error, "doors need %ld, largest %ld, total %ld", want,
+                 qglMemAvail( QGL_MEM_LARGEST ), qglMemAvail( QGL_MEM_TOTAL ) );
+        sys_error( error );
+    }
 
+    fh = pak_seek_part( &world->pak, name, ofs, (long) count * sizeof(EntsDoor) );
     for ( i = 0; i < count; i++ ) {
-        EntsDoor dr;
-        DoorEnt far *d;
-
-        _fmemcpy( &dr, buf + *ofs, sizeof(EntsDoor) ); *ofs += sizeof(EntsDoor);
-        m = dr.model;
-        if ( m <= 0 || m >= world->model_count ) continue;
-
-        d = &world->door[ world->door_count ];
-        d->model   = m;
-        d->speed   = dr.speed;
-        d->hold    = dr.hold;
-        d->hold_left = 0.0f;
-        d->pause_left = 0.0f;
-        d->nolink  = dr.nolink;
-        d->targeted = dr.targeted;
-        d->secret  = dr.secret;
-        d->shoot   = dr.shoot;
-        d->snd     = dr.snd;
-        d->key     = dr.key;
-        d->say_at  = 0.0f;
-        d->ofs_mid = dr.mid;
-        d->msg     = dr.msg;
-        d->order   = dr.order;
-        d->state   = ENT_DOOR_SHUT;
-        d->link    = world->door_count;
-
-        /* DOOR_START_OPEN: drawn shut where the map put it, which is
-           the far end of its travel. */
-        d->ofs_shut.x = d->ofs_shut.y = d->ofs_shut.z = 0.0f;
-        d->ofs_open = dr.travel;
-        if ( dr.start_open ) {
-            d->ofs_shut = dr.travel;
-            d->ofs_open.x = d->ofs_open.y = d->ofs_open.z = 0.0f;
-        }
-        world->brush[m].ofs = d->ofs_shut;
-
-        /* spawn_field: the brush where it sits, grown 60 in x and y and
-           8 in z. A targeted, secret or key door has no field -- touching
-           the brush itself is what says its message (door_touch). */
-        fx = ENT_DOOR_FIELD; fz = ENT_DOOR_FIELDZ;
-        if ( d->targeted || d->secret || d->key ) { fx = ENT_TOUCH_SLACK; fz = ENT_TOUCH_SLACK; }
-        d->mins.x = world->models[m].mins.x + d->ofs_shut.x - fx;
-        d->mins.y = world->models[m].mins.y + d->ofs_shut.y - fx;
-        d->mins.z = world->models[m].mins.z + d->ofs_shut.z - fz;
-        d->maxs.x = world->models[m].maxs.x + d->ofs_shut.x + fx;
-        d->maxs.y = world->models[m].maxs.y + d->ofs_shut.y + fx;
-        d->maxs.z = world->models[m].maxs.z + d->ofs_shut.z + fz;
-
-        world->door_count++;
+        if ( qglFileRead( fh, (long) (void far *) &dr, sizeof(EntsDoor) ) != sizeof(EntsDoor) )
+            sys_error( "ents: door short read" );
+        ent_store_door( world, &dr );
     }
 }
 
-static void near ent_load_trigs( World *world, unsigned char far *buf, long *ofs, short count )
+static void near ent_store_trig( World *world, const EntsTrig *xr )
 {
-    short i, m;
+    short m = xr->model;
+    TrigEnt far *t;
+
+    if ( m < 0 || m >= world->model_count ) return;
+
+    t = &world->trig[ world->trig_count ];
+    t->model = m;
+    t->kind  = xr->kind;
+    t->target = xr->target;
+    t->name  = xr->name;
+    t->kill  = xr->kill;
+    t->state = ENT_TRIG_READY;
+    t->left  = xr->count;
+    t->count = xr->count;
+    t->wait  = xr->wait;
+    t->wait_left = 0.0f;
+    t->speed = xr->speed;
+    t->snd   = xr->snd;
+    t->ofs_out = xr->travel;
+    t->delay = xr->delay;
+    t->order = xr->order;
+    t->delay_left = 0.0f;
+    if ( t->kind == ENT_TRIG_FIREBALL ) ent_fireball_spawn( world, t );
+    t->msg   = xr->msg;
+    t->mins  = world->models[m].mins;
+    t->maxs  = world->models[m].maxs;
+    /* A shooter and a fireball have no brush: their origin IS the
+       volume, so mins and maxs are the same point. */
+    if ( xr->kind == ENT_TRIG_SHOOTER || xr->kind == ENT_TRIG_FIREBALL || xr->kind == ENT_TRIG_BOSS ||
+         xr->kind == ENT_TRIG_BOLT ) {
+        t->mins = xr->org;
+        t->maxs = xr->org;
+    }
+    world->trig_count++;
+}
+
+static void near ent_load_trigs( World *world, char *name, long ofs, short count )
+{
+    EntsTrig xr;
+    short fh, i;
+    long want = (long) ( count ? count : 1 ) * sizeof(TrigEnt);
 
     world->trig_count = 0;
-    world->trig = (TrigEnt far *) qglMemAlloc( (long) ( count ? count : 1 ) * sizeof(TrigEnt) );
-    if ( !world->trig ) sys_error( "ents: no room for the triggers" );
+    world->trig = (TrigEnt far *) qglMemAlloc( want );
+    if ( !world->trig ) {
+        char error[80];
+        sprintf( error, "triggers need %ld, largest %ld, total %ld", want,
+                 qglMemAvail( QGL_MEM_LARGEST ), qglMemAvail( QGL_MEM_TOTAL ) );
+        sys_error( error );
+    }
 
+    fh = pak_seek_part( &world->pak, name, ofs, (long) count * sizeof(EntsTrig) );
     for ( i = 0; i < count; i++ ) {
-        EntsTrig xr;
-        TrigEnt far *t;
-
-        _fmemcpy( &xr, buf + *ofs, sizeof(EntsTrig) ); *ofs += sizeof(EntsTrig);
-        m = xr.model;
-        if ( m < 0 || m >= world->model_count ) continue;
-
-        t = &world->trig[ world->trig_count ];
-        t->model = m;
-        t->kind  = xr.kind;
-        t->target = xr.target;
-        t->name  = xr.name;
-        t->kill  = xr.kill;
-        t->state = ENT_TRIG_READY;
-        t->left  = xr.count;
-        t->count = xr.count;
-        t->wait  = xr.wait;
-        t->wait_left = 0.0f;
-        t->speed = xr.speed;
-        t->snd   = xr.snd;
-        t->ofs_out = xr.travel;
-        t->delay = xr.delay;
-        t->order = xr.order;
-        t->delay_left = 0.0f;
-        if ( t->kind == ENT_TRIG_FIREBALL ) ent_fireball_spawn( world, t );
-        t->msg   = xr.msg;
-        t->mins  = world->models[m].mins;
-        t->maxs  = world->models[m].maxs;
-        /* A shooter and a fireball have no brush: their origin IS the
-           volume, so mins and maxs are the same point. */
-        if ( xr.kind == ENT_TRIG_SHOOTER || xr.kind == ENT_TRIG_FIREBALL || xr.kind == ENT_TRIG_BOSS ||
-             xr.kind == ENT_TRIG_BOLT ) {
-            t->mins = xr.org;
-            t->maxs = xr.org;
-        }
-        world->trig_count++;
+        if ( qglFileRead( fh, (long) (void far *) &xr, sizeof(EntsTrig) ) != sizeof(EntsTrig) )
+            sys_error( "ents: trigger short read" );
+        ent_store_trig( world, &xr );
     }
 }
 
@@ -699,7 +722,7 @@ static void near ent_settle( World *world )
  */
 void ent_load_world( World *world )
 {
-    long n, ofs;
+    long n, ofs, door_ofs, trig_ofs;
     char name[12];
     unsigned char far *buf;
     EntsHead h;
@@ -737,11 +760,10 @@ void ent_load_world( World *world )
     ent_load_hides( world, buf, &ofs, h.nhide );
     ent_load_gates( world, buf, &ofs, h.ngate );
     ent_load_items( world, buf, &ofs, h.nitem );
-    mdl_load_items( world, h.worldtype );
-    mdl_load_effects( world );
-    ent_load_doors( world, buf, &ofs, h.ndoor );
-    ent_load_trigs( world, buf, &ofs, h.ntrig );
-    mdl_load_boss( world );
+    door_ofs = ofs;
+    ofs += (long) h.ndoor * sizeof(EntsDoor);
+    trig_ofs = ofs;
+    ofs += (long) h.ntrig * sizeof(EntsTrig);
     ent_load_ambs( world, buf, &ofs, h.namb );
     ent_load_trains( world, buf, &ofs, h.ntrain );
     ent_load_corners( world, buf, &ofs, h.ncorner );
@@ -749,9 +771,17 @@ void ent_load_world( World *world )
     ent_load_lights( world, buf, &ofs, h.nlight );
     ent_load_msgs( world, buf, &ofs, h.msg_size, n );
     world->title = ent_msg( world, h.title );
-    ent_settle( world );
-
     qglMemFree( (long) buf );
+
+    /* These only read the owned entity arrays. Loading them after the
+       packed entity scratch has gone keeps large maps below the DOS peak. */
+    ent_load_doors( world, name, door_ofs, h.ndoor );
+    ent_load_trigs( world, name, trig_ofs, h.ntrig );
+    mdl_load_monster_models( world );
+    mdl_load_items( world, h.worldtype );
+    mdl_load_effects( world );
+    mdl_load_boss( world );
+    ent_settle( world );
 }
 
 /* air.bin: four skill counts followed by each skill's BspVec3 run. It is

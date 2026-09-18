@@ -12,10 +12,12 @@
 #include "d_sprite.h"
 #include "d_beam.h"
 #include "item.h"
+#include "mdl_ai.h"
 
 #define SG_MAGIC   0x31565351L
-#define SG_VERSION 5
+#define SG_VERSION 6
 #define SG_VERSION_ITEMS 2
+#define SG_VERSION_SPR3 5
 #define SG_VERSION_OLD 1
 #define SG_GIB_MAGIC 0x31424947L
 #define SG_SPR_MAGIC 0x31525053L
@@ -294,6 +296,61 @@ static short near savegame_read_items( short file, ItemEnt far *item,
     return -1;
 }
 
+static unsigned char near savegame_anim_set( const MdlEnt far *ent,
+                                              const MdlState *model )
+{
+    if ( ent->cruc && mdl_set_count( model, MDL_SET_CRUC ) ) return MDL_SET_CRUC;
+    switch ( ent->state ) {
+    case MDL_ST_RUN:    return MDL_SET_RUN;
+    case MDL_ST_DEAD:   return MDL_SET_DEATH;
+    case MDL_ST_PAIN:   return MDL_SET_PAIN;
+    case MDL_ST_ATTACK: return MDL_SET_ATK;
+    case MDL_ST_LEAP:   return mdl_set_count( model, MDL_SET_LEAP ) ? MDL_SET_LEAP : MDL_SET_RUN;
+    }
+    return MDL_SET_STAND;
+}
+
+static void near savegame_old_anim( MdlEnt far *ent, short count )
+{
+    if ( ent->kind == MDL_KIND_SHAMBLER && ent->state == MDL_ST_ATTACK ) {
+        if ( ent->anim_frame >= 8 ) ent->anim_frame -= 2;
+        else if ( ent->anim_frame >= 6 ) ent->anim_frame = 6;
+    }
+    if ( ent->anim_frame >= count ) {
+        if ( ent->state == MDL_ST_STAND || ent->state == MDL_ST_RUN )
+            ent->anim_frame = (short) ( ent->anim_frame % count );
+        else
+            ent->anim_frame = (short) ( count - 1 );
+    }
+}
+
+static short near savegame_monsters( World *world, short version )
+{
+    short i;
+
+    for ( i = 0; i < world->mon_count; i++ ) {
+        MdlEnt far *ent = &world->mon[i];
+        MdlState *model;
+        if ( ent->kind < 0 || ent->kind >= MDL_KINDS ) return 0;
+        model = &world->mdl[ent->kind];
+        if ( version < SG_VERSION ) {
+            ent->anim_set = savegame_anim_set( ent, model );
+            if ( ent->kind == MDL_KIND_ZOMBIE && ent->state == MDL_ST_DEAD ) {
+                ent->state = MDL_ST_GIBBED;
+                ent->anim_set = MDL_SET_STAND;
+                ent->anim_frame = 0;
+                continue;
+            }
+            if ( mdl_set_count( model, ent->anim_set ) )
+                savegame_old_anim( ent, mdl_set_count( model, ent->anim_set ) );
+        }
+        if ( ent->state == MDL_ST_DEMO || ent->state == MDL_ST_GIBBED ) continue;
+        if ( ent->anim_set >= MDL_NSETS || !mdl_set_count( model, ent->anim_set ) ||
+             ent->anim_frame < 0 || ent->anim_frame >= mdl_set_count( model, ent->anim_set ) ) return 0;
+    }
+    return -1;
+}
+
 static float near savegame_warn_v1( float until, float warned, float now )
 {
     if ( until <= now ) return 0.0f;
@@ -359,6 +416,7 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
                                         head.item_count, head.version );
     if ( ok ) ok = savegame_read_block( file, (long) world->mon,
                                         (long) world->mon_count * sizeof(MdlEnt) );
+    if ( ok ) ok = savegame_monsters( world, head.version );
     if ( ok ) {
         got = qglFileRead( file, (long) (void far *) &sg, sizeof(sg) );
         if ( got ) {
@@ -407,7 +465,7 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
             }
         }
     }
-    if ( ok && head.version >= SG_VERSION ) {
+    if ( ok && head.version >= SG_VERSION_SPR3 ) {
         if ( !savegame_read_block( file, (long) (void far *) &ss3, sizeof(ss3) ) ||
              ss3.magic != SG_SPR3_MAGIC || ss3.explosions != SPR_EXPLOSIONS ||
              ss3.bubbles != SPR_BUBBLES || ss3.spawners != SPR_SPAWNERS ||
@@ -448,7 +506,7 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
     memcpy( world->fog_at, sw.fog_at, sizeof(sw.fog_at) );
     world->item_count = head.item_count;
     rdr->anim_time = sr.anim_time;
-    if ( head.version < SG_VERSION ) {
+    if ( head.version < SG_VERSION_SPR3 ) {
         d_sprite_air_reset( rdr, sr.anim_time );
         emitters = rdr->bubble_emitters;
     }

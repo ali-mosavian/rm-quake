@@ -10,6 +10,7 @@
 
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 #include <dos.h>
 
 #include "mdl_ai.h"
@@ -29,14 +30,48 @@
 /* ai_run(N)'s own per-frame distances, straight out of each .qc. */
 static const short far army_run_dist[8]     = { 11, 15, 10, 10, 8, 15, 10, 8 };
 static const short far knight_run_dist[8]   = { 16, 20, 13, 7, 16, 20, 14, 6 };
-static const short far knight_atk_dist[10]  = { 0, 7, 4, 0, 3, 4, 1, 3, 1, 5 };
 static const short far dog_run_dist[12]     = { 16, 32, 32, 20, 64, 32, 16, 32, 32, 20, 64, 32 };
 static const short far ogre_run_dist[8]     = { 9, 12, 8, 22, 16, 4, 13, 24 };
 static const short far demon_run_dist[6]    = { 20, 15, 36, 20, 15, 36 };
-static const short far demon_atk_dist[15]   = { 4, 0, 0, 1, 2, 1, 6, 8, 4, 2, 0, 5, 8, 4, 4 };
-static const short far zombie_run_dist[8]   = { 1, 1, 0, 1, 2, 3, 4, 4 };
+static const short far zombie_run_dist[18]  = { 1, 1, 0, 1, 2, 3, 4, 4, 2, 0, 0, 0, 2, 4, 6, 7, 3, 8 };
 static const short far wizard_run_dist[1]   = { (short) WIZARD_FLY_DIST };
 static const short far shambler_run_dist[6] = { 20, 24, 20, 20, 24, 20 };
+
+static const short far army_walk_dist[24]   = { 1, 1, 1, 1, 2, 3, 4, 4, 2, 2, 2, 1,
+                                                0, 1, 1, 1, 3, 3, 3, 3, 2, 1, 1, 1 };
+static const short far knight_walk_dist[14] = { 3, 2, 3, 4, 3, 3, 3, 4, 3, 3, 2, 3, 4, 3 };
+static const short far dog_walk_dist[1]     = { 8 };
+static const short far ogre_walk_dist[16]   = { 3, 2, 2, 2, 2, 5, 3, 2, 3, 1, 2, 3, 3, 3, 3, 4 };
+static const short far demon_walk_dist[8]   = { 8, 6, 6, 7, 4, 6, 10, 10 };
+static const short far zombie_walk_dist[19] = { 0, 2, 3, 2, 1, 0, 0, 0, 0, 0, 2, 2, 1, 0, 0, 0, 0, 0, 0 };
+static const short far wizard_walk_dist[1]  = { 8 };
+static const short far shambler_walk_dist[12] = { 10, 9, 9, 5, 6, 12, 8, 3, 13, 9, 7, 7 };
+
+static const short far knight_atk_dist[10]  = { 0, 7, 4, 0, 3, 4, 1, 3, 1, 5 };
+static const short far knight_runatk_dist[11] = { 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10 };
+static const short far dog_atk_dist[8]       = { 10, 10, 10, 10, 10, 10, 10, 10 };
+static const short far ogre_swing_dist[14]   = { 11, 1, 4, 13, 19, 10, 10, 10, 10, 10, 10, 3, 8, 9 };
+static const short far ogre_smash_dist[14]   = { 6, 0, 0, 1, 4, 14, 14, 20, 23, 10, 12, 0, 4, 12 };
+static const short far demon_atk_dist[15]    = { 4, 0, 0, 1, 2, 1, 6, 8, 4, 2, 0, 5, 8, 4, 4 };
+static const short far sham_smash_dist[12]   = { 2, 6, 6, 5, 4, 1, 0, 0, 0, 0, 5, 4 };
+static const short far sham_swingr_dist[9]   = { 1, 8, 14, 7, 3, 6, 16, 3, 11 };
+static const short far sham_swingl_dist[9]   = { 5, 3, 7, 3, 7, 9, 15, 4, 8 };
+
+/* Positive is ai_painforward; negative is ai_pain. */
+static const signed char far army_pain_dist[6]    = { 0, 0, 0, 0, 0, -1 };
+static const signed char far army_painb_dist[14]  = { 0, 13, 9, 0, 0, 0, 0, 0, 0, 0, 0, -2, 0, 0 };
+static const signed char far army_painc_dist[13]  = { 0, -1, 0, 0, 1, 1, 0, -1, 4, 3, 6, 8, 0 };
+static const signed char far knight_painb_dist[11]= { 0, 3, 0, 0, 2, 4, 2, 5, 5, 0, 0 };
+static const signed char far dog_painb_dist[16]   = { 0, 0, -4, -12, -12, -2, 0, -4, 0, -10, 0, 0, 0, 0, 0, 0 };
+static const signed char far ogre_paind_dist[16]  = { 0, -10, -9, -4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+static const signed char far ogre_paine_dist[15]  = { 0, -10, -9, -4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+static const signed char far zombie_paina_dist[12]= { 0, 3, 1, -1, -3, -1, 0, 0, 0, 0, 0, 0 };
+static const signed char far zombie_painb_dist[28]= { 0, -2, -8, -6, -2, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                                      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0 };
+static const signed char far zombie_painc_dist[18]= { 0, 0, -3, -1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0 };
+static const signed char far zombie_paind_dist[13]= { 0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0 };
+static const signed char far zombie_paine_dist[30]= { 0, -8, -5, -3, -1, -2, -1, -1, -2, 0, 0, 0, 0, 0, 0,
+                                                      0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 3, 1, -1, 0, 0 };
 
 /* One think's context, on mdl_think's stack; the handlers take it by near
    pointer (SS == DS). */
@@ -57,9 +92,8 @@ typedef void  (near *AiStep)( Think *t );
 typedef struct {
     const short far *run;          /* ai_run(N)'s distances, a frame each */
     short            nrun;
-    const short far *atk;          /* the attack set's charge, or 0 */
-    short            natk;
-    short            atk_end;      /* the frame id's attack set ends on */
+    const short far *walk;         /* ai_walk(N)'s, separate from the run */
+    short            nwalk;
     float            walk_period, walk_chance;   /* the idle roll on the walk, */
     short            walk_snd;
     float            run_period, run_chance;     /* and on the run */
@@ -84,24 +118,24 @@ static short near ai_check_zombie( Think *t );
 static short near ai_check_wizard( Think *t );
 static short near ai_check_army( Think *t );
 static void  near atk_knight( Think *t );
+static void  near atk_army( Think *t );
+static void  near atk_dog( Think *t );
 static void  near atk_demon( Think *t );
 static void  near atk_ogre( Think *t );
 static void  near atk_zombie( Think *t );
 static void  near atk_wizard( Think *t );
 static void  near atk_shambler( Think *t );
 
-#define NO_END 32767
-
 /* MDL_KIND_* order */
 static const MonsterInfo far mon_info[] = {
-    { army_run_dist,     8,  0,               0,  NO_END, 2.4f, 0.2f, SND_ARMY_IDLE,   0.0f, 0.0f, 0,             0,           ai_check_army,     0,            0, DOG_LEAP_SPEED,   DOG_LEAP_DMG,   DOG_LEAP_DMG },
-    { knight_run_dist,   8,  knight_atk_dist, 10, 10,     1.4f, 0.2f, SND_KNIGHT_IDLE, 0.0f, 0.0f, 0,             0,           ai_check_knight,   atk_knight,   0, DOG_LEAP_SPEED,   DOG_LEAP_DMG,   DOG_LEAP_DMG },
-    { dog_run_dist,      12, 0,               0,  NO_END, 0.8f, 0.2f, SND_DOG_IDLE,    0.0f, 0.0f, 0,             0,           ai_check_dog,      0,            0, DOG_LEAP_SPEED,   DOG_LEAP_DMG,   DOG_LEAP_DMG },
-    { ogre_run_dist,     8,  0,               0,  NO_END, 0.0f, 0.0f, 0,               0.0f, 0.0f, 0,             idle_ogre,   ai_check_ogre,     atk_ogre,     0, DOG_LEAP_SPEED,   DOG_LEAP_DMG,   DOG_LEAP_DMG },
-    { demon_run_dist,    6,  demon_atk_dist,  15, NO_END, 0.8f, 0.2f, SND_DEMON_IDLE,  0.0f, 0.0f, 0,             0,           ai_check_demon,    atk_demon,    0, DEMON_LEAP_TOUCH, DEMON_LEAP_DMG, 10.0f },
-    { zombie_run_dist,   8,  0,               0,  NO_END, 0.0f, 0.0f, 0,               0.0f, 0.0f, 0,             idle_zombie, ai_check_zombie,   atk_zombie,   1, DOG_LEAP_SPEED,   DOG_LEAP_DMG,   DOG_LEAP_DMG },
-    { wizard_run_dist,   1,  0,               0,  NO_END, 0.0f, 0.0f, 0,               0.0f, 0.0f, 0,             idle_wizard, ai_check_wizard,   atk_wizard,   0, DOG_LEAP_SPEED,   DOG_LEAP_DMG,   DOG_LEAP_DMG },
-    { shambler_run_dist, 6,  0,               0,  NO_END, 1.2f, 0.2f, SND_SHAM_IDLE,   0.6f, 0.2f, SND_SHAM_IDLE, 0,           ai_check_shambler, atk_shambler, 0, DOG_LEAP_SPEED,   DOG_LEAP_DMG,   DOG_LEAP_DMG },
+    { army_run_dist,     8,  army_walk_dist,     24, 2.4f, 0.2f, SND_ARMY_IDLE,   0.0f, 0.0f, 0,             0,           ai_check_army,     atk_army,    0, DOG_LEAP_SPEED,   DOG_LEAP_DMG,   DOG_LEAP_DMG },
+    { knight_run_dist,   8,  knight_walk_dist,   14, 1.4f, 0.2f, SND_KNIGHT_IDLE, 0.0f, 0.0f, 0,             0,           ai_check_knight,   atk_knight,  0, DOG_LEAP_SPEED,   DOG_LEAP_DMG,   DOG_LEAP_DMG },
+    { dog_run_dist,      12, dog_walk_dist,       1, 0.8f, 0.2f, SND_DOG_IDLE,    0.0f, 0.0f, 0,             0,           ai_check_dog,      atk_dog,     0, DOG_LEAP_SPEED,   DOG_LEAP_DMG,   DOG_LEAP_DMG },
+    { ogre_run_dist,     8,  ogre_walk_dist,     16, 0.0f, 0.0f, 0,               0.0f, 0.0f, 0,             idle_ogre,   ai_check_ogre,     atk_ogre,    0, DOG_LEAP_SPEED,   DOG_LEAP_DMG,   DOG_LEAP_DMG },
+    { demon_run_dist,    6,  demon_walk_dist,     8, 0.8f, 0.2f, SND_DEMON_IDLE,  0.0f, 0.0f, 0,             0,           ai_check_demon,    atk_demon,   0, DEMON_LEAP_TOUCH, DEMON_LEAP_DMG, 10.0f },
+    { zombie_run_dist,   18, zombie_walk_dist,   19, 0.0f, 0.0f, 0,               0.0f, 0.0f, 0,             idle_zombie, ai_check_zombie,   atk_zombie,  1, DOG_LEAP_SPEED,   DOG_LEAP_DMG,   DOG_LEAP_DMG },
+    { wizard_run_dist,   1,  wizard_walk_dist,    1, 0.0f, 0.0f, 0,               0.0f, 0.0f, 0,             idle_wizard, ai_check_wizard,   atk_wizard,  0, DOG_LEAP_SPEED,   DOG_LEAP_DMG,   DOG_LEAP_DMG },
+    { shambler_run_dist, 6,  shambler_walk_dist, 12, 1.2f, 0.2f, SND_SHAM_IDLE,   0.6f, 0.2f, SND_SHAM_IDLE, 0,           ai_check_shambler, atk_shambler,0, DOG_LEAP_SPEED,   DOG_LEAP_DMG,   DOG_LEAP_DMG },
 };
 /* a missing row would zero-fill, and its check_attack would call _TEXT:0000 */
 typedef char mon_rows_ok[ sizeof mon_info / sizeof mon_info[0] == MDL_KINDS ? 1 : -1 ];
@@ -119,6 +153,14 @@ const MonsterFacts far mon_facts[] = {
     { SHAMBLER_HEALTH, 0, SND_MON2 + 2 * 4, -60,          SHAMBLER_PAIN, SHAMBLER_PAIN_ROLL, 0,              0, 0,                0 },
 };
 typedef char mon_facts_ok[ sizeof mon_facts / sizeof mon_facts[0] == MDL_KINDS ? 1 : -1 ];
+
+void mdl_anim_start( MdlEnt far *ent, short state, short set )
+{
+    ent->state = state;
+    ent->anim_set = (unsigned char) set;
+    ent->anim_frame = 0;
+    ent->leap_touch = 0;
+}
 
 static float mdl_anglemod( float v )
 {
@@ -552,20 +594,14 @@ static void mdl_bolt( World *world, Player *player, Fight *fight,
         combat_damage_player( player, world, fight, rdr, SHAMBLER_BOLT_DMG );
 }
 
-/* dog_leap2 and demon1_jump4: ai_face, a unit up, and the velocity */
-static void mdl_leap( Fight *fight, MdlEnt far *ent,
-                       float dx, float dy, float fwd, float up )
+/* dog_leap1 and demon1_jump1 begin facing on the ground. Their own
+   leap2/leap4 think supplies velocity later. */
+static void mdl_leap_start( MdlEnt far *ent, float dx, float dy )
 {
     ent->ideal_yaw = mdl_vectoyaw( dx, dy );
     ent->yaw = ent->ideal_yaw;
-    ent->pos.z += 1.0f;
-    ent->vel.x = (float) cos( ent->yaw * DEG2RAD ) * fwd;
-    ent->vel.y = (float) sin( ent->yaw * DEG2RAD ) * fwd;
-    ent->vel.z = up;
-    ent->leapt = 0;
-    ent->state = MDL_ST_LEAP;
-    ent->anim_frame = 0;
-    fight->leaps++;
+    mdl_anim_start( ent, MDL_ST_LEAP, MDL_SET_LEAP );
+    ent->vel.x = ent->vel.y = ent->vel.z = 0.0f;
 }
 
 /* CheckDogJump's and CheckDemonJump's height test: the player's body
@@ -583,15 +619,14 @@ void mdl_spawn( World *world, MdlEnt far *ent )
 
     ent->ideal_yaw = ent->yaw;
     ent->next_think = 0.0f;
-    ent->state = MDL_ST_STAND;
-    ent->anim_frame = 0;
+    mdl_anim_start( ent, MDL_ST_STAND, ent->cruc ? MDL_SET_CRUC : MDL_SET_STAND );
     ent->goal = ent->pos;
     ent->wander_ticks = 0;
     ent->hunting = 0;
     ent->next_attack = 0.0f;
     ent->flash_until = 0.0f;
     ent->pain_finished = 0.0f;
-    ent->leapt = 0;
+    ent->leap_touch = 0;
     ent->vel.x = ent->vel.y = ent->vel.z = 0.0f;
     ent->idle_at = 0.0f;
     ent->water = 0;
@@ -600,7 +635,7 @@ void mdl_spawn( World *world, MdlEnt far *ent )
     ent->corner = ent->patrol;
     if ( ent->corner >= 0 && ent->corner < world->corner_count ) {
         mdl_patrol_to( world, ent, ent->corner );
-        ent->state = MDL_ST_RUN;
+        mdl_anim_start( ent, MDL_ST_RUN, MDL_SET_WALK );
     }
 
     ent->health = mon_facts[ ent->kind ].health;
@@ -621,21 +656,85 @@ void mdl_spawn( World *world, MdlEnt far *ent )
     fin.z -= 256.0f;
     pl_trace( world, &start, &fin, &tr );
     /* flymonster_start_go: a flyer stays where the map put it */
-    if ( !mon_facts[ ent->kind ].flyer && tr.frac < 1.0f && !tr.all_solid )
+    if ( !ent->cruc && !mon_facts[ ent->kind ].flyer && tr.frac < 1.0f && !tr.all_solid )
         ent->pos = tr.end_pos;
     ent->spawn = ent->pos;
 }
 
-/* zombie_cruc1: nailed up, its cycle's first frame moans a tenth of
-   the time; the page has no room for the cruc frames, so it hangs
-   in stand1 */
+/* zombie_cruc1..6: nailed at the map origin. Every frame waits 0.1 to
+   0.2 seconds; the first one rolls its static moan. */
 static void near ai_cruc( Think *t )
 {
     MdlEnt far *ent = t->ent;
 
-    if ( t->rdr->anim_time < ent->idle_at ) return;
-    ent->idle_at = t->rdr->anim_time + ZOMBIE_CRUC_CYCLE;
-    if ( rng_float( &t->world->rng ) < 0.1f ) mdl_voice( t->player, &t->world->snd, ent, CHAN_VOICE, SND_CRUC_IDLE, ATTN_STATIC );
+    if ( ent->idle_at == 0.0f )
+        ent->idle_at = -1.0f;
+    else
+        ent->anim_frame = (short) ( ( ent->anim_frame + 1 ) % mdl_set_count( t->m, MDL_SET_CRUC ) );
+    if ( ent->anim_frame == 0 && rng_float( &t->world->rng ) < 0.1f )
+        mdl_voice( t->player, &t->world->snd, ent, CHAN_VOICE, SND_CRUC_IDLE, ATTN_STATIC );
+    ent->next_think = t->rdr->anim_time + 0.1f;
+    if ( ent->anim_frame ) ent->next_think += rng_float( &t->world->rng ) * 0.1f;
+}
+
+static short near mdl_zombie_can_stand( World *world, Player *player,
+                                        short player_alive, MdlEnt far *ent,
+                                        MdlEnt far *mon, short mon_count,
+                                        short trace_world )
+{
+    short i;
+
+    if ( player_alive &&
+         fabs( ent->pos.x - player->pos.x ) < MDL_HALF + PL_HALF &&
+         fabs( ent->pos.y - player->pos.y ) < MDL_HALF + PL_HALF &&
+         ent->pos.z + MDL_ZHI > player->pos.z + PL_ZLO &&
+         ent->pos.z + MDL_ZLO < player->pos.z + PL_ZHI ) return 0;
+    for ( i = 0; i < mon_count; i++ ) {
+        MdlEnt far *other = &mon[i];
+        if ( other == ent || !MDL_IS_SOLID( other ) ) continue;
+        if ( fabs( ent->pos.x - other->pos.x ) < MDL_HALF + MDL_MON_HALF( other->kind ) &&
+             fabs( ent->pos.y - other->pos.y ) < MDL_HALF + MDL_MON_HALF( other->kind ) &&
+             ent->pos.z + MDL_ZHI > other->pos.z + MDL_ZLO &&
+             ent->pos.z + MDL_ZLO < other->pos.z + MDL_MON_ZHI( other->kind ) ) return 0;
+    }
+    return trace_world ? mdl_movestep( world, player, ent, 0.0f, 0.0f ) : -1;
+}
+
+static short near mdl_pain_dist( const MdlEnt far *ent )
+{
+    const signed char far *dist = 0;
+    short count = 0;
+
+    switch ( ent->kind ) {
+    case MDL_KIND_ARMY:
+        if ( ent->anim_set == MDL_SET_PAIN ) { dist = army_pain_dist; count = 6; }
+        else if ( ent->anim_set == MDL_SET_PAIN2 ) { dist = army_painb_dist; count = 14; }
+        else if ( ent->anim_set == MDL_SET_PAIN3 ) { dist = army_painc_dist; count = 13; }
+        break;
+    case MDL_KIND_KNIGHT:
+        if ( ent->anim_set == MDL_SET_PAIN2 ) { dist = knight_painb_dist; count = 11; }
+        break;
+    case MDL_KIND_DOG:
+        if ( ent->anim_set == MDL_SET_PAIN2 ) { dist = dog_painb_dist; count = 16; }
+        break;
+    case MDL_KIND_OGRE:
+        if ( ent->anim_set == MDL_SET_PAIN4 ) { dist = ogre_paind_dist; count = 16; }
+        else if ( ent->anim_set == MDL_SET_PAIN5 ) { dist = ogre_paine_dist; count = 15; }
+        break;
+    case MDL_KIND_ZOMBIE:
+        if ( ent->anim_set == MDL_SET_PAIN ) { dist = zombie_paina_dist; count = 12; }
+        else if ( ent->anim_set == MDL_SET_PAIN2 ) { dist = zombie_painb_dist; count = 28; }
+        else if ( ent->anim_set == MDL_SET_PAIN3 ) { dist = zombie_painc_dist; count = 18; }
+        else if ( ent->anim_set == MDL_SET_PAIN4 ) { dist = zombie_paind_dist; count = 13; }
+        else if ( ent->anim_set == MDL_SET_PAIN5 ) { dist = zombie_paine_dist; count = 30; }
+        break;
+    }
+    return dist && ent->anim_frame < count ? dist[ent->anim_frame] : 0;
+}
+
+static float near mdl_pain_heading( const MdlEnt far *ent, short dist )
+{
+    return dist > 0 ? ent->ideal_yaw : ent->yaw;
 }
 
 /* SV_CheckWaterTransition: a splash crossing a liquid's surface, sky
@@ -657,20 +756,104 @@ static void near ai_pain( Think *t )
 {
     MdlEnt far *ent = t->ent;
     Renderer *rdr = t->rdr;
-    short lies = mon_info[ ent->kind ].pain_lies;
+    short lies = (short) ( mon_info[ ent->kind ].pain_lies && ent->anim_set == MDL_SET_PAIN5 );
+    short count = mdl_set_count( t->m, ent->anim_set );
+    short dist;
 
-    /* a dropped zombie lies on its last pain frame until it may rise,
-       and hits the floor as it gets there (zombie_paine11) */
-    if ( lies && ent->anim_frame >= t->m->set_n[MDL_SET_PAIN] - 1 &&
-         rdr->anim_time < ent->pain_finished ) return;
-    if ( lies && ent->anim_frame == t->m->set_n[MDL_SET_PAIN] - 2 &&
-         ent->pain_finished - rdr->anim_time > ZOMBIE_FLINCH )
-        mdl_voice( t->player, &t->world->snd, ent, CHAN_BODY, SND_Z_FALL, ATTN_NORM );
-    ent->anim_frame++;
-    if ( ent->anim_frame >= t->m->set_n[MDL_SET_PAIN] ) {
-        ent->state = MDL_ST_RUN;
-        ent->anim_frame = 0;
+    /* zombie_paine11 lies non-solid for five seconds. paine12 restores
+       solidity only when walkmove(0, 0) says the standing box fits. */
+    if ( lies && ent->anim_frame == 10 ) {
+        if ( ent->pain_finished == 0.0f ) ent->pain_finished = rdr->anim_time + ZOMBIE_DOWN_WAIT;
+        if ( rdr->anim_time < ent->pain_finished ) return;
+        if ( !mdl_zombie_can_stand( t->world, t->player, t->fight->health > 0,
+                                    ent, t->world->mon, t->world->mon_count, -1 ) ) {
+            ent->pain_finished = rdr->anim_time + ZOMBIE_DOWN_WAIT;
+            return;
+        }
     }
+    ent->anim_frame++;
+    if ( ent->anim_frame >= count ) {
+        mdl_anim_start( ent, MDL_ST_RUN, MDL_SET_RUN );
+        return;
+    }
+    dist = mdl_pain_dist( ent );
+    if ( dist ) {
+        float yaw = mdl_pain_heading( ent, dist ) * DEG2RAD;
+        mdl_movestep( t->world, t->player, ent,
+                      (float) cos( yaw ) * dist, (float) sin( yaw ) * dist );
+    }
+    if ( lies && ent->anim_frame == 9 )
+        mdl_voice( t->player, &t->world->snd, ent, CHAN_BODY, SND_Z_FALL, ATTN_NORM );
+    if ( lies && ent->anim_frame == 10 ) ent->pain_finished = rdr->anim_time + ZOMBIE_DOWN_WAIT;
+}
+
+static short near mdl_attack_dist( const MdlEnt far *ent )
+{
+    const short far *dist = 0;
+    short count = 0;
+
+    switch ( ent->kind ) {
+    case MDL_KIND_KNIGHT:
+        if ( ent->anim_set == MDL_SET_ATK ) { dist = knight_atk_dist; count = 10; }
+        else if ( ent->anim_set == MDL_SET_ATK2 ) { dist = knight_runatk_dist; count = 11; }
+        break;
+    case MDL_KIND_DOG:
+        if ( ent->anim_set == MDL_SET_ATK ) { dist = dog_atk_dist; count = 8; }
+        break;
+    case MDL_KIND_OGRE:
+        if ( ent->anim_set == MDL_SET_ATK2 ) { dist = ogre_swing_dist; count = 14; }
+        else if ( ent->anim_set == MDL_SET_ATK3 ) { dist = ogre_smash_dist; count = 14; }
+        break;
+    case MDL_KIND_DEMON:
+        if ( ent->anim_set == MDL_SET_ATK ) { dist = demon_atk_dist; count = 15; }
+        break;
+    case MDL_KIND_SHAMBLER:
+        if ( ent->anim_set == MDL_SET_ATK2 ) { dist = sham_smash_dist; count = 12; }
+        else if ( ent->anim_set == MDL_SET_ATK3 ) { dist = sham_swingr_dist; count = 9; }
+        else if ( ent->anim_set == MDL_SET_ATK4 ) { dist = sham_swingl_dist; count = 9; }
+        break;
+    }
+    return dist && ent->anim_frame < count ? dist[ent->anim_frame] : 0;
+}
+
+static float near mdl_side_heading( const MdlEnt far *ent, const Player *player )
+{
+    float yaw = ent->yaw * DEG2RAD;
+    float dx = player->pos.x - ent->pos.x - (float) sin( yaw ) * 30.0f;
+    float dy = player->pos.y - ent->pos.y + (float) cos( yaw ) * 30.0f;
+    return mdl_vectoyaw( dx, dy );
+}
+
+static void near mdl_attack_step( Think *t )
+{
+    Player *player = t->player;
+    MdlEnt far *ent = t->ent;
+    const MonsterInfo far *inf = &mon_info[ent->kind];
+    short dist;
+
+    ent->ideal_yaw = mdl_vectoyaw( player->pos.x - ent->pos.x,
+                                    player->pos.y - ent->pos.y );
+    mdl_change_yaw( ent );
+    dist = mdl_attack_dist( ent );
+    if ( ent->kind == MDL_KIND_KNIGHT && ent->anim_set == MDL_SET_ATK2 &&
+         ent->anim_frame >= 1 && ent->anim_frame <= 9 ) {
+        float heading = mdl_side_heading( ent, player ) * DEG2RAD;
+        mdl_movestep( t->world, player, ent,
+                      (float) cos( heading ) * 20.0f,
+                      (float) sin( heading ) * 20.0f );
+    } else if ( dist )
+        mdl_movestep( t->world, player, ent,
+                      (float) cos( ent->yaw * DEG2RAD ) * dist,
+                      (float) sin( ent->yaw * DEG2RAD ) * dist );
+    if ( inf->attack_frame ) inf->attack_frame( t );
+    if ( ent->kind == MDL_KIND_SHAMBLER && ent->anim_set == MDL_SET_ATK && ent->anim_frame == 2 )
+        ent->next_think += 0.2f;
+}
+
+static void near mdl_attack_start( Think *t, short set )
+{
+    mdl_anim_start( t->ent, MDL_ST_ATTACK, set );
+    mdl_attack_step( t );
 }
 
 /* The attack set, facing the player: the knight's and the demon's
@@ -678,6 +861,14 @@ static void near ai_pain( Think *t )
    ogre's grenade, the zombie's gib and the wizard's spikes leave on
    their own frames. */
 /* the sword on knight_atk's frames, within reach */
+static void near atk_army( Think *t )
+{
+    if ( t->ent->anim_frame != 4 ) return;
+    t->ent->flash_until = t->rdr->anim_time + MDL_FLASH;
+    mdl_say( t->player, &t->world->snd, t->ent, 1 );
+    mdl_fire( t->world, t->player, t->fight, t->rdr, t->ent );
+}
+
 static void near atk_knight( Think *t )
 {
     World *world = t->world;
@@ -685,11 +876,23 @@ static void near atk_knight( Think *t )
     MdlEnt far *ent = t->ent;
     float dmg;
 
-    if ( ent->anim_frame >= KNIGHT_ATK_FIRST && ent->anim_frame <= KNIGHT_ATK_LAST &&
+    if ( ( ( ent->anim_set == MDL_SET_ATK && ent->anim_frame >= KNIGHT_ATK_FIRST &&
+             ent->anim_frame <= KNIGHT_ATK_LAST ) ||
+           ( ent->anim_set == MDL_SET_ATK2 && ent->anim_frame >= 4 && ent->anim_frame <= 8 ) ) &&
          mdl_in_reach( player, ent, KNIGHT_MELEE_RANGE ) ) {
         dmg = ( rng_float( &world->rng ) + rng_float( &world->rng ) + rng_float( &world->rng ) ) * KNIGHT_MELEE_DMG;
         if ( dmg > 0 ) combat_damage_player( player, world, t->fight, t->rdr, dmg );
     }
+}
+
+static void near atk_dog( Think *t )
+{
+    float dmg;
+
+    if ( t->ent->anim_frame != 3 || !mdl_in_reach( t->player, t->ent, DOG_BITE_RANGE ) ) return;
+    dmg = ( rng_float( &t->world->rng ) + rng_float( &t->world->rng ) +
+            rng_float( &t->world->rng ) ) * DOG_BITE_DMG;
+    if ( dmg > 0.0f ) combat_damage_player( t->player, t->world, t->fight, t->rdr, dmg );
 }
 
 /* Demon_Melee on attacka's two claw frames */
@@ -707,53 +910,98 @@ static void near atk_demon( Think *t )
 
 static void near atk_ogre( Think *t )
 {
-    if ( t->ent->anim_frame == OGRE_GREN_FRAME )
+    MdlEnt far *ent = t->ent;
+    float dmg;
+
+    if ( ent->anim_set == MDL_SET_ATK && ent->anim_frame == OGRE_GREN_FRAME )
         mdl_grenade( t->player, &t->world->snd, t->fight, t->rdr, t->ent );
+    if ( ent->anim_set == MDL_SET_ATK3 && ent->anim_frame == 10 )
+        ent->next_think += rng_float( &t->world->rng ) * 0.2f;
+    if ( ( ent->anim_set == MDL_SET_ATK2 && ent->anim_frame >= 4 && ent->anim_frame <= 10 ) ||
+         ( ent->anim_set == MDL_SET_ATK3 && ent->anim_frame >= 5 && ent->anim_frame <= 10 ) ) {
+        if ( !mdl_in_reach( t->player, ent, OGRE_SAW_RANGE ) ) return;
+        dmg = ( rng_float( &t->world->rng ) + rng_float( &t->world->rng ) +
+                rng_float( &t->world->rng ) ) * OGRE_SAW_DMG;
+        if ( dmg > 0.0f ) combat_damage_player( t->player, t->world, t->fight, t->rdr, dmg );
+    }
 }
 
 static void near atk_zombie( Think *t )
 {
-    if ( t->ent->anim_frame == ZOMBIE_GIB_FRAME )
+    if ( t->ent->anim_frame == mdl_set_count( t->m, t->ent->anim_set ) - 1 )
         mdl_gib( t->player, &t->world->snd, t->fight, t->rdr, t->ent );
+}
+
+static short near mdl_wizard_fire_frame( short frame )
+{
+    return (short) ( frame == WIZARD_FIRE_A || frame == WIZARD_FIRE_B );
 }
 
 static void near atk_wizard( Think *t )
 {
-    if ( t->ent->anim_frame == WIZARD_FIRE_A || t->ent->anim_frame == WIZARD_FIRE_B )
+    if ( mdl_wizard_fire_frame( t->ent->anim_frame ) )
         mdl_spike( t->world, t->player, t->fight, t->rdr, t->ent );
 }
 
 static void near atk_shambler( Think *t )
 {
+    MdlEnt far *ent = t->ent;
     short f = t->ent->anim_frame;
+    float dmg;
 
-    if ( f == SHAMBLER_BOLT_A || f == SHAMBLER_BOLT_B || f == SHAMBLER_BOLT_C ||
-         ( f == SHAMBLER_BOLT_C + 1 && t->fight->skill == 3 ) )
+    if ( ent->anim_set == MDL_SET_ATK &&
+         ( f == SHAMBLER_BOLT_A || f == SHAMBLER_BOLT_B || f == SHAMBLER_BOLT_C ||
+           ( f == SHAMBLER_BOLT_C + 1 && t->fight->skill == 3 ) ) )
         mdl_bolt( t->world, t->player, t->fight, t->rdr, t->ent );
+    if ( !( ( ent->anim_set == MDL_SET_ATK2 && f == 9 ) ||
+            ( ( ent->anim_set == MDL_SET_ATK3 || ent->anim_set == MDL_SET_ATK4 ) && f == 6 ) ) ) return;
+    if ( !mdl_in_reach( t->player, ent, 100.0f ) ) return;
+    dmg = ( rng_float( &t->world->rng ) + rng_float( &t->world->rng ) +
+            rng_float( &t->world->rng ) ) *
+          ( ent->anim_set == MDL_SET_ATK2 ? SHAMBLER_SMASH_DMG : 20.0f );
+    if ( dmg > 0.0f ) {
+        combat_damage_player( t->player, t->world, t->fight, t->rdr, dmg );
+        mdl_voice( t->player, &t->world->snd, ent, CHAN_VOICE, SND_SHAM_SMACK, ATTN_NORM );
+    }
 }
 
 static void near ai_attack( Think *t )
 {
-    const MonsterInfo far *inf = &mon_info[ t->ent->kind ];
-    Player *player = t->player;
     MdlEnt far *ent = t->ent;
-    float dist = 0.0f;
-
-    ent->ideal_yaw = mdl_vectoyaw( player->pos.x - ent->pos.x,
-                                    player->pos.y - ent->pos.y );
-    mdl_change_yaw( ent );
-    if ( ent->anim_frame < inf->natk ) dist = inf->atk[ ent->anim_frame ];
-    if ( dist > 0.0f )
-        mdl_movestep( t->world, player, ent,
-                       (float) cos( ent->yaw * DEG2RAD ) * dist,
-                       (float) sin( ent->yaw * DEG2RAD ) * dist );
-    if ( inf->attack_frame ) inf->attack_frame( t );
+    short next;
 
     ent->anim_frame++;
-    /* knight_atk10 is the last frame id uses; attackb11 is in the file */
-    if ( ent->anim_frame >= t->m->set_n[MDL_SET_ATK] || ent->anim_frame >= inf->atk_end ) {
-        ent->state = MDL_ST_RUN;
-        ent->anim_frame = 0;
+    if ( ent->anim_frame < mdl_set_count( t->m, ent->anim_set ) ) {
+        mdl_attack_step( t );
+        return;
+    }
+    if ( ent->kind == MDL_KIND_SHAMBLER &&
+         ( ent->anim_set == MDL_SET_ATK3 || ent->anim_set == MDL_SET_ATK4 ) &&
+         rng_float( &t->world->rng ) < 0.5f ) {
+        next = ent->anim_set == MDL_SET_ATK3 ? MDL_SET_ATK4 : MDL_SET_ATK3;
+        mdl_attack_start( t, next );
+    } else {
+        mdl_anim_start( ent, MDL_ST_RUN, MDL_SET_RUN );
+    }
+}
+
+static short near mdl_leap_phase( MdlEnt far *ent )
+{
+    short launch = ent->kind == MDL_KIND_DOG ? 1 : 3;
+    if ( ent->anim_frame < launch ) ent->anim_frame++;
+    return (short) ( ent->anim_frame >= launch );
+}
+
+static void near mdl_leap_advance( MdlEnt far *ent, const MdlState *m,
+                                    short launched )
+{
+    if ( launched ) return;
+    if ( ent->kind == MDL_KIND_DOG && ent->anim_set == MDL_SET_LEAP ) {
+        if ( ent->anim_frame < mdl_set_count( m, MDL_SET_LEAP ) - 1 ) ent->anim_frame++;
+    } else if ( ent->kind == MDL_KIND_DEMON && ent->anim_set == MDL_SET_LEAP ) {
+        if ( ent->anim_frame < 9 ) ent->anim_frame++;
+    } else {
+        ent->anim_frame = (short) ( ( ent->anim_frame + 1 ) % mdl_set_count( m, ent->anim_set ) );
     }
 }
 
@@ -768,8 +1016,31 @@ static void near ai_leap( Think *t )
     BspVec3 goal, fin;
     TraceResult tr;
     float dx, dy, dz, thr;
+    float fwd, up;
+    short launched = 0;
     const MonsterInfo far *inf = &mon_info[ ent->kind ];
 
+    if ( ent->kind == MDL_KIND_DEMON && ent->anim_frame >= 10 &&
+         ent->vel.x == 0.0f && ent->vel.y == 0.0f && ent->vel.z == 0.0f ) {
+        if ( ent->anim_frame < 11 ) ent->anim_frame++;
+        else mdl_anim_start( ent, MDL_ST_RUN, MDL_SET_RUN );
+        return;
+    }
+    if ( ent->leap_touch != MDL_THROWN &&
+         ent->vel.x == 0.0f && ent->vel.y == 0.0f && ent->vel.z == 0.0f ) {
+        ent->ideal_yaw = mdl_vectoyaw( player->pos.x - ent->pos.x,
+                                       player->pos.y - ent->pos.y );
+        mdl_change_yaw( ent );
+        if ( !mdl_leap_phase( ent ) ) return;
+        fwd = ent->kind == MDL_KIND_DOG ? DOG_LEAP_SPEED : DEMON_LEAP_SPEED;
+        up = ent->kind == MDL_KIND_DOG ? DOG_LEAP_UP : DEMON_LEAP_UP;
+        ent->pos.z += 1.0f;
+        ent->vel.x = (float) cos( ent->yaw * DEG2RAD ) * fwd;
+        ent->vel.y = (float) sin( ent->yaw * DEG2RAD ) * fwd;
+        ent->vel.z = up;
+        t->fight->leaps++;
+        launched = -1;
+    }
     ent->vel.z -= t->fight->gravity * 0.1f;
     fin.x = ent->pos.x + ent->vel.x * 0.1f;
     fin.y = ent->pos.y + ent->vel.y * 0.1f;
@@ -778,11 +1049,11 @@ static void near ai_leap( Think *t )
     pl_trace( world, &goal, &fin, &tr );
     ent->pos = tr.end_pos;
     /* a trigger_monsterjump throw counts once it rises; -1 keeps the bite off */
-    if ( ent->leapt == MDL_THROWN && ent->pos.z > goal.z ) {
+    if ( ent->leap_touch == MDL_THROWN && ent->pos.z > goal.z ) {
         world->mon_jumps++;
-        ent->leapt = -1;
+        ent->leap_touch = -1;
     }
-    if ( !ent->leapt ) {
+    if ( !ent->leap_touch ) {
         dx = player->pos.x - ent->pos.x;
         dy = player->pos.y - ent->pos.y;
         dz = player->pos.z - ent->pos.z;
@@ -793,19 +1064,24 @@ static void near ai_leap( Think *t )
                  ent->vel.z * ent->vel.z > thr * thr ) {
                 combat_damage_player( player, world, t->fight, t->rdr,
                     inf->leap_dmg + rng_float( &world->rng ) * inf->leap_scale );
-                ent->leapt = -1;
+                ent->leap_touch = -1;
             }
         }
     }
     if ( tr.frac < 1.0f ) {
         if ( ent->vel.z <= 0.0f ) {
-            ent->state = MDL_ST_RUN;
-            ent->anim_frame = 0;
+            if ( ent->kind == MDL_KIND_DEMON && ent->anim_set == MDL_SET_LEAP ) {
+                ent->vel.x = ent->vel.y = ent->vel.z = 0.0f;
+                ent->leap_touch = -1;
+                ent->anim_frame = 10;
+            } else {
+                mdl_anim_start( ent, MDL_ST_RUN, MDL_SET_RUN );
+            }
             return;
         }
         ent->vel.x = ent->vel.y = 0.0f;
     }
-    ent->anim_frame = (short) ( ( ent->anim_frame + 1 ) % t->m->set_n[MDL_SET_RUN] );
+    mdl_leap_advance( ent, t->m, launched );
 }
 
 static void near ai_stand( Think *t )
@@ -818,8 +1094,7 @@ static void near ai_stand( Think *t )
          mdl_find_target( world, t->player, t->fight, rdr, ent ) ) {
         ent->hunting = -1;
         mdl_say( t->player, &world->snd, ent, 0 );
-        ent->state = MDL_ST_RUN;
-        ent->anim_frame = 0;
+        mdl_anim_start( ent, MDL_ST_RUN, MDL_SET_RUN );
         ent->wander_ticks = 0;
     } else if ( rdr->anim_time >= ent->stand_until ) {
         if ( ent->corner >= 0 ) {
@@ -829,11 +1104,10 @@ static void near ai_stand( Think *t )
             ent->ideal_yaw = mdl_vectoyaw( ent->goal.x - ent->pos.x,
                                             ent->goal.y - ent->pos.y );
         }
-        ent->state = MDL_ST_RUN;
-        ent->anim_frame = 0;
+        mdl_anim_start( ent, MDL_ST_RUN, MDL_SET_WALK );
         ent->wander_ticks = 0;
     } else {
-        ent->anim_frame = (short) ( ( ent->anim_frame + 1 ) % t->m->set_n[MDL_SET_STAND] );
+        ent->anim_frame = (short) ( ( ent->anim_frame + 1 ) % mdl_set_count( t->m, ent->anim_set ) );
     }
 }
 
@@ -851,14 +1125,18 @@ static short near ai_check_knight( Think *t )
         dy = player->pos.y - ent->pos.y;
         dz = player->pos.z - ent->pos.z;
         if ( dx*dx + dy*dy + dz*dz < MDL_RANGE_MELEE * MDL_RANGE_MELEE ) {
-            ent->state = MDL_ST_ATTACK;
-            ent->anim_frame = 0;
-            /* knight_attack: under 80 knight_atk1's sword1, else
-               knight_runatk1's either */
-            if ( dx*dx + dy*dy + dz*dz >= 80.0f * 80.0f && rng_float( &world->rng ) > 0.5f )
-                mdl_voice( player, &world->snd, ent, CHAN_WEAPON, SND_SWORD2, ATTN_NORM );
-            else
+            /* knight_attack chooses the motion only by range. The run
+               attack's independent random chooses its sword sound. */
+            if ( dx*dx + dy*dy + dz*dz >= 80.0f * 80.0f ) {
+                mdl_attack_start( t, MDL_SET_ATK2 );
+                if ( rng_float( &world->rng ) > 0.5f )
+                    mdl_voice( player, &world->snd, ent, CHAN_WEAPON, SND_SWORD2, ATTN_NORM );
+                else
+                    mdl_say( player, &world->snd, ent, 1 );
+            } else {
                 mdl_say( player, &world->snd, ent, 1 );
+                mdl_attack_start( t, MDL_SET_ATK );
+            }
             return -1;
         }
     }
@@ -876,7 +1154,6 @@ static short near ai_check_dog( Think *t )
     Renderer *rdr = t->rdr;
     MdlEnt far *ent = t->ent;
     float dx, dy, dz;
-    float dmg;
 
     if ( rdr->anim_time >= ent->next_attack &&
          mdl_find_target( world, player, fight, rdr, ent ) ) {
@@ -886,12 +1163,12 @@ static short near ai_check_dog( Think *t )
         if ( dx*dx + dy*dy + dz*dz < DOG_BITE_RANGE * DOG_BITE_RANGE ) {
             ent->next_attack = rdr->anim_time + DOG_BITE_RATE;
             mdl_say( player, &world->snd, ent, 1 );
-            dmg = ( rng_float( &world->rng ) + rng_float( &world->rng ) + rng_float( &world->rng ) ) * DOG_BITE_DMG;
-            if ( dmg > 0 ) combat_damage_player( player, world, fight, rdr, dmg );
+            mdl_attack_start( t, MDL_SET_ATK );
+            return -1;
         } else if ( dx*dx + dy*dy > DOG_LEAP_MIN * DOG_LEAP_MIN &&
                     dx*dx + dy*dy < DOG_LEAP_MAX * DOG_LEAP_MAX &&
                     mdl_leap_height( dz ) ) {
-            mdl_leap( fight, ent, dx, dy, DOG_LEAP_SPEED, DOG_LEAP_UP );
+            mdl_leap_start( ent, dx, dy );
             ent->next_attack = rdr->anim_time + DOG_BITE_RATE;
             mdl_say( player, &world->snd, ent, 1 );
             return -1;
@@ -911,7 +1188,6 @@ static short near ai_check_ogre( Think *t )
     Renderer *rdr = t->rdr;
     MdlEnt far *ent = t->ent;
     float dx, dy, dz, d2, chance;
-    float dmg;
 
     if ( mdl_find_target( world, player, fight, rdr, ent ) ) {
         dx = player->pos.x - ent->pos.x;
@@ -922,10 +1198,8 @@ static short near ai_check_ogre( Think *t )
             if ( rdr->anim_time >= ent->next_attack ) {
                 ent->next_attack = rdr->anim_time + OGRE_SWING;
                 mdl_say( player, &world->snd, ent, 1 );
-            }
-            if ( ( ent->anim_frame & 1 ) && mdl_in_reach( player, ent, OGRE_SAW_RANGE ) ) {
-                dmg = ( rng_float( &world->rng ) + rng_float( &world->rng ) + rng_float( &world->rng ) ) * OGRE_SAW_DMG;
-                if ( dmg > 0 ) combat_damage_player( player, world, fight, rdr, dmg );
+                mdl_attack_start( t, rng_float( &world->rng ) > 0.5f ? MDL_SET_ATK3 : MDL_SET_ATK2 );
+                return -1;
             }
         } else if ( rdr->anim_time >= ent->next_attack ) {
             chance = MDL_ATK_MID;
@@ -934,8 +1208,7 @@ static short near ai_check_ogre( Think *t )
             if ( rng_float( &world->rng ) < chance ) {
                 /* ogre_nail1 says nothing; OgreFireGrenade's throw does */
                 ent->next_attack = rdr->anim_time + 2.0f * rng_float( &world->rng );
-                ent->state = MDL_ST_ATTACK;
-                ent->anim_frame = 0;
+                mdl_attack_start( t, MDL_SET_ATK );
                 return -1;
             }
         }
@@ -957,8 +1230,7 @@ static short near ai_check_demon( Think *t )
         dy = player->pos.y - ent->pos.y;
         dz = player->pos.z - ent->pos.z;
         if ( dx*dx + dy*dy + dz*dz < MDL_RANGE_MELEE * MDL_RANGE_MELEE ) {
-            ent->state = MDL_ST_ATTACK;
-            ent->anim_frame = 0;
+            mdl_attack_start( t, MDL_SET_ATK );
             mdl_say( player, &world->snd, ent, 1 );
             return -1;
         } else if ( rdr->anim_time >= ent->next_attack ) {
@@ -966,7 +1238,7 @@ static short near ai_check_demon( Think *t )
             if ( d2 > DEMON_LEAP_MIN * DEMON_LEAP_MIN &&
                  ( d2 < DEMON_LEAP_MAX * DEMON_LEAP_MAX || rng_float( &world->rng ) < 0.1f ) &&
                  mdl_leap_height( dz ) ) {
-                mdl_leap( t->fight, ent, dx, dy, DEMON_LEAP_SPEED, DEMON_LEAP_UP );
+                mdl_leap_start( ent, dx, dy );
                 ent->next_attack = rdr->anim_time + 2.0f * rng_float( &world->rng );
                 mdl_voice( player, &world->snd, ent, CHAN_VOICE, SND_DJUMP, ATTN_NORM );
                 return -1;
@@ -985,7 +1257,6 @@ static short near ai_check_shambler( Think *t )
     Renderer *rdr = t->rdr;
     MdlEnt far *ent = t->ent;
     float dx, dy, dz, d2, chance;
-    float dmg;
 
     if ( mdl_find_target( world, player, fight, rdr, ent ) ) {
         dx = player->pos.x - ent->pos.x;
@@ -998,20 +1269,21 @@ static short near ai_check_shambler( Think *t )
                 /* sham_melee: the smash's melee1 past 0.6 or unhurt,
                    swingr's melee2 past 0.3, swingl's melee1 */
                 chance = rng_float( &world->rng );
+                if ( chance > 0.6f || ent->health == SHAMBLER_HEALTH )
+                    mdl_attack_start( t, MDL_SET_ATK2 );
+                else if ( chance > 0.3f )
+                    mdl_attack_start( t, MDL_SET_ATK3 );
+                else
+                    mdl_attack_start( t, MDL_SET_ATK4 );
                 mdl_voice( player, &world->snd, ent, CHAN_VOICE,
-                           (short) ( chance > 0.3f && chance <= 0.6f && ent->health < SHAMBLER_HEALTH
-                                     ? SND_SHAM_MELEE2 : SND_SHAM_MELEE ), ATTN_NORM );
-                dmg = ( rng_float( &world->rng ) + rng_float( &world->rng ) + rng_float( &world->rng ) ) * SHAMBLER_SMASH_DMG;
-                if ( dmg > 0 ) {
-                    combat_damage_player( player, world, fight, rdr, dmg );
-                    mdl_voice( player, &world->snd, ent, CHAN_VOICE, SND_SHAM_SMACK, ATTN_NORM );
-                }
+                           ent->anim_set == MDL_SET_ATK3 ? SND_SHAM_MELEE2 : SND_SHAM_MELEE,
+                           ATTN_NORM );
+                return -1;
             }
         } else if ( rdr->anim_time >= ent->next_attack &&
                     d2 < SHAMBLER_BOLT_RANGE * SHAMBLER_BOLT_RANGE ) {
             ent->next_attack = rdr->anim_time + SHAMBLER_ATK_WAIT + 2.0f * rng_float( &world->rng );
-            ent->state = MDL_ST_ATTACK;
-            ent->anim_frame = 0;
+            mdl_attack_start( t, MDL_SET_ATK );
             mdl_say( player, &world->snd, ent, 1 );
             return -1;
         }
@@ -1021,7 +1293,8 @@ static short near ai_check_shambler( Think *t )
 
 /* CheckAttack with a th_missile alone, and WizardCheckAttack:
    a clear line, ready, and a chance by range. */
-static short near ai_check_missile( Think *t, float near_p, float mid_p, float wait, short say )
+static short near ai_check_missile( Think *t, float near_p, float mid_p, float wait,
+                                    short say, short set )
 {
     World *world = t->world;
     Player *player = t->player;
@@ -1046,8 +1319,11 @@ static short near ai_check_missile( Think *t, float near_p, float mid_p, float w
         if ( rng_float( &world->rng ) < chance ) {
             ent->next_attack = rdr->anim_time +
                 ( wait > 0.0f ? wait : 2.0f * rng_float( &world->rng ) );
-            ent->state = MDL_ST_ATTACK;
-            ent->anim_frame = 0;
+            if ( set < 0 ) {
+                float r = rng_float( &world->rng );
+                set = r < 0.3f ? MDL_SET_ATK : ( r < 0.6f ? MDL_SET_ATK2 : MDL_SET_ATK3 );
+            }
+            mdl_attack_start( t, set );
             /* Wiz_StartFast's wattack; the zombie's z_shot1 is the throw's */
             if ( say ) mdl_say( player, &world->snd, ent, 1 );
             return -1;
@@ -1058,13 +1334,14 @@ static short near ai_check_missile( Think *t, float near_p, float mid_p, float w
 
 static short near ai_check_zombie( Think *t )
 {
-    return ai_check_missile( t, ZOMBIE_ATK_NEAR, ZOMBIE_ATK_MID, 0.0f, 0 );
+    return ai_check_missile( t, ZOMBIE_ATK_NEAR, ZOMBIE_ATK_MID, 0.0f, 0, -1 );
 }
 
 /* Wiz_StartFast's wait is fixed, and it says wattack */
 static short near ai_check_wizard( Think *t )
 {
-    return ai_check_missile( t, WIZARD_ATK_NEAR, WIZARD_ATK_MID, WIZARD_ATK_WAIT, -1 );
+    return ai_check_missile( t, WIZARD_ATK_NEAR, WIZARD_ATK_MID, WIZARD_ATK_WAIT, -1,
+                             MDL_SET_ATK );
 }
 
 /* SoldierCheckAttack: a clear line, attack_finished passed, and
@@ -1090,9 +1367,8 @@ static short near ai_check_army( Think *t )
         else                                              chance = 0.0f;
         if ( rng_float( &world->rng ) < chance ) {
             ent->next_attack = rdr->anim_time + 1.0f + rng_float( &world->rng );
-            ent->flash_until = rdr->anim_time + MDL_FLASH;
-            mdl_say( player, &world->snd, ent, 1 );
-            mdl_fire( world, player, fight, rdr, ent );
+            mdl_attack_start( t, MDL_SET_ATK );
+            return -1;
         }
     }
     return 0;
@@ -1108,7 +1384,7 @@ static short near ai_walk( Think *t )
          mdl_find_target( t->world, t->player, t->fight, t->rdr, ent ) ) {
         ent->hunting = -1;
         mdl_say( t->player, &t->world->snd, ent, 0 );
-        ent->anim_frame = 0;
+        mdl_anim_start( ent, MDL_ST_RUN, MDL_SET_RUN );
         return -1;
     }
     return 0;
@@ -1127,16 +1403,15 @@ static void near ai_patrol_arrive( Think *t )
         PathCorner far *c = &t->world->corner[ ent->corner ];
         if ( c->nxt < 0 ) {
             ent->corner = -1;
-            ent->state = MDL_ST_STAND;
+            mdl_anim_start( ent, MDL_ST_STAND, MDL_SET_STAND );
             ent->stand_until = 1.0e9f;
         } else if ( c->wait > 0.0f ) {
             ent->corner = c->nxt;
-            ent->state = MDL_ST_STAND;
+            mdl_anim_start( ent, MDL_ST_STAND, MDL_SET_STAND );
             ent->stand_until = t->rdr->anim_time + c->wait;
         } else {
             mdl_patrol_to( t->world, ent, c->nxt );
         }
-        ent->anim_frame = 0;
     }
 }
 
@@ -1153,8 +1428,7 @@ static void near ai_wander_arrive( Think *t )
     dy = ent->pos.y - ent->goal.y;
     if ( dx*dx + dy*dy < MDL_WANDER_ARRIVE * MDL_WANDER_ARRIVE ||
          ent->wander_ticks >= MDL_WANDER_MAXTICKS ) {
-        ent->state = MDL_ST_STAND;
-        ent->anim_frame = 0;
+        mdl_anim_start( ent, MDL_ST_STAND, MDL_SET_STAND );
         ent->stand_until = t->rdr->anim_time + MDL_STAND_MIN +
                             rng_float( &t->world->rng ) * ( MDL_STAND_MAX - MDL_STAND_MIN );
     }
@@ -1168,7 +1442,10 @@ static void near ai_run( Think *t )
     BspVec3 goal;
     float dist;
 
-    dist = inf->run[ ent->anim_frame % inf->nrun ];
+    if ( ent->anim_set == MDL_SET_WALK )
+        dist = inf->walk[ ent->anim_frame % inf->nwalk ];
+    else
+        dist = inf->run[ ent->anim_frame % inf->nrun ];
 
     goal = t->player->pos;
     if ( ent->hunting ) {
@@ -1176,11 +1453,10 @@ static void near ai_run( Think *t )
     } else {
         if ( ai_walk( t ) ) return;
         goal = ent->goal;
-        if ( ent->corner >= 0 ) dist = MDL_PATROL_STEP;
     }
 
     mdl_move_to_goal( t->world, t->player, ent, &goal, dist );
-    ent->anim_frame = (short) ( ( ent->anim_frame + 1 ) % t->m->set_n[MDL_SET_RUN] );
+    ent->anim_frame = (short) ( ( ent->anim_frame + 1 ) % mdl_set_count( t->m, ent->anim_set ) );
 
     if ( !ent->hunting && ent->corner >= 0 ) {
         ai_patrol_arrive( t );
@@ -1201,7 +1477,7 @@ void mdl_think( World *world, Player *player, Fight *fight, Renderer *rdr,
     /* Dead: the death frames once, then a corpse. */
     if ( ent->state == MDL_ST_GIBBED ) return;
     if ( ent->state == MDL_ST_DEAD ) {
-        if ( ent->anim_frame < m->set_n[MDL_SET_DEATH] - 1 ) {
+        if ( ent->anim_frame < mdl_set_count( m, ent->anim_set ) - 1 ) {
             ent->anim_frame++;
             if ( ent->anim_frame == 2 && mon_facts[ent->kind].drop_amount )
                 pl_backpack_add( world, ent, mon_facts[ent->kind].drop_kind,
@@ -1269,6 +1545,83 @@ short mdl_ai_visible_selftest( World *world, Player *player )
     i = mdl_visible( world, &eye, &peye );
     pl_trace( world, &eye, &peye, &tr );
     return (short) ( i | ( ( tr.frac == 1.0f && !tr.all_solid ) ? 2 : 0 ) );
+}
+
+short mdl_anim_selftest( void )
+{
+    MdlEnt ent, mons[2];
+    MdlState model;
+    Player player;
+    unsigned char counts[MDL_NSETS];
+    short i, launched;
+    float heading;
+
+    memset( &ent, 0, sizeof(ent) );
+    memset( &model, 0, sizeof(model) );
+    memset( &player, 0, sizeof(player) );
+    memset( counts, 0, sizeof(counts) );
+
+    model.zhi = 123.0f;
+    model.vpages = 12345;
+    model.page_frames = 23456;
+    for ( i = 0; i < MDL_NSETS; i++ ) counts[i] = (unsigned char) ( ( i * 7 + 3 ) & 31 );
+    mdl_set_counts( &model, counts );
+    for ( i = 0; i < MDL_NSETS; i++ )
+        if ( mdl_set_count( &model, i ) != counts[i] ) return 0;
+    if ( model.zhi != 123.0f || model.vpages != 12345 || model.page_frames != 23456 ) return 0;
+
+    memset( counts, 0, sizeof(counts) );
+    counts[MDL_SET_LEAP] = 16;
+    mdl_set_counts( &model, counts );
+
+    ent.kind = MDL_KIND_DOG; ent.anim_set = MDL_SET_LEAP;
+    launched = mdl_leap_phase( &ent );
+    mdl_leap_advance( &ent, &model, launched );
+    if ( !launched || ent.anim_frame != 1 ) return 0;
+
+    ent.kind = MDL_KIND_DEMON; ent.anim_frame = 0;
+    if ( mdl_leap_phase( &ent ) || ent.anim_frame != 1 ) return 0;
+    if ( mdl_leap_phase( &ent ) || ent.anim_frame != 2 ) return 0;
+    launched = mdl_leap_phase( &ent );
+    mdl_leap_advance( &ent, &model, launched );
+    if ( !launched || ent.anim_frame != 3 ) return 0;
+
+    ent.kind = MDL_KIND_KNIGHT; ent.yaw = 0.0f;
+    player.pos.x = 100.0f;
+    heading = mdl_side_heading( &ent, &player );
+    if ( heading < 16.0f || heading > 17.0f ) return 0;
+
+    ent.kind = MDL_KIND_OGRE; ent.anim_set = MDL_SET_ATK2; ent.anim_frame = 4;
+    if ( mdl_attack_dist( &ent ) != 19 ) return 0;
+    ent.anim_set = MDL_SET_ATK3; ent.anim_frame = 5;
+    if ( mdl_attack_dist( &ent ) != 14 ) return 0;
+    ent.kind = MDL_KIND_SHAMBLER; ent.anim_set = MDL_SET_ATK3; ent.anim_frame = 6;
+    if ( mdl_attack_dist( &ent ) != 16 ) return 0;
+
+    ent.kind = MDL_KIND_OGRE; ent.anim_set = MDL_SET_PAIN4; ent.anim_frame = 1;
+    if ( mdl_pain_dist( &ent ) != -10 ) return 0;
+    ent.kind = MDL_KIND_ARMY; ent.anim_set = MDL_SET_PAIN2; ent.anim_frame = 1;
+    if ( mdl_pain_dist( &ent ) != 13 ) return 0;
+    ent.yaw = 0.0f; ent.ideal_yaw = 90.0f;
+    if ( mdl_pain_heading( &ent, 1 ) != 90.0f || mdl_pain_heading( &ent, -1 ) != 0.0f ) return 0;
+
+    if ( !mdl_wizard_fire_frame( 3 ) || !mdl_wizard_fire_frame( 8 ) ||
+         mdl_wizard_fire_frame( 2 ) || mdl_wizard_fire_frame( 7 ) ) return 0;
+    ent.kind = MDL_KIND_ZOMBIE; ent.state = MDL_ST_PAIN;
+    ent.anim_set = MDL_SET_PAIN5; ent.anim_frame = 10;
+    if ( MDL_IS_SOLID( &ent ) || MDL_MON_HALF( MDL_KIND_DOG ) != 32.0f ||
+         MDL_MON_ZHI( MDL_KIND_SHAMBLER ) != 64.0f ||
+         ZOMBIE_DOWN_WAIT < 5.09f || ZOMBIE_DOWN_WAIT > 5.11f ) return 0;
+    ent.anim_frame = 11;
+    if ( !MDL_IS_SOLID( &ent ) ) return 0;
+
+    memset( mons, 0, sizeof(mons) );
+    mons[0].kind = MDL_KIND_ZOMBIE;
+    mons[1].kind = MDL_KIND_DOG; mons[1].state = MDL_ST_RUN;
+    mons[1].pos.x = 47.0f;
+    if ( mdl_zombie_can_stand( 0, &player, 0, &mons[0], mons, 2, 0 ) ) return 0;
+    mons[1].pos.x = 48.0f;
+    return (short) ( mdl_zombie_can_stand( 0, &player, 0, &mons[0], mons, 2, 0 ) != 0 );
 }
 
 void mdl_tick( World *world, Player *player, Fight *fight, Renderer *rdr,

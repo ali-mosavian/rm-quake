@@ -48,13 +48,41 @@ static short near mdl_sets_ok( const MdlHead *h, short need )
 {
     short s, sum = 0;
 
-    if ( h->nsets < need || h->nsets > MDL_NSETS ) return 0;
+    if ( h->nsets < need || h->nsets > MDL_NSETS ||
+         h->nframe < 1 || h->nframe > 255 ) return 0;
     for ( s = 0; s < MDL_NSETS; s++ ) {
+        if ( h->set_n[s] > 31 ) return 0;
         if ( s < need && !h->set_n[s] ) return 0;
         if ( s >= h->nsets && h->set_n[s] ) return 0;
         sum += h->set_n[s];
     }
     return sum == h->nframe;
+}
+
+short mdl_set_count( const MdlState *m, short set )
+{
+    short bit, byte, shift;
+    unsigned short value;
+
+    if ( set < 0 || set >= MDL_NSETS ) return 0;
+    bit = (short) ( set * 5 ); byte = (short) ( bit >> 3 ); shift = (short) ( bit & 7 );
+    value = (unsigned short) m->set_bits[byte] >> shift;
+    if ( shift > 3 ) value |= (unsigned short) m->set_bits[byte + 1] << ( 8 - shift );
+    return (short) ( value & 31 );
+}
+
+void mdl_set_counts( MdlState *m, const unsigned char *counts )
+{
+    short set, bit, byte, shift;
+    unsigned short value;
+
+    memset( m->set_bits, 0, sizeof(m->set_bits) );
+    for ( set = 0; set < MDL_NSETS; set++ ) {
+        bit = (short) ( set * 5 ); byte = (short) ( bit >> 3 ); shift = (short) ( bit & 7 );
+        value = (unsigned short) counts[set] << shift;
+        m->set_bits[byte] |= (unsigned char) value;
+        if ( shift > 3 ) m->set_bits[byte + 1] |= (unsigned char) ( value >> 8 );
+    }
 }
 
 static void near mdl_from_head( MdlState *m, const MdlHead *h )
@@ -63,7 +91,7 @@ static void near mdl_from_head( MdlState *m, const MdlHead *h )
 
     m->ntri = h->ntri; m->nvert = h->nvert; m->nframe = h->nframe;
     m->scale = h->scale; m->origin = h->origin;
-    memcpy( m->set_n, h->set_n, MDL_NSETS );
+    mdl_set_counts( m, h->set_n );
     m->vpages = h->vpages; m->page_frames = h->page_frames;
 
     ex = (float) fabs( m->origin.x );
@@ -100,7 +128,7 @@ static short near mdl_load_stream( Pak *pak, MdlState *m, char *name, short need
         return 0;
     }
     if ( h.magic != MDL_MAGIC ) {
-        sprintf( msg, "%s: not a QMD3 .geo -- rebuild the map's container", path ); mdl_refuse( msg );
+        sprintf( msg, "%s: not a QMD4 .geo -- rebuild the map's container", path ); mdl_refuse( msg );
         return 0;
     }
     if ( !mdl_sets_ok( &h, need ) ) {
@@ -328,19 +356,20 @@ typedef struct {
 } FxBankEnt;
 
 typedef char rec_fxhead_ok[ sizeof(FxBankHead) == 14 ? 1 : -1 ];
-typedef char rec_fxmodel_ok[ sizeof(FxBankEnt) == 68 ? 1 : -1 ];
+typedef char rec_fxmodel_ok[ sizeof(FxBankEnt) == 76 ? 1 : -1 ];
 
 void mdl_load_effects( World *world )
 {
     FxBankHead head;
     FxBankEnt ent;
     EffectModel model;
+    EffectModel far *models;
     short fh, i, page, seg;
     long bytes, left, chunk, skin_bytes;
 
     fh = pak_seek( &world->pak, "effects.bin", &bytes );
     if ( qglFileRead( fh, (long) (void far *) &head, sizeof(head) ) != sizeof(head) ||
-         memcmp( head.magic, "QFX2", 4 ) || head.count != MDL_FX_N ||
+         memcmp( head.magic, "QFX3", 4 ) || head.count != MDL_FX_N ||
          head.skin_w < 1 || head.skin_h < 1 || head.geom_bytes < 1 )
         sys_error( "effects.bin: bad header" );
 
@@ -350,8 +379,11 @@ void mdl_load_effects( World *world )
         sys_error( "effects.bin: bad size" );
 
     world->fx_mdl_count = head.count;
-    world->fx_mdl = (EffectModel far *) qglMemAlloc( (long) head.count * sizeof(EffectModel) );
-    if ( !world->fx_mdl ) sys_error( "effects.bin: out of memory for models" );
+    world->fx_mdl_hnd = qglGemAlloc( (long) head.count * sizeof(EffectModel) );
+    if ( !world->fx_mdl_hnd ) sys_error( "effects.bin: no EMS for models" );
+    seg = qglGemMap( world->fx_mdl_hnd, 0, PAGE_SLOT );
+    if ( !seg ) sys_error( "effects.bin: model map failed" );
+    models = (EffectModel far *) ((long) seg << 16);
 
     for ( i = 0; i < head.count; i++ ) {
         if ( qglFileRead( fh, (long) (void far *) &ent, sizeof(ent) ) != sizeof(ent) )
@@ -377,7 +409,7 @@ void mdl_load_effects( World *world )
         model.skin_ofs = ent.skin_ofs;
         model.skin_w = ent.head.skin_w;
         model.skin_h = ent.head.skin_h;
-        _fmemcpy( &world->fx_mdl[i], &model, sizeof(model) );
+        _fmemcpy( &models[i], &model, sizeof(model) );
     }
 
     world->fx_geom_hnd = qglGemAlloc( head.geom_bytes );
@@ -390,14 +422,18 @@ void mdl_load_effects( World *world )
             sys_error( "effects.bin: geometry short read" );
         left -= chunk;
     }
-    for ( i = 0; i < head.count; i++ ) world->fx_mdl[i].state.vtx_hnd = world->fx_geom_hnd;
-
     world->fx_skin_atlas = qglSfNewEx( head.skin_w, head.skin_h, head.skin_w, QGL_SURF_EMS );
     if ( !world->fx_skin_atlas || !qglSfLoadFh( world->fx_skin_atlas, fh ) )
         sys_error( "effects.bin: skin atlas would not load" );
     world->fx_skin_view = 0;
     world->fx_skin_aim = -1;
-    for ( i = 0; i < head.count; i++ ) world->fx_mdl[i].state.loaded = 1;
+    seg = qglGemMap( world->fx_mdl_hnd, 0, PAGE_SLOT );
+    if ( !seg ) sys_error( "effects.bin: model remap failed" );
+    models = (EffectModel far *) ((long) seg << 16);
+    for ( i = 0; i < head.count; i++ ) {
+        models[i].state.vtx_hnd = world->fx_geom_hnd;
+        models[i].state.loaded = 1;
+    }
 }
 
 void mdl_unload_effects( World *world )
@@ -405,30 +441,40 @@ void mdl_unload_effects( World *world )
     if ( world->fx_skin_view ) qglDelView( world->fx_skin_view );
     if ( world->fx_skin_atlas ) qglSfFree( world->fx_skin_atlas );
     if ( world->fx_geom_hnd ) qglGemFree( world->fx_geom_hnd );
-    if ( world->fx_mdl ) qglMemFree( (long) world->fx_mdl );
-    world->fx_mdl = 0;
+    if ( world->fx_mdl_hnd ) qglGemFree( world->fx_mdl_hnd );
+    world->fx_mdl_hnd = 0;
     world->fx_mdl_count = 0;
     world->fx_geom_hnd = 0;
     world->fx_skin_atlas = world->fx_skin_view = 0;
     world->fx_skin_aim = -1;
 }
 
-QSurf mdl_effect_skin( World *world, short id )
+short mdl_effect_model( World *world, short id, EffectModel *out )
 {
-    EffectModel model;
+    EffectModel far *models;
+    short seg;
 
+    if ( id < 0 || id >= world->fx_mdl_count || !world->fx_mdl_hnd ) return 0;
+    seg = qglGemMap( world->fx_mdl_hnd, 0, PAGE_SLOT );
+    if ( !seg ) return 0;
+    models = (EffectModel far *) ((long) seg << 16);
+    _fmemcpy( out, &models[id], sizeof(*out) );
+    return -1;
+}
+
+QSurf mdl_effect_skin( World *world, short id, const EffectModel *model )
+{
     if ( id < 0 || id >= world->fx_mdl_count ) return 0;
-    _fmemcpy( &model, &world->fx_mdl[id], sizeof(model) );
     if ( !world->fx_skin_view ) {
         world->fx_skin_view = qglSfViewNew( world->fx_skin_atlas,
-                                             model.skin_w, model.skin_h, model.skin_w );
+                                             model->skin_w, model->skin_h, model->skin_w );
         if ( !world->fx_skin_view ) return 0;
         world->fx_skin_aim = -1;
     }
     if ( world->fx_skin_aim != id ) {
         if ( !qglSfViewResize( world->fx_skin_view, world->fx_skin_atlas,
-                               model.skin_w, model.skin_h, model.skin_w ) ||
-             !qglSfViewAim( world->fx_skin_view, model.skin_ofs ) ) return 0;
+                               model->skin_w, model->skin_h, model->skin_w ) ||
+             !qglSfViewAim( world->fx_skin_view, model->skin_ofs ) ) return 0;
         world->fx_skin_aim = id;
     }
     return world->fx_skin_view;
@@ -465,8 +511,12 @@ MdlTri far *mdl_tris( const MdlState *m, short slot )
 short mdl_set_frame( const MdlState *m, short set, short anim )
 {
     short s;
+    short count = mdl_set_count( m, set );
 
-    for ( s = 0; s < set; s++ ) anim += m->set_n[s];
+    if ( !count ) return 0;
+    if ( anim < 0 ) anim = 0;
+    if ( anim >= count ) anim = (short) ( count - 1 );
+    for ( s = 0; s < set; s++ ) anim += mdl_set_count( m, s );
     return anim;
 }
 
@@ -493,10 +543,11 @@ static void near mdl_report_one( const MdlState *m, const char *name )
     mark( buf );
     /* each set as the draw picks its frames, through mdl_set_frame */
     for ( s = 0; s < MDL_NSETS; s++ ) {
-        if ( !m->set_n[s] ) continue;
-        for ( sum = 0, i = 0, f = 0; f < m->set_n[s]; f++ )
+        short count = mdl_set_count( m, s );
+        if ( !count ) continue;
+        for ( sum = 0, i = 0, f = 0; f < count; f++ )
             sum = mdl_sum_frame( m, mdl_set_frame( m, s, f ), sum, &i );
-        sprintf( buf, "mdl_set %.8s %d %d %08lX", name, (int) s, (int) m->set_n[s], sum );
+        sprintf( buf, "mdl_set %.8s %d %d %08lX", name, (int) s, (int) count, sum );
         mark( buf );
     }
 }
@@ -531,9 +582,7 @@ MdlState *mdl_of( World *world, short kind )
 
 void mdl_load_monsters( World *world, unsigned char far *buf, long *ofs, short count )
 {
-    short i, kinds[MDL_KINDS];
-
-    for ( i = 0; i < MDL_KINDS; i++ ) { kinds[i] = 0; world->mdl[i].loaded = 0; }
+    short i;
 
     world->mon_count = count;
     world->mon = (MdlEnt far *) qglMemAlloc( (long) ( count ? count : 1 ) * sizeof(MdlEnt) );
@@ -551,8 +600,17 @@ void mdl_load_monsters( World *world, unsigned char far *buf, long *ofs, short c
         e->yaw    = mr.angle;   /* a model's yaw is Quake's, CCW from +x: no mirror */
         e->patrol = mr.first;   /* its path_corner, -1 for none */
         e->cruc   = mr.cruc;
-        if ( mr.kind >= 0 && mr.kind < MDL_KINDS ) kinds[ mr.kind ] = 1;
     }
+}
+
+void mdl_load_monster_models( World *world )
+{
+    short i, kinds[MDL_KINDS];
+
+    for ( i = 0; i < MDL_KINDS; i++ ) { kinds[i] = 0; world->mdl[i].loaded = 0; }
+    for ( i = 0; i < world->mon_count; i++ )
+        if ( world->mon[i].kind >= 0 && world->mon[i].kind < MDL_KINDS )
+            kinds[ world->mon[i].kind ] = 1;
 
     /* Only the kinds this map spawns: a model the map has none of is
        EMS pages and a skin for nothing, and mkassets ships only these

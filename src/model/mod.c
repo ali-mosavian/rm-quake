@@ -167,12 +167,23 @@ static void mod_load_submodels( World *world )
                                                   (long) world->model_count * sizeof(Submodel) );
 }
 
-/* qglMemAlloc'd rather than a uGL store: r_bsp reaches it as a plain far
-   pointer plus a byte offset (leaf.vis_list), never as an array. */
 static void mod_load_visibility( World *world )
 {
-    long n;
-    world->pvs_data = pak_load_whole( &world->pak, "pvs.bin", &n );
+    long n, left, chunk;
+    short fh, page, seg;
+
+    fh = pak_seek( &world->pak, "pvs.bin", &n );
+    world->pvs_hnd = qglGemAlloc( n );
+    world->pvs_bytes = n;
+    if ( !world->pvs_hnd ) mod_fatal( "PVS would not fit EMS" );
+    left = n;
+    for ( page = 0; left > 0; page++ ) {
+        chunk = left > WORLD_EMS_PAGE_BYTES ? WORLD_EMS_PAGE_BYTES : left;
+        seg = qglGemMap( world->pvs_hnd, page, PAGE_SLOT );
+        if ( !seg || qglFileRead( fh, (long) seg << 16, chunk ) != chunk )
+            mod_fatal( "PVS short read" );
+        left -= chunk;
+    }
 }
 
 void mod_load_world( World *world, Renderer *rdr, Camera *cam, Fight *fight, char *map_name, MapCounts *counts )
@@ -245,8 +256,8 @@ void mod_unload( World *world )
     if ( world->brush )    qglMemFree( (long) world->brush );
     if ( world->clip )     qglMemFree( (long) world->clip );
     if ( world->leaves )   qglMemFree( (long) world->leaves );
-    if ( world->lfc )      qglMemFree( (long) world->lfc );
-    if ( world->pvs_data ) qglMemFree( (long) world->pvs_data );
+    if ( world->lfc_hnd )  qglGemFree( world->lfc_hnd );
+    if ( world->pvs_hnd )  qglGemFree( world->pvs_hnd );
     if ( world->faces )    qglMemFree( (long) world->faces );
     if ( world->texinfo )  qglMemFree( (long) world->texinfo );
     if ( world->miptex )   qglMemFree( (long) world->miptex );
