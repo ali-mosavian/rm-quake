@@ -36,8 +36,8 @@ PAK0 and are left out.
       `R_TeleportSplash`, `R_ParseParticleEffect`
       qcport (partial): one 4 KB EMS pool draws id-style explosion, blood,
       gunshot, nail and wizard-spike particles, plus rocket, grenade and gib
-      trails, with depth testing; `src/render/part.c`. Missing: teleport and
-      lava splashes
+      trails and teleport splashes, with depth testing; `src/render/part.c`.
+      Missing: lava splashes
 - [ ] Sprites: `s_explod.spr`, `s_bubble.spr`, `s_light.spr`
       id: `r_sprite.c` `R_DrawSprite`
       qcport: not loaded

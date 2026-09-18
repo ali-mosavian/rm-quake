@@ -1272,7 +1272,7 @@ void mdl_tick( World *world, Player *player, Fight *fight, Renderer *rdr )
         was = world->mon[i].pos;
         if ( m ) mdl_think( world, player, fight, rdr, &world->mon[i], m, -1 );
         if ( world->mon[i].state != MDL_ST_DEAD && !world->mon[i].cruc ) {
-            ent_monster_teleport( world, rdr->anim_time, &world->mon[i] );
+            ent_monster_teleport( world, rdr, rdr->anim_time, &world->mon[i] );
             /* SV_LinkEdict's touches: only a monster that moved */
             if ( world->mon[i].pos.x != was.x || world->mon[i].pos.y != was.y ||
                  world->mon[i].pos.z != was.z )

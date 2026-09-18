@@ -8,4 +8,4 @@ cc -std=c89 -pedantic -Wall -Wextra -Werror -Wno-unused-parameter -Dfar= -Dpasca
   -I"$ROOT/src/render" -I"$ROOT/src/qgl" \
   "$ROOT/tools/test-particles.c" "$ROOT/src/render/part.c" -lm -o "$OUT/test-particles"
 "$OUT/test-particles"
-echo "ok: impacts and trails use one EMS pool mapping and batched framebuffer rows per frame"
+echo "ok: impacts, trails and teleports use one EMS pool mapping and batched framebuffer rows per frame"

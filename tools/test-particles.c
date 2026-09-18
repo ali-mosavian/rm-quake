@@ -89,5 +89,15 @@ int main( void )
     assert( part_maps == 1 );
     assert( rdr.part_drawn == 4 );
     part_shutdown( &rdr );
+
+    memset( &rdr, 0, sizeof(rdr) );
+    assert( part_init( &rdr ) );
+    part_maps = 0;
+    part_teleport( &rdr, &org );
+    assert( part_maps == 0 );
+    part_frame( &rdr, &m, 160.0f, 100.0f, 0.1f, 2, 3 );
+    assert( part_maps == 1 );
+    assert( rdr.part_drawn == PART_MAX );
+    part_shutdown( &rdr );
     return 0;
 }

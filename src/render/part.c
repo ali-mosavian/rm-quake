@@ -10,6 +10,7 @@
 #define PART_EVENT_EXPLOSION 1
 #define PART_EVENT_EFFECT    2
 #define PART_EVENT_TRAIL     3
+#define PART_EVENT_TELEPORT  4
 #define PART_DST_SLOT 2
 
 typedef struct {
@@ -131,6 +132,16 @@ void part_trail( Renderer *rdr, BspVec3 *start, BspVec3 *end, short kind )
     ev->kind = PART_EVENT_TRAIL;
 }
 
+void part_teleport( Renderer *rdr, BspVec3 *origin )
+{
+    PartEvent *ev;
+
+    if ( !rdr->part_dc || rdr->part_pending_n >= PART_PENDING_MAX ) return;
+    ev = &rdr->part_pending[rdr->part_pending_n++];
+    ev->at = *origin;
+    ev->kind = PART_EVENT_TELEPORT;
+}
+
 static Particle far *part_alloc( Renderer *rdr, Particle far *pool )
 {
     Particle far *p = &pool[rdr->part_next];
@@ -206,6 +217,40 @@ static void part_emit_trail( Renderer *rdr, Particle far *pool,
         p->at.y = ev->at.y + vy * i + (float) ( ( part_rand( rdr ) % 6 ) - 3 );
         p->at.z = ev->at.z + vz * i + (float) ( ( part_rand( rdr ) % 6 ) - 3 );
     }
+}
+
+static void part_emit_teleport( Renderer *rdr, Particle far *pool,
+                                PartEvent *ev )
+{
+    Particle far *p;
+    float x, y, z, len, speed;
+    short i, j, k, n = 0;
+
+    /* id emits 896 points. One in eight preserves the whole 32x32x56
+       volume in this real-mode pool instead of keeping only its tail. */
+    for ( i = -16; i < 16; i += 4 )
+        for ( j = -16; j < 16; j += 4 )
+            for ( k = -24; k < 32; k += 4, n++ ) {
+                if ( n & 7 ) continue;
+                p = part_alloc( rdr, pool );
+                p->ramp = (unsigned char) ( 13 + ( part_rand( rdr ) & 7 ) );
+                p->color = (unsigned char) ( 7 + ( part_rand( rdr ) & 7 ) );
+                p->kind = PART_SLOWGRAV;
+                p->at.x = ev->at.x + i + ( part_rand( rdr ) & 3 );
+                p->at.y = ev->at.y + j + ( part_rand( rdr ) & 3 );
+                p->at.z = ev->at.z + k + ( part_rand( rdr ) & 3 );
+                x = (float) j * 8.0f;
+                y = (float) i * 8.0f;
+                z = (float) k * 8.0f;
+                len = (float) sqrt( x*x + y*y + z*z );
+                speed = (float) ( 50 + ( part_rand( rdr ) & 63 ) );
+                if ( len > 0.01f ) {
+                    p->vel.x = x / len * speed;
+                    p->vel.y = y / len * speed;
+                    p->vel.z = z / len * speed;
+                } else
+                    p->vel.x = p->vel.y = p->vel.z = 0.0f;
+            }
 }
 
 static short part_project( Particle far *p, DrawPart far *d, float *m,
@@ -293,8 +338,10 @@ void part_frame( Renderer *rdr, Mat4 *mtx, float xresh, float yresh,
             part_emit_explosion( rdr, pool, &rdr->part_pending[e].at );
         else if ( rdr->part_pending[e].kind == PART_EVENT_EFFECT )
             part_emit_effect( rdr, pool, &rdr->part_pending[e] );
-        else
+        else if ( rdr->part_pending[e].kind == PART_EVENT_TRAIL )
             part_emit_trail( rdr, pool, &rdr->part_pending[e] );
+        else
+            part_emit_teleport( rdr, pool, &rdr->part_pending[e] );
     rdr->part_pending_n = 0;
 
     grav = dt * 800.0f * 0.05f;

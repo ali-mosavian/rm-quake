@@ -371,7 +371,7 @@ static void near host_tick( Host *h, float dt )
     v_update_camera( cam, player, world, input, h->keys, fight, rdr,
                      dt, scr_x_res, scr_y_res, h->forward_speed, h->invert_mouse );
 
-    ent_check_teleport( player, world, rdr->anim_time, scr_x_res );
+    ent_check_teleport( player, world, rdr, rdr->anim_time, scr_x_res );
     ent_fog_tick( world, player, rdr->anim_time );
 
     /* Doors before triggers: a button's target is a door, and a door

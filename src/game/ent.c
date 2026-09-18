@@ -28,6 +28,7 @@
 #include "entitems.h"
 #include "mdl_ai.h"
 #include "mdl.h"   /* mdl_load_monsters/mdl_spawn */
+#include "part.h"
 #include "sys.h"
 
 /* Neither toolchain here defines F_FTOL@, the runtime helper bcc emits
@@ -171,16 +172,19 @@ void ent_fog_tick( World *world, Player *player, float now )
 
 /* teleport_touch's two fogs: where it stood, and 32 along the
    destination's facing */
-static void ent_tele_fogs( World *world, BspVec3 *from, Teleporter far *t, float now )
+static void ent_tele_fogs( World *world, Renderer *rdr, BspVec3 *from,
+                           Teleporter far *t, float now )
 {
     BspVec3 org;
     float a = t->yaw * ( 3.14159265f / 180.0f );
 
     ent_fog( world, from, now );
+    part_teleport( rdr, from );
     org = t->dest;
     org.x += 32.0f * (float) cos( a );
     org.y += 32.0f * (float) sin( a );
     ent_fog( world, &org, now );
+    part_teleport( rdr, &org );
 }
 
 /* teleport_use: a named teleporter takes a touch only for 0.2 s after */
@@ -198,7 +202,8 @@ static short ent_tele_live( Teleporter far *t, float now )
  *       fast enough player pass through one without ever having their
  *       centre inside it.
  */
-void ent_check_teleport( Player *player, World *world, float now, short scr_x_res )
+void ent_check_teleport( Player *player, World *world, Renderer *rdr,
+                         float now, short scr_x_res )
 {
     short i;
     BspVec3 pmin, pmax;
@@ -220,7 +225,7 @@ void ent_check_teleport( Player *player, World *world, float now, short scr_x_re
              pmax.y >= t->mins.y && pmin.y <= t->maxs.y &&
              pmax.z >= t->mins.z && pmin.z <= t->maxs.z ) {
 
-            ent_tele_fogs( world, &player->pos, t, now );
+            ent_tele_fogs( world, rdr, &player->pos, t, now );
             player->pos   = t->dest;
             player->vel.x = 0.0f;
             player->vel.y = 0.0f;
@@ -239,7 +244,7 @@ void ent_check_teleport( Player *player, World *world, float now, short scr_x_re
 
 /* teleport_touch on a monster: its box, MDL_HALF and MDL_ZLO..MDL_ZHI,
    against every teleporter that is not PLAYER_ONLY */
-void ent_monster_teleport( World *world, float now, MdlEnt far *e )
+void ent_monster_teleport( World *world, Renderer *rdr, float now, MdlEnt far *e )
 {
     short i;
     BspVec3 from;
@@ -252,7 +257,7 @@ void ent_monster_teleport( World *world, float now, MdlEnt far *e )
              e->pos.y + MDL_HALF < t->mins.y || e->pos.y - MDL_HALF > t->maxs.y ||
              e->pos.z + MDL_ZHI  < t->mins.z || e->pos.z + MDL_ZLO  > t->maxs.z ) continue;
         from = e->pos;
-        ent_tele_fogs( world, &from, t, now );
+        ent_tele_fogs( world, rdr, &from, t, now );
         e->pos = t->dest;
         e->yaw = e->ideal_yaw = t->yaw;
         world->mon_teles++;

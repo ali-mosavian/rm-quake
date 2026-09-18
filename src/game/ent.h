@@ -8,9 +8,10 @@
 
 short ent_find_node( short m, World *world );
 short ent_point_leaf( BspVec3 *p, World *world );
-void  ent_check_teleport( Player *player, World *world, float now, short scr_x_res );
+void  ent_check_teleport( Player *player, World *world, Renderer *rdr,
+                          float now, short scr_x_res );
 void  ent_fog_tick( World *world, Player *player, float now );
-void  ent_monster_teleport( World *world, float now, MdlEnt far *e );
+void  ent_monster_teleport( World *world, Renderer *rdr, float now, MdlEnt far *e );
 void  ent_place_models( World *world );
 char far *ent_msg( World *world, short id );
 
