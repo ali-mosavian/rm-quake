@@ -11,6 +11,7 @@
 #define PART_EVENT_EFFECT    2
 #define PART_EVENT_TRAIL     3
 #define PART_EVENT_TELEPORT  4
+#define PART_EVENT_LAVA      5
 #define PART_DST_SLOT 2
 
 typedef struct {
@@ -142,6 +143,16 @@ void part_teleport( Renderer *rdr, BspVec3 *origin )
     ev->kind = PART_EVENT_TELEPORT;
 }
 
+void part_lava( Renderer *rdr, BspVec3 *origin )
+{
+    PartEvent *ev;
+
+    if ( !rdr->part_dc || rdr->part_pending_n >= PART_PENDING_MAX ) return;
+    ev = &rdr->part_pending[rdr->part_pending_n++];
+    ev->at = *origin;
+    ev->kind = PART_EVENT_LAVA;
+}
+
 static Particle far *part_alloc( Renderer *rdr, Particle far *pool )
 {
     Particle far *p = &pool[rdr->part_next];
@@ -253,6 +264,40 @@ static void part_emit_teleport( Renderer *rdr, Particle far *pool,
             }
 }
 
+static void part_emit_lava( Renderer *rdr, Particle far *pool,
+                            PartEvent *ev )
+{
+    Particle far *p;
+    float x, y, z, len, speed;
+    short i, j;
+    unsigned short take = 1024 - PART_MAX;
+
+    /* R_LavaSplash fills a 32x32 grid. Spread this smaller real-mode
+       pool evenly across the whole volume instead of keeping its tail. */
+    for ( i = -16; i < 16; i++ )
+        for ( j = -16; j < 16; j++ ) {
+            take += PART_MAX;
+            if ( take < 1024 ) continue;
+            take -= 1024;
+            p = part_alloc( rdr, pool );
+            p->ramp = (unsigned char)
+                ( 128 + ( ( part_rand( rdr ) & 31 ) * 5 ) / 4 );
+            p->color = (unsigned char) ( 224 + ( part_rand( rdr ) & 7 ) );
+            p->kind = PART_SLOWGRAV;
+            x = (float) ( j * 8 + ( part_rand( rdr ) & 7 ) );
+            y = (float) ( i * 8 + ( part_rand( rdr ) & 7 ) );
+            z = 256.0f;
+            p->at.x = ev->at.x + x;
+            p->at.y = ev->at.y + y;
+            p->at.z = ev->at.z + (float) ( part_rand( rdr ) & 63 );
+            len = (float) sqrt( x*x + y*y + z*z );
+            speed = (float) ( 50 + ( part_rand( rdr ) & 63 ) );
+            p->vel.x = x / len * speed;
+            p->vel.y = y / len * speed;
+            p->vel.z = z / len * speed;
+        }
+}
+
 static short part_project( Particle far *p, DrawPart far *d, float *m,
                            float xresh, float yresh, float z_near )
 {
@@ -340,8 +385,10 @@ void part_frame( Renderer *rdr, Mat4 *mtx, float xresh, float yresh,
             part_emit_effect( rdr, pool, &rdr->part_pending[e] );
         else if ( rdr->part_pending[e].kind == PART_EVENT_TRAIL )
             part_emit_trail( rdr, pool, &rdr->part_pending[e] );
-        else
+        else if ( rdr->part_pending[e].kind == PART_EVENT_TELEPORT )
             part_emit_teleport( rdr, pool, &rdr->part_pending[e] );
+        else
+            part_emit_lava( rdr, pool, &rdr->part_pending[e] );
     rdr->part_pending_n = 0;
 
     grav = dt * 800.0f * 0.05f;

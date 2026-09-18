@@ -15,6 +15,7 @@
 #include "qgl.h"
 #include "mdl_ai.h"
 #include "center.h"
+#include "part.h"
 
 void ent_say( Fight *fight, Renderer *rdr, char far *msg )
 {
@@ -244,7 +245,10 @@ void ent_move_trigs( World *world, Player *player, Camera *cam, Fight *fight,
                 snd_start( &world->snd, player, (short) ( SND_ENT_TRIG + k ), CHAN_VOICE, SND_BOSS_DEATH, &at, ATTN_NORM );
             if ( before > 0.1f && t->delay_left <= 0.1f )
                 snd_start( &world->snd, player, (short) ( SND_ENT_TRIG + k ), CHAN_BODY, SND_BOSS_OUT, &at, ATTN_NORM );
-            if ( t->delay_left <= 0.0f ) fight->kills++;
+            if ( t->delay_left <= 0.0f ) {
+                part_lava( rdr, &at );
+                fight->kills++;
+            }
         }
 
         switch ( t->kind ) {

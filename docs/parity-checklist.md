@@ -29,7 +29,7 @@ PAK0 and are left out.
       id: `r_alias.c` `R_AliasSetupLighting`
       qcport: face-normal colormap shading copied before the triangle page
       remaps its EMS slot; `src/render/d_alias.c`
-- [ ] Particles: blood, gunshots, explosions, trails, teleport and lava
+- [x] Particles: blood, gunshots, explosions, trails, teleport and lava
       splashes
       id: `r_part.c` `R_ParticleExplosion`, `R_RocketTrail`,
       `R_BlobExplosion`, `R_RunParticleEffect`, `R_LavaSplash`,
@@ -37,7 +37,8 @@ PAK0 and are left out.
       qcport (partial): one 4 KB EMS pool draws id-style explosion, blood,
       gunshot, nail and wizard-spike particles, plus rocket, grenade and gib
       trails and teleport splashes, with depth testing; `src/render/part.c`.
-      Missing: lava splashes
+      Chthon's death emits an evenly sampled `R_LavaSplash` volume into
+      the same one-page EMS pool.
 - [ ] Sprites: `s_explod.spr`, `s_bubble.spr`, `s_light.spr`
       id: `r_sprite.c` `R_DrawSprite`
       qcport: not loaded
