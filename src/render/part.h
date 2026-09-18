@@ -12,6 +12,7 @@ void  part_shutdown( Renderer *rdr );
 void  part_explosion( Renderer *rdr, BspVec3 *origin );
 void  part_effect( Renderer *rdr, BspVec3 *origin, BspVec3 *direction,
                    short color, short count );
+void  part_trail( Renderer *rdr, BspVec3 *start, BspVec3 *end, short kind );
 void  part_frame( Renderer *rdr, Mat4 *mtx, float xresh, float yresh,
                   float z_near, QSurf dst, QSurf zdc );
 

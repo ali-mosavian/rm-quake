@@ -75,5 +75,19 @@ int main( void )
     assert( rdr.part_drawn == 20 );
     assert( pixels[100 * 320 + 160] >= 72 && pixels[100 * 320 + 160] <= 79 );
     part_shutdown( &rdr );
+
+    memset( &rdr, 0, sizeof(rdr) );
+    memset( pixels, 0, sizeof(pixels) );
+    memset( depth, 0, sizeof(depth) );
+    assert( part_init( &rdr ) );
+    org.x = org.y = org.z = 0.0f;
+    dir.x = 12.0f; dir.y = dir.z = 0.0f;
+    part_maps = 0;
+    part_trail( &rdr, &org, &dir, 0 );
+    assert( part_maps == 0 );
+    part_frame( &rdr, &m, 160.0f, 100.0f, 0.1f, 2, 3 );
+    assert( part_maps == 1 );
+    assert( rdr.part_drawn == 4 );
+    part_shutdown( &rdr );
     return 0;
 }

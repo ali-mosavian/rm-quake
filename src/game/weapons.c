@@ -554,7 +554,7 @@ static void pl_grenade_tick( World *world, Player *player, Fight *fight,
 void pl_spikes_tick( World *world, Player *player, Fight *fight,
                       Renderer *rdr, float dt )
 {
-    BspVec3 fin, dir, impact, no_dir = { 0.0f, 0.0f, 0.0f };
+    BspVec3 fin, dir, impact, old, no_dir = { 0.0f, 0.0f, 0.0f };
     TraceResult tr;
     float t, bt, reach, spd;
     short n, i, best, stopped;
@@ -564,6 +564,7 @@ void pl_spikes_tick( World *world, Player *player, Fight *fight,
         Spike *s = &fight->nail[n];
 
         if ( !s->alive ) continue;
+        old = s->pos;
         /* SV_CheckWaterTransition, sky counting as a liquid as id's does */
         i = (short) ( pl_point_contents( &s->pos, world ) <= CONTENTS_WATER ? 1 : -1 );
         if ( s->water && s->water != i ) snd_play( &world->snd, player, SND_H2OHIT, &s->pos );
@@ -588,6 +589,7 @@ void pl_spikes_tick( World *world, Player *player, Fight *fight,
 
         if ( s->grenade ) {
             pl_grenade_tick( world, player, fight, rdr, s, dt, &dir, reach );
+            part_trail( rdr, &old, &s->pos, 1 );
             continue;
         }
 
@@ -615,6 +617,7 @@ void pl_spikes_tick( World *world, Player *player, Fight *fight,
                 }
                 s->pos = fin;
             }
+            if ( s->gib ) part_trail( rdr, &old, &s->pos, 2 );
             continue;
         }
 
@@ -658,9 +661,13 @@ void pl_spikes_tick( World *world, Player *player, Fight *fight,
             s->pos.z += dir.z * bt;
             s->dmg = PL_RL_DMG;
             pl_grenade_explode( world, player, fight, rdr, s );
+            part_trail( rdr, &old, &s->pos, 0 );
             continue;
         }
-        if ( s->alive ) s->pos = tr.end_pos;
+        if ( s->alive ) {
+            s->pos = tr.end_pos;
+            if ( s->rocket ) part_trail( rdr, &old, &s->pos, 0 );
+        }
     }
 }
 

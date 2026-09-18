@@ -1,10 +1,15 @@
+#include <math.h>
+
 #include "part.h"
 
 #define PART_EXPLODE  1
 #define PART_EXPLODE2 2
 #define PART_SLOWGRAV 3
+#define PART_FIRE     4
+#define PART_GRAV     5
 #define PART_EVENT_EXPLOSION 1
 #define PART_EVENT_EFFECT    2
+#define PART_EVENT_TRAIL     3
 #define PART_DST_SLOT 2
 
 typedef struct {
@@ -29,6 +34,7 @@ typedef char ParticlePoolFitsOnePage[
 
 static unsigned char ramp1[8] = { 0x6f, 0x6d, 0x6b, 0x69, 0x67, 0x65, 0x63, 0x61 };
 static unsigned char ramp2[8] = { 0x6f, 0x6e, 0x6d, 0x6c, 0x6b, 0x6a, 0x68, 0x66 };
+static unsigned char ramp3[6] = { 0x6d, 0x6b, 6, 5, 4, 3 };
 
 static unsigned short part_rand( Renderer *rdr )
 {
@@ -102,6 +108,38 @@ void part_effect( Renderer *rdr, BspVec3 *origin, BspVec3 *direction,
     ev->kind = PART_EVENT_EFFECT;
 }
 
+void part_trail( Renderer *rdr, BspVec3 *start, BspVec3 *end, short kind )
+{
+    PartEvent *ev;
+    float x = end->x - start->x;
+    float y = end->y - start->y;
+    float z = end->z - start->z;
+    float len = (float) sqrt( x*x + y*y + z*z );
+    short count;
+
+    if ( !rdr->part_dc || len < 0.01f ||
+         rdr->part_pending_n >= PART_PENDING_MAX ) return;
+    count = (short) ceil( len / 3.0f );
+    if ( count > 255 ) count = 255;
+    ev = &rdr->part_pending[rdr->part_pending_n++];
+    ev->at = *start;
+    ev->dx = (signed char) ( x / len * 127.0f );
+    ev->dy = (signed char) ( y / len * 127.0f );
+    ev->dz = (signed char) ( z / len * 127.0f );
+    ev->count = (unsigned char) count;
+    ev->color = (unsigned char) kind;
+    ev->kind = PART_EVENT_TRAIL;
+}
+
+static Particle far *part_alloc( Renderer *rdr, Particle far *pool )
+{
+    Particle far *p = &pool[rdr->part_next];
+
+    rdr->part_next = (short) ( ( rdr->part_next + 1 ) % PART_MAX );
+    p->live = 1;
+    return p;
+}
+
 static void part_emit_explosion( Renderer *rdr, Particle far *pool,
                                  BspVec3 *origin )
 {
@@ -109,12 +147,10 @@ static void part_emit_explosion( Renderer *rdr, Particle far *pool,
     short i;
 
     for ( i = 0; i < PART_MAX; i++ ) {
-        p = &pool[rdr->part_next];
-        rdr->part_next = (short) ( ( rdr->part_next + 1 ) % PART_MAX );
+        p = part_alloc( rdr, pool );
         p->ramp = (unsigned char) ( ( part_rand( rdr ) & 3 ) << 4 );
         p->color = ramp1[0];
         p->kind = (unsigned char) ( ( i & 1 ) ? PART_EXPLODE : PART_EXPLODE2 );
-        p->live = 1;
         p->at.x = origin->x + (float) ( ( part_rand( rdr ) & 31 ) - 16 );
         p->at.y = origin->y + (float) ( ( part_rand( rdr ) & 31 ) - 16 );
         p->at.z = origin->z + (float) ( ( part_rand( rdr ) & 31 ) - 16 );
@@ -131,18 +167,44 @@ static void part_emit_effect( Renderer *rdr, Particle far *pool,
     short i;
 
     for ( i = 0; i < ev->count; i++ ) {
-        p = &pool[rdr->part_next];
-        rdr->part_next = (short) ( ( rdr->part_next + 1 ) % PART_MAX );
+        p = part_alloc( rdr, pool );
         p->ramp = (unsigned char) ( ( part_rand( rdr ) % 5 ) * 6 );
         p->color = (unsigned char) ( ( ev->color & ~7 ) + ( part_rand( rdr ) & 7 ) );
         p->kind = PART_SLOWGRAV;
-        p->live = 1;
         p->at.x = ev->at.x + (float) ( ( part_rand( rdr ) & 15 ) - 8 );
         p->at.y = ev->at.y + (float) ( ( part_rand( rdr ) & 15 ) - 8 );
         p->at.z = ev->at.z + (float) ( ( part_rand( rdr ) & 15 ) - 8 );
         p->vel.x = (float) ev->dx * 0.9375f;
         p->vel.y = (float) ev->dy * 0.9375f;
         p->vel.z = (float) ev->dz * 0.9375f;
+    }
+}
+
+static void part_emit_trail( Renderer *rdr, Particle far *pool,
+                             PartEvent *ev )
+{
+    Particle far *p;
+    float vx = (float) ev->dx / 127.0f;
+    float vy = (float) ev->dy / 127.0f;
+    float vz = (float) ev->dz / 127.0f;
+    short i, kind = ev->color;
+
+    for ( i = 0; i < ev->count; i++ ) {
+        p = part_alloc( rdr, pool );
+        p->vel.x = p->vel.y = p->vel.z = 0.0f;
+        if ( kind == 0 || kind == 1 ) {
+            p->ramp = (unsigned char) ( ( ( part_rand( rdr ) & 3 ) +
+                                          ( kind == 1 ? 2 : 0 ) ) << 4 );
+            p->color = ramp3[p->ramp >> 4];
+            p->kind = PART_FIRE;
+        } else {
+            p->ramp = 128;       /* two seconds, in 1/64 s units */
+            p->color = (unsigned char) ( 67 + ( part_rand( rdr ) & 3 ) );
+            p->kind = PART_GRAV;
+        }
+        p->at.x = ev->at.x + vx * i + (float) ( ( part_rand( rdr ) % 6 ) - 3 );
+        p->at.y = ev->at.y + vy * i + (float) ( ( part_rand( rdr ) % 6 ) - 3 );
+        p->at.z = ev->at.z + vz * i + (float) ( ( part_rand( rdr ) % 6 ) - 3 );
     }
 }
 
@@ -229,8 +291,10 @@ void part_frame( Renderer *rdr, Mat4 *mtx, float xresh, float yresh,
     for ( e = 0; e < rdr->part_pending_n; e++ )
         if ( rdr->part_pending[e].kind == PART_EVENT_EXPLOSION )
             part_emit_explosion( rdr, pool, &rdr->part_pending[e].at );
-        else
+        else if ( rdr->part_pending[e].kind == PART_EVENT_EFFECT )
             part_emit_effect( rdr, pool, &rdr->part_pending[e] );
+        else
+            part_emit_trail( rdr, pool, &rdr->part_pending[e] );
     rdr->part_pending_n = 0;
 
     grav = dt * 800.0f * 0.05f;
@@ -254,6 +318,7 @@ void part_frame( Renderer *rdr, Mat4 *mtx, float xresh, float yresh,
             p->vel.x += p->vel.x * dvel;
             p->vel.y += p->vel.y * dvel;
             p->vel.z += p->vel.z * dvel;
+            p->vel.z -= grav;
         } else if ( p->kind == PART_EXPLODE2 ) {
             p->ramp = (unsigned char) ( p->ramp + (unsigned char) ( dt * 240.0f ) );
             if ( p->ramp >= 128 ) { p->live = 0; continue; }
@@ -261,12 +326,18 @@ void part_frame( Renderer *rdr, Mat4 *mtx, float xresh, float yresh,
             p->vel.x -= p->vel.x * dt;
             p->vel.y -= p->vel.y * dt;
             p->vel.z -= p->vel.z * dt;
+            p->vel.z -= grav;
+        } else if ( p->kind == PART_FIRE ) {
+            p->ramp = (unsigned char) ( p->ramp + (unsigned char) ( dt * 80.0f ) );
+            if ( p->ramp >= 96 ) { p->live = 0; continue; }
+            p->color = ramp3[p->ramp >> 4];
+            p->vel.z += grav;
         } else {
             unsigned char step = (unsigned char) ( dt * 64.0f + 0.5f );
             if ( p->ramp <= step ) { p->live = 0; continue; }
             p->ramp = (unsigned char) ( p->ramp - step );
+            p->vel.z -= grav;
         }
-        p->vel.z -= grav;
         live++;
     }
     if ( drawn ) part_raster( draw, drawn, ymin, ymax, dst, zdc );
