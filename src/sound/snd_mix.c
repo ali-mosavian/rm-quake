@@ -26,6 +26,7 @@
 #include <math.h>
 
 #include "snd_mix.h"
+#include "sound.h"
 #include "qgl.h"
 
 #define PAGE_SLOT   2
@@ -34,7 +35,7 @@
 #define SND_BLK     32              /* samples a block, bsc4/32n */
 #define SND_BLK_B   17              /* its bytes: the scale, then sixteen of codes */
 #define SND_NSCALE  32              /* and the scale byte selects one, so it is masked */
-#define SND_TAB     176             /* records */
+#define SND_TAB     SND_COUNT       /* records; tools/mksnd.py's complete table */
 #define SND_RATE    11025L
 #define EMS_PAGE    16384
 #define SND_BLK_PG  (EMS_PAGE / SND_BLK_B)  /* 963; the page's last 13 bytes are padding */
