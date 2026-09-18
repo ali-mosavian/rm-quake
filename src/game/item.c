@@ -2,13 +2,8 @@
  * item.c -- the pickups: the table of what each kind is when touched, and
  * pl_items_touch.
  *
- * Nothing here traces: the touch is a box test against the item's,
- * exactly as Quake's own touch is.
- *
- * Not ported with the rest: pl_boxes_sync -- an exploding box is solid in the BASIC branch
- * because pl_trace keeps a table of solid boxes, which cport's
- * pl_trace does not have. So an explobox here is drawn and walked
- * through rather than walked around, and nothing can shoot it.
+ * Pickup touch is a box test against the item's, exactly as Quake's own
+ * touch is. Exploding-box solidity belongs to pl_trace.
  */
 
 #include <mem.h>    /* _fmemcpy */
@@ -269,8 +264,8 @@ void item_bounds( short kind, short crate, BspVec3 *mins, BspVec3 *maxs )
     /* The b_*.bsp item triggers start at their map origin. */
     if ( crate >= 0 ) {
         mins->x = mins->y = mins->z = 0.0f;
-        maxs->x = maxs->y = 32.0f;
-        maxs->z = kind == ENT_ITEM_EXPLOBOX ? 64.0f : 56.0f;
+        maxs->x = maxs->y = ENT_BOX_CLIP_XY;
+        maxs->z = kind == ENT_ITEM_EXPLOBOX ? ENT_BOX_CLIP_Z : 56.0f;
         return;
     }
     if ( crate <= ENT_BACKPACK_CRATE ) return;

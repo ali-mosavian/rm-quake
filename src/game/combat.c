@@ -351,7 +351,7 @@ void combat_damage_box( World *world, Player *player, Fight *fight,
     it->gone = -1;
     fight->booms++;
     visual = it->pos;
-    visual.z += ENT_BOX_TOP * 0.5f;
+    visual.z += ENT_BOX_CLIP_Z * 0.5f;
     snd_play( &world->snd, player, SND_BOOM, &visual );
     dl_explosion( rdr, &visual );
     part_explosion( rdr, &visual );
@@ -400,7 +400,9 @@ void combat_radius( World *world, Player *player, Fight *fight, Renderer *rdr,
             ItemEnt far *it = &world->item[index];
             if ( it->gone ) continue;
             center = target = it->pos;
-            center.z += ENT_BOX_TOP * 0.5f;
+            center.x += ENT_BOX_CLIP_XY * 0.5f;
+            center.y += ENT_BOX_CLIP_XY * 0.5f;
+            center.z += ENT_BOX_CLIP_Z * 0.5f;
         } else {
             /* InitTrigger is MOVETYPE_NONE, so CanDamage probes its origin
                and does not collide with its own SOLID_BBOX. */

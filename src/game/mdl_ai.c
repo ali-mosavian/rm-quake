@@ -288,6 +288,20 @@ static void near mdl_idle( Think *t )
         mdl_idle_roll( t->player, &t->world->rng, &t->world->snd, t->rdr, ent, inf->run_period, inf->run_chance, inf->run_snd );
 }
 
+static void mdl_trace_move( World *world, MdlEnt far *ent,
+                            BspVec3 *start, BspVec3 *fin, TraceResult *tr )
+{
+    BspVec3 mins, maxs;
+    float half = MDL_MON_HALF( ent->kind );
+
+    mins.x = mins.y = -half;
+    maxs.x = maxs.y = half;
+    mins.z = MDL_ZLO;
+    maxs.z = MDL_MON_ZHI( ent->kind );
+    pl_trace( world, start, fin, tr );
+    pl_trace_items( world, start, fin, &mins, &maxs, -1, tr, (short *) 0 );
+}
+
 /* SV_movestep's FL_FLY case: a straight trace, held 30..40 above the
    player while hunting. */
 static short mdl_flystep( World *world, Player *player, MdlEnt far *ent,
@@ -306,7 +320,7 @@ static short mdl_flystep( World *world, Player *player, MdlEnt far *ent,
             if ( dz > WIZARD_FLY_HI ) fin.z -= WIZARD_FLY_STEP;
             if ( dz < WIZARD_FLY_LO ) fin.z += WIZARD_FLY_STEP;
         }
-        pl_trace( world, &start, &fin, &tr );
+        mdl_trace_move( world, ent, &start, &fin, &tr );
         if ( tr.frac >= 1.0f && !tr.start_solid && !tr.all_solid ) {
             ent->pos = tr.end_pos;
             return -1;
@@ -337,12 +351,12 @@ static short mdl_movestep( World *world, Player *player, MdlEnt far *ent,
     fin = start;
     fin.z = ent->pos.z - MDL_STEPSIZE;
 
-    pl_trace( world, &start, &fin, &tr );
+    mdl_trace_move( world, ent, &start, &fin, &tr );
     if ( tr.all_solid ) return 0;
 
     if ( tr.start_solid ) {
         start.z = ent->pos.z;
-        pl_trace( world, &start, &fin, &tr );
+        mdl_trace_move( world, ent, &start, &fin, &tr );
         if ( tr.all_solid || tr.start_solid ) return 0;
     }
     if ( tr.frac > 0.999f ) return 0;
@@ -528,10 +542,10 @@ static short mdl_in_reach( Player *player, MdlEnt far *ent, float range )
 static void mdl_fire( World *world, Player *player, Fight *fight,
                        Renderer *rdr, MdlEnt far *ent )
 {
-    BspVec3 org, fin, aim, dir;
+    BspVec3 org, fin, aim, dir, point = { 0.0f, 0.0f, 0.0f };
     TraceResult tr;
     float l;
-    short p, dmg = 0;
+    short p, box, dmg = 0;
 
     /* army_fire's EF_MUZZLEFLASH; a monster's angles carry no pitch */
     aim.x = (float) cos( ent->yaw * 0.01745329f );
@@ -559,8 +573,12 @@ static void mdl_fire( World *world, Player *player, Fight *fight,
         fin.y = org.y + dir.y * PL_SHOT_RANGE;
         fin.z = org.z + dir.z * PL_SHOT_RANGE;
         pl_trace( world, &org, &fin, &tr );
+        box = -1;
+        pl_trace_items( world, &org, &fin, &point, &point, -1, &tr, &box );
         if ( mdl_ray_player( &player->pos, &org, &dir, PL_SHOT_RANGE * tr.frac ) >= 0.0f )
             dmg = (short) ( dmg + MDL_PELLET_DMG );
+        else if ( box >= 0 )
+            combat_damage_box( world, player, fight, rdr, box, MDL_PELLET_DMG );
     }
     if ( dmg > 0 ) combat_damage_player( player, world, fight, rdr, dmg );
 }
@@ -654,7 +672,7 @@ void mdl_spawn( World *world, MdlEnt far *ent )
     start = ent->pos;
     fin = ent->pos;
     fin.z -= 256.0f;
-    pl_trace( world, &start, &fin, &tr );
+    mdl_trace_move( world, ent, &start, &fin, &tr );
     /* flymonster_start_go: a flyer stays where the map put it */
     if ( !ent->cruc && !mon_facts[ ent->kind ].flyer && tr.frac < 1.0f && !tr.all_solid )
         ent->pos = tr.end_pos;
@@ -1046,7 +1064,7 @@ static void near ai_leap( Think *t )
     fin.y = ent->pos.y + ent->vel.y * 0.1f;
     fin.z = ent->pos.z + ent->vel.z * 0.1f;
     goal = ent->pos;
-    pl_trace( world, &goal, &fin, &tr );
+    mdl_trace_move( world, ent, &goal, &fin, &tr );
     ent->pos = tr.end_pos;
     /* a trigger_monsterjump throw counts once it rises; -1 keeps the bite off */
     if ( ent->leap_touch == MDL_THROWN && ent->pos.z > goal.z ) {

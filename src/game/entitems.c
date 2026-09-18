@@ -9,6 +9,7 @@
 
 #include "entitems.h"
 #include "ent.h"
+#include "item.h"
 #include "pl_trace.h"
 #include "qgl.h"
 #include "sys.h"
@@ -67,7 +68,7 @@ void ent_items_drop( World *world )
 {
     short i;
     BspVec3 org, fin, mins, maxs;
-    BspVec3 shift;
+    BspVec3 shift, mover_mins, mover_maxs;
     TraceResult tr;
 
     for ( i = 0; i < world->item_count; i++ ) {
@@ -78,16 +79,31 @@ void ent_items_drop( World *world )
         org = world->item[i].pos;
         org.x += shift.x;
         org.y += shift.y;
-        org.z += shift.z + 6.0f;
+        org.z += shift.z + ( world->item[i].kind == ENT_ITEM_EXPLOBOX ? 2.0f : 6.0f );
         fin = org;
         fin.z -= 256.0f;
         pl_trace( world, &org, &fin, &tr );
+        mover_mins.x = mins.x - shift.x;
+        mover_mins.y = mins.y - shift.y;
+        mover_mins.z = mins.z - shift.z;
+        mover_maxs.x = maxs.x - shift.x;
+        mover_maxs.y = maxs.y - shift.y;
+        mover_maxs.z = maxs.z - shift.z;
+        pl_trace_items( world, &org, &fin, &mover_mins, &mover_maxs,
+                        i, &tr, (short *) 0 );
         if ( tr.frac < 1.0f && !tr.all_solid ) {
+            if ( world->item[i].kind == ENT_ITEM_EXPLOBOX &&
+                 org.z - tr.end_pos.z > 250.0f ) {
+                world->item[i].gone = -1;
+                continue;
+            }
             world->item[i].pos = tr.end_pos;
             world->item[i].pos.x -= shift.x;
             world->item[i].pos.y -= shift.y;
             world->item[i].pos.z -= shift.z;
-        } else
+        } else if ( world->item[i].kind == ENT_ITEM_EXPLOBOX )
+            world->item[i].pos.z += 2.0f;
+        else
             world->item[i].gone = -1;
     }
 }

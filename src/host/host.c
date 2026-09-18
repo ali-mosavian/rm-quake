@@ -773,6 +773,8 @@ static void near host_selftests( void )
     mark( buf );
     sprintf( buf, "combat_selftest %d", combat_selftest() );
     mark( buf );
+    sprintf( buf, "pl_projectile_selftest %d", pl_projectile_selftest() );
+    mark( buf );
     sprintf( buf, "mdl_anim_selftest %d", mdl_anim_selftest() );
     mark( buf );
     sprintf( buf, "pl_death_selftest %d", pl_death_selftest() );

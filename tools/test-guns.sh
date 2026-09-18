@@ -92,5 +92,10 @@ if [[ ${px:-0} -lt 20 ]]; then
     fail=1
 fi
 
+if ! grep -q '^pl_projectile_selftest 1' "$OUT/cstep.txt"; then
+    echo "FAIL: grenade segment/nearest-contact self-test failed" >&2
+    fail=1
+fi
+
 [[ $fail -eq 0 ]] && echo "ok: shotgun kills, the nailgun empties, the barrel goes off, the nail draws ($px px)"
 exit $fail

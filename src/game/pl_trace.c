@@ -11,7 +11,109 @@
  * The recursive walk itself (pl_hull_check_c) is unchanged from that port.
  */
 
+#include <math.h>
+
 #include "pl_trace.h"
+#include "item.h"
+
+static short near pl_box_axis( float lo, float hi, float start, float delta,
+                               short axis, float *enter, float *leave,
+                               short *enter_axis, float *enter_sign )
+{
+    float a, b, sign;
+
+    if ( delta > -0.0001f && delta < 0.0001f )
+        return (short) ( start >= lo && start <= hi );
+    a = ( lo - start ) / delta;
+    b = ( hi - start ) / delta;
+    sign = -1.0f;
+    if ( a > b ) {
+        float swap = a;
+        a = b;
+        b = swap;
+        sign = 1.0f;
+    }
+    if ( a >= *enter ) {
+        *enter = a;
+        *enter_axis = axis;
+        *enter_sign = sign;
+    }
+    if ( b < *leave ) *leave = b;
+    return (short) ( *enter <= *leave );
+}
+
+void pl_trace_items( World *world, BspVec3 *start, BspVec3 *fin,
+                     BspVec3 *mover_mins, BspVec3 *mover_maxs,
+                     short ignore_item, TraceResult *tr, short *hit_item )
+{
+    short i;
+    BspVec3 delta;
+
+    delta.x = fin->x - start->x;
+    delta.y = fin->y - start->y;
+    delta.z = fin->z - start->z;
+    for ( i = 0; i < world->item_count; i++ ) {
+        ItemEnt far *it = &world->item[i];
+        BspVec3 lo, hi;
+        float enter = 0.0f, leave = 1.0f, sign = 0.0f;
+        short axis = -1;
+
+        if ( i == ignore_item || it->gone || it->kind != ENT_ITEM_EXPLOBOX ) continue;
+        lo.x = it->pos.x - mover_maxs->x;
+        lo.y = it->pos.y - mover_maxs->y;
+        lo.z = it->pos.z - mover_maxs->z;
+        hi.x = it->pos.x + ENT_BOX_CLIP_XY - mover_mins->x;
+        hi.y = it->pos.y + ENT_BOX_CLIP_XY - mover_mins->y;
+        hi.z = it->pos.z + ENT_BOX_CLIP_Z - mover_mins->z;
+        if ( !pl_box_axis( lo.x, hi.x, start->x, delta.x, 0, &enter, &leave, &axis, &sign ) ||
+             !pl_box_axis( lo.y, hi.y, start->y, delta.y, 1, &enter, &leave, &axis, &sign ) ||
+             !pl_box_axis( lo.z, hi.z, start->z, delta.z, 2, &enter, &leave, &axis, &sign ) ) continue;
+
+        if ( axis == 0 ) enter -= PL_CLIP_EPS / (float) fabs( delta.x );
+        else if ( axis == 1 ) enter -= PL_CLIP_EPS / (float) fabs( delta.y );
+        else if ( axis == 2 ) enter -= PL_CLIP_EPS / (float) fabs( delta.z );
+        if ( enter < 0.0f ) enter = 0.0f;
+
+        if ( start->x >= lo.x && start->x <= hi.x &&
+             start->y >= lo.y && start->y <= hi.y &&
+             start->z >= lo.z && start->z <= hi.z ) {
+            tr->start_solid = 1;
+            if ( fin->x >= lo.x && fin->x <= hi.x &&
+                 fin->y >= lo.y && fin->y <= hi.y &&
+                 fin->z >= lo.z && fin->z <= hi.z ) {
+                if ( hit_item ) *hit_item = i;
+                tr->all_solid = 1;
+                tr->frac = 0.0f;
+                tr->end_pos = *start;
+                tr->norm.x = tr->norm.y = tr->norm.z = 0.0f;
+                return;
+            }
+            if ( hit_item && tr->frac >= 1.0f ) *hit_item = i;
+        }
+        if ( axis < 0 || enter < 0.0f || enter >= tr->frac ) continue;
+        tr->frac = enter;
+        tr->end_pos.x = start->x + delta.x * enter;
+        tr->end_pos.y = start->y + delta.y * enter;
+        tr->end_pos.z = start->z + delta.z * enter;
+        tr->norm.x = tr->norm.y = tr->norm.z = 0.0f;
+        if ( axis == 0 ) tr->norm.x = sign;
+        else if ( axis == 1 ) tr->norm.y = sign;
+        else tr->norm.z = sign;
+        if ( hit_item ) *hit_item = i;
+    }
+}
+
+void pl_trace_move( World *world, BspVec3 *start, BspVec3 *fin,
+                    short ignore_item, TraceResult *tr, short *hit_item )
+{
+    BspVec3 mins = { -PL_HALF, -PL_HALF, PL_ZLO };
+    BspVec3 maxs = { PL_HALF, PL_HALF, PL_ZHI };
+
+    if ( hit_item ) *hit_item = -1;
+    pl_trace( world, start, fin, tr );
+    pl_trace_items( world, start, fin, &mins, &maxs,
+                    ignore_item, tr, hit_item );
+}
 
 static short near pl_point_contents_c( short node, BspVec3 far *p,
                                         World *world )

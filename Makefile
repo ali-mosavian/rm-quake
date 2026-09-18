@@ -195,6 +195,7 @@ test:                           ## header deps, far-to-near pointers, then qgl's
 	@tools/test-viewshift.sh
 	@tools/test-viewmdl.sh
 	@tools/test-particles.sh
+	@tools/test-pl-trace.sh
 	@python3 tools/test-lighthash.py
 	@python3 tools/test-id-demo-camera.py $(PAK)
 	@python3 tools/test-sprites.py $(PAK)

@@ -43,6 +43,8 @@ void pl_select_weapon( Fight *fight, short impulse );
 void pl_spikes_tick( World *world, Player *player, Fight *fight,
                       Renderer *rdr, float dt );
 
+short pl_projectile_selftest( void );
+
 /*
  * name: pl_traps_tick
  * desc: The spike shooters and fireball emitters a trigger armed this

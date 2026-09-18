@@ -44,6 +44,8 @@
 #define ENT_ITEM_MEGA    100     /* item_health's healamount when it is the mega one */
 #define ENT_BOX_HALF     15.0f   /* b_explob.bsp, 30 by 30 by 62 */
 #define ENT_BOX_TOP      62.0f
+#define ENT_BOX_CLIP_XY  32.0f   /* id expands its model bounds by one */
+#define ENT_BOX_CLIP_Z   64.0f
 #define ENT_BOX_DMG      160.0f  /* barrel_explode, less half the distance */
 #define ENT_BACKPACK_CRATE -2    /* below this encodes the source monster */
 

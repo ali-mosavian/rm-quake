@@ -102,7 +102,7 @@ static void pl_slide_move( World *world, BspVec3 *org, BspVec3 *vel, float dt, T
         fin.y = org->y + vel->y*time_left;
         fin.z = org->z + vel->z*time_left;
 
-        pl_trace( world, org, &fin, tr );
+        pl_trace_move( world, org, &fin, -1, tr, (short *) 0 );
 
         /* Started inside solid. Refusing to move is the safe answer:
            moving would push further in, and Quake's unstick logic is
@@ -186,7 +186,7 @@ static void pl_step_move( World *world, Player *player, BspVec3 *org, BspVec3 *v
        should not also carry the probe forward at the raised height */
     up_pos = *org;
     up_pos.z += PL_STEP;
-    pl_trace( world, org, &up_pos, tr );
+    pl_trace_move( world, org, &up_pos, -1, tr, (short *) 0 );
 
     if ( tr->all_solid ) {
         *org = flat_pos;
@@ -203,7 +203,7 @@ static void pl_step_move( World *world, Player *player, BspVec3 *org, BspVec3 *v
        would have carried this tick */
     down_pos   = up_pos;
     down_pos.z = down_pos.z - PL_STEP + old_vel_z*dt;
-    pl_trace( world, &up_pos, &down_pos, tr );
+    pl_trace_move( world, &up_pos, &down_pos, -1, tr, (short *) 0 );
 
     /*
      * Keep the stepped path only if it lands on walkable ground. A
@@ -306,7 +306,7 @@ static void pl_gravity( World *world, Player *player, Fight *fight,
     BspVec3 below = player->pos;
     below.z -= 1.0f;
 
-    pl_trace( world, &player->pos, &below, tr );
+    pl_trace_move( world, &player->pos, &below, -1, tr, (short *) 0 );
 
     if ( tr->frac < 1.0f && tr->norm.z > PL_GROUND_NRM ) {
         if ( !player->on_ground ) pl_land( player, world, fight, rdr );

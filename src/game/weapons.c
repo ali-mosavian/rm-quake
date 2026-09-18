@@ -14,6 +14,7 @@
 
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "weapons.h"
 #include "part.h"
@@ -76,19 +77,14 @@ static float mdl_ray_box( BspVec3 far *c, BspVec3 *org, BspVec3 *dir, float maxt
     return pl_ray_box( &mins, &maxs, org, dir, maxt );
 }
 
-/* an exploding box: its brush plus the touch slack, as a shootable
-   door's is */
-static float pl_box_ray( BspVec3 far *at, BspVec3 *org, BspVec3 *dir, float maxt )
+static short pl_trace_boxes( World *world, BspVec3 *start, BspVec3 *fin,
+                             TraceResult *tr )
 {
-    BspVec3 mins, maxs;
+    BspVec3 point = { 0.0f, 0.0f, 0.0f };
+    short hit = -1;
 
-    mins.x = at->x - ENT_BOX_HALF - ENT_TOUCH_SLACK;
-    maxs.x = at->x + ENT_BOX_HALF + ENT_TOUCH_SLACK;
-    mins.y = at->y - ENT_BOX_HALF - ENT_TOUCH_SLACK;
-    maxs.y = at->y + ENT_BOX_HALF + ENT_TOUCH_SLACK;
-    mins.z = at->z - ENT_TOUCH_SLACK;
-    maxs.z = at->z + ENT_BOX_TOP + ENT_TOUCH_SLACK;
-    return pl_ray_box( &mins, &maxs, org, dir, maxt );
+    pl_trace_items( world, start, fin, &point, &point, -1, tr, &hit );
+    return hit;
 }
 
 static void pl_impact_at( BspVec3 *out, BspVec3 *org, BspVec3 *dir, float t )
@@ -187,22 +183,80 @@ static void pl_grenade_explode( World *world, Player *player, Fight *fight,
                    s->owner, s->ignore );
 }
 
-/* Whatever a shot can set off short of where the pellet stopped: an
-   exploding box, a shootable trigger, a secret door. Shared by the
-   pellets and the nails, and the reason both reach bt + PL_HALF. */
+#define PL_CONTACT_NONE  0
+#define PL_CONTACT_BOX   1
+#define PL_CONTACT_BRUSH 2
+
+static short near pl_grenade_contact( short box, float frac )
+{
+    if ( box >= 0 ) return PL_CONTACT_BOX;
+    if ( frac < 1.0f ) return PL_CONTACT_BRUSH;
+    return PL_CONTACT_NONE;
+}
+
+static void near pl_grenade_segment( Spike *s, float gravity, float dt,
+                                      BspVec3 *fin, BspVec3 *dir, float *reach )
+{
+    s->vel.z -= gravity * dt;
+    fin->x = s->pos.x + s->vel.x * dt;
+    fin->y = s->pos.y + s->vel.y * dt;
+    fin->z = s->pos.z + s->vel.z * dt;
+    dir->x = fin->x - s->pos.x;
+    dir->y = fin->y - s->pos.y;
+    dir->z = fin->z - s->pos.z;
+    *reach = (float) sqrt( dir->x*dir->x + dir->y*dir->y + dir->z*dir->z );
+    if ( *reach > 0.0001f ) {
+        dir->x /= *reach; dir->y /= *reach; dir->z /= *reach;
+    } else
+        dir->x = dir->y = dir->z = 0.0f;
+}
+
+static short near pl_grenade_monster( MdlEnt far *mon, short count, BspVec3 *pos,
+                                       BspVec3 *dir, float *best_t )
+{
+    short i, best = -1;
+    float t;
+
+    for ( i = 0; i < count; i++ ) {
+        if ( !MDL_IS_SOLID( &mon[i] ) ) continue;
+        t = mdl_ray_box( &mon[i].pos, pos, dir, *best_t );
+        if ( t >= 0.0f && t < *best_t ) { *best_t = t; best = i; }
+    }
+    return best;
+}
+
+short pl_projectile_selftest( void )
+{
+    MdlEnt mon[2];
+    Spike s;
+    BspVec3 fin, dir;
+    float reach, hit;
+
+    memset( mon, 0, sizeof(mon) );
+    memset( &s, 0, sizeof(s) );
+    s.vel.x = 100.0f;
+    pl_grenade_segment( &s, 800.0f, 0.1f, &fin, &dir, &reach );
+    if ( s.vel.z != -80.0f || fin.x != 10.0f || fin.z != -8.0f ||
+         reach < 12.80f || reach > 12.81f ) return 0;
+
+    mon[0].pos.x = 100.0f;
+    mon[1].pos.x = 50.0f;
+    dir.x = 1.0f; dir.y = dir.z = 0.0f;
+    hit = 200.0f;
+    if ( pl_grenade_monster( mon, 2, &s.pos, &dir, &hit ) != 1 || hit != 34.0f ) return 0;
+    if ( pl_grenade_contact( 0, 1.0f ) != PL_CONTACT_BOX ||
+         pl_grenade_contact( -1, 1.0f ) != PL_CONTACT_NONE ||
+         pl_grenade_contact( -1, 0.5f ) != PL_CONTACT_BRUSH ) return 0;
+    return 1;
+}
+
+/* Shootable triggers and secret doors short of where the shot stopped. */
 static void pl_shot_touch( World *world, Player *player, Fight *fight,
                             Renderer *rdr, BspVec3 *org, BspVec3 *dir,
-                            float bt, short dmg, short *stopped )
+                            float bt, short *stopped )
 {
     BspVec3 mins, maxs;
     short i;
-
-    for ( i = 0; i < world->item_count; i++ )
-        if ( world->item[i].kind == ENT_ITEM_EXPLOBOX && !world->item[i].gone &&
-             pl_box_ray( &world->item[i].pos, org, dir, bt + PL_HALF ) >= 0.0f ) {
-            combat_damage_box( world, player, fight, rdr, i, (float) dmg );
-            if ( stopped ) *stopped = -1;
-        }
 
     /* copies: pl_ray_box takes near pointers, and a far array element's
        address cast to one reads DGROUP */
@@ -368,7 +422,7 @@ static void pl_fire_axe( World *world, Player *player, Camera *cam,
     BspVec3 org, fin, aim, hit_at, no_dir = { 0.0f, 0.0f, 0.0f };
     TraceResult tr;
     float t, bt;
-    short i, best, dmg, stopped;
+    short i, best, box, dmg, stopped;
 
     fight->next_fire = rdr->anim_time + PL_AXE_RATE;
     fight->fire_at = rdr->anim_time;
@@ -384,6 +438,7 @@ static void pl_fire_axe( World *world, Player *player, Camera *cam,
     fin.y = org.y + aim.y * PL_AXE_RANGE;
     fin.z = org.z + aim.z * PL_AXE_RANGE;
     pl_trace_point( world, &org, &fin, &tr );
+    box = pl_trace_boxes( world, &org, &fin, &tr );
 
     best = -1;
     bt = PL_AXE_RANGE * tr.frac;
@@ -403,7 +458,11 @@ static void pl_fire_axe( World *world, Player *player, Camera *cam,
     }
 
     stopped = 0;
-    pl_shot_touch( world, player, fight, rdr, &org, &aim, bt, dmg, &stopped );
+    if ( box >= 0 ) {
+        combat_damage_box( world, player, fight, rdr, box, (float) dmg );
+        stopped = -1;
+    } else
+        pl_shot_touch( world, player, fight, rdr, &org, &aim, bt, &stopped );
     if ( tr.frac < 1.0f || stopped )
         snd_play( &world->snd, player, SND_AX_WALL, &tr.end_pos );
 }
@@ -414,7 +473,7 @@ void pl_fire( World *world, Player *player, Camera *cam, Fight *fight,
     BspVec3 org, fin, aim, dir, impact, no_dir = { 0.0f, 0.0f, 0.0f };
     TraceResult tr;
     short hit[MDL_MAX_ENTS];
-    short i, p, best, npellet, pdmg;
+    short i, p, best, box, npellet, pdmg;
     float t, bt, sx, sy, rate;
 
     if ( rdr->anim_time < fight->next_fire ) return;
@@ -470,6 +529,7 @@ void pl_fire( World *world, Player *player, Camera *cam, Fight *fight,
         fin.y = org.y + dir.y * PL_SHOT_RANGE;
         fin.z = org.z + dir.z * PL_SHOT_RANGE;
         pl_trace( world, &org, &fin, &tr );
+        box = pl_trace_boxes( world, &org, &fin, &tr );
 
         best = -1;
         bt = PL_SHOT_RANGE * tr.frac;
@@ -484,12 +544,17 @@ void pl_fire( World *world, Player *player, Camera *cam, Fight *fight,
             hit[best] = (short) ( hit[best] + pdmg );
             pl_impact_at( &impact, &org, &dir, bt );
             part_effect( rdr, &impact, &no_dir, 73, pdmg * 4 );
+        } else if ( box >= 0 ) {
+            pl_impact_at( &impact, &org, &dir, bt );
+            part_effect( rdr, &impact, &no_dir, 0, 20 );
+            combat_damage_box( world, player, fight, rdr, box, (float) pdmg );
         } else if ( tr.frac < 1.0f ) {
             pl_impact_at( &impact, &org, &dir, bt );
             part_effect( rdr, &impact, &no_dir, 0, 20 );
         }
 
-        pl_shot_touch( world, player, fight, rdr, &org, &dir, bt, pdmg, (short *) 0 );
+        if ( best < 0 && box < 0 )
+            pl_shot_touch( world, player, fight, rdr, &org, &dir, bt, (short *) 0 );
     }
 
     for ( i = 0; i < world->mon_count && i < MDL_MAX_ENTS; i++ )
@@ -533,17 +598,20 @@ void pl_select_weapon( Fight *fight, short impulse )
    what it hits at ClipVelocity's 1.5, and SV_Physics_Toss lays it still
    on a floor under 60 up. */
 static void pl_grenade_tick( World *world, Player *player, Fight *fight,
-                              Renderer *rdr, Spike *s, float dt,
-                              BspVec3 *dir, float reach )
+                              Renderer *rdr, Spike *s, float dt )
 {
-    BspVec3 fin;
+    BspVec3 fin, dir;
     TraceResult tr;
-    float t, backoff;
-    short i;
+    float t, best_t, backoff, reach;
+    short best, box, contact;
+
+    pl_grenade_segment( s, fight->gravity, dt, &fin, &dir, &reach );
+    pl_trace( world, &s->pos, &fin, &tr );
+    box = pl_trace_boxes( world, &s->pos, &fin, &tr );
 
     if ( s->hostile ) {
         if ( fight->health > 0 ) {
-            t = mdl_ray_player( &player->pos, &s->pos, dir, reach );
+            t = mdl_ray_player( &player->pos, &s->pos, &dir, reach * tr.frac );
             if ( t >= 0.0f && s->gib ) {
                 /* ZombieGrenadeTouch: z_hit on what bleeds; a spent one
                    (SUB_Remove) just goes */
@@ -554,25 +622,39 @@ static void pl_grenade_tick( World *world, Player *player, Fight *fight,
                 s->alive = 0;
                 return;
             }
-            if ( t >= 0.0f ) { pl_grenade_explode( world, player, fight, rdr, s ); return; }
-        }
-    } else {
-        for ( i = 0; i < world->mon_count; i++ ) {
-            if ( !MDL_IS_SOLID( &world->mon[i] ) ) continue;
-            if ( mdl_ray_box( &world->mon[i].pos, &s->pos, dir, reach ) >= 0.0f ) {
+            if ( t >= 0.0f ) {
+                s->pos.x += dir.x * t;
+                s->pos.y += dir.y * t;
+                s->pos.z += dir.z * t;
                 pl_grenade_explode( world, player, fight, rdr, s );
                 return;
             }
         }
+    } else {
+        best_t = reach * tr.frac;
+        best = pl_grenade_monster( world->mon, world->mon_count,
+                                   &s->pos, &dir, &best_t );
+        if ( best >= 0 ) {
+            s->pos.x += dir.x * best_t;
+            s->pos.y += dir.y * best_t;
+            s->pos.z += dir.z * best_t;
+            pl_grenade_explode( world, player, fight, rdr, s );
+            return;
+        }
     }
 
-    s->vel.z -= fight->gravity * dt;
-    fin.x = s->pos.x + s->vel.x * dt;
-    fin.y = s->pos.y + s->vel.y * dt;
-    fin.z = s->pos.z + s->vel.z * dt;
-    pl_trace( world, &s->pos, &fin, &tr );
     s->pos = tr.end_pos;
-    if ( tr.frac >= 1.0f ) return;
+    contact = pl_grenade_contact( box, tr.frac );
+    if ( contact == PL_CONTACT_BOX ) {
+        if ( s->gib ) {
+            if ( s->gib < 0 )
+                combat_damage_box( world, player, fight, rdr, box, (float) s->dmg );
+            s->alive = 0;
+        } else
+            pl_grenade_explode( world, player, fight, rdr, s );
+        return;
+    }
+    if ( contact == PL_CONTACT_NONE ) return;
     if ( s->gib ) {
         /* the miss's z_miss, and its touch is SUB_Remove from then */
         if ( s->gib > 0 ) { s->alive = 0; return; }
@@ -598,7 +680,7 @@ void pl_spikes_tick( World *world, Player *player, Fight *fight,
     BspVec3 fin, dir, impact, old, no_dir = { 0.0f, 0.0f, 0.0f };
     TraceResult tr;
     float t, bt, reach, spd;
-    short n, i, best, stopped;
+    short n, i, best, box, stopped;
     float ndmg;
 
     for ( n = 0; n < PL_NAILS_MAX; n++ ) {
@@ -629,7 +711,7 @@ void pl_spikes_tick( World *world, Player *player, Fight *fight,
         dir.z = s->vel.z / spd;
 
         if ( s->grenade ) {
-            pl_grenade_tick( world, player, fight, rdr, s, dt, &dir, reach );
+            pl_grenade_tick( world, player, fight, rdr, s, dt );
             part_trail( rdr, &old, &s->pos, 1 );
             continue;
         }
@@ -638,11 +720,20 @@ void pl_spikes_tick( World *world, Player *player, Fight *fight,
             /* spike_touch. A trap's spike leaves from a point 8 units
                off its wall, inside hull 1's grown solid, so it walks as
                a point through hull 0: a step into solid ends it. */
-            t = fight->health > 0
-                ? mdl_ray_player( &player->pos, &s->pos, &dir, reach )
-                : -1.0f;
             if ( s->toss == 1 ) s->vel.z -= fight->gravity * dt;
-            if ( pl_point_contents( &fin, world ) == CONTENTS_SOLID ) {
+            pl_trace_point( world, &s->pos, &fin, &tr );
+            box = pl_trace_boxes( world, &s->pos, &fin, &tr );
+            t = fight->health > 0
+                ? mdl_ray_player( &player->pos, &s->pos, &dir, reach * tr.frac )
+                : -1.0f;
+            if ( t >= 0.0f ) {
+                part_effect( rdr, &s->pos, &no_dir, 73, (short) ( s->dmg * 4.0f ) );
+                combat_damage_player( player, world, fight, rdr, s->dmg );
+                s->alive = 0;
+            } else if ( box >= 0 ) {
+                combat_damage_box( world, player, fight, rdr, box, (float) s->dmg );
+                s->alive = 0;
+            } else if ( tr.frac < 1.0f ) {
                 s->alive = 0;
                 /* TE_WIZSPIKE or TE_SPIKE; a lava ball says nothing */
                 if ( s->wiz ) {
@@ -653,18 +744,14 @@ void pl_spikes_tick( World *world, Player *player, Fight *fight,
                     pl_spike_hit( player, &world->rng, &world->snd, &s->pos );
                 }
             } else {
-                if ( t >= 0.0f ) {
-                    part_effect( rdr, &s->pos, &no_dir, 73, (short) ( s->dmg * 4.0f ) );
-                    combat_damage_player( player, world, fight, rdr, s->dmg );
-                    s->alive = 0;
-                }
-                s->pos = fin;
+                s->pos = tr.end_pos;
             }
             if ( s->gib ) part_trail( rdr, &old, &s->pos, 2 );
             continue;
         }
 
         pl_trace( world, &s->pos, &fin, &tr );
+        box = pl_trace_boxes( world, &s->pos, &fin, &tr );
         bt = reach * tr.frac;
         best = -1;
         for ( i = 0; i < world->mon_count; i++ ) {
@@ -681,10 +768,14 @@ void pl_spikes_tick( World *world, Player *player, Fight *fight,
             part_effect( rdr, &impact, &no_dir, 73, (short) ( ndmg * 4.0f ) );
             combat_damage_monster( world, player, fight, rdr, &world->mon[best], ndmg );
             s->alive = 0;
+        } else if ( box >= 0 ) {
+            combat_damage_box( world, player, fight, rdr, box, ndmg );
+            s->alive = 0;
         }
 
         stopped = 0;
-        pl_shot_touch( world, player, fight, rdr, &s->pos, &dir, bt, (short) ndmg, &stopped );
+        if ( s->alive )
+            pl_shot_touch( world, player, fight, rdr, &s->pos, &dir, bt, &stopped );
         if ( stopped ) s->alive = 0;
         if ( tr.frac < 1.0f ) {
             if ( s->alive && !s->rocket ) {
