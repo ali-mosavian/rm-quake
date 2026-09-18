@@ -197,11 +197,13 @@ short v_present_warp( Video *v, QSurf h_dst_dc, short page, short keep_sbar,
 {
     static unsigned char far src[7][320];
     static unsigned char far dst[320];
-    short x, y, r, sx, sy, base, phase, first, slot;
+    static short far wave[64];
+    short x, y, r, sx, sy, base, phase, first, slot, xwave;
 
     if ( v->view_scale != 1 ) return v_present( v, h_dst_dc, page, keep_sbar );
     v_clear_border( v, v->h_comp_dc, keep_sbar );
     phase = (short) ( now * 20.0f );
+    for ( x = 0; x < 64; x++ ) wave[x] = v_warp_wave( (short) ( x + phase ) );
     first = 0;
     for ( r = 0; r < 7; r++ ) {
         sy = (short) ( r - 3 );
@@ -211,6 +213,7 @@ short v_present_warp( Video *v, QSurf h_dst_dc, short page, short keep_sbar,
     }
     for ( y = 0; y < v->y_res; y++ ) {
         base = (short) ( y - 3 );
+        xwave = wave[y & 63];
         if ( y ) {
             if ( ++first == 7 ) first = 0;
             sy = (short) ( y + 3 );
@@ -221,8 +224,8 @@ short v_present_warp( Video *v, QSurf h_dst_dc, short page, short keep_sbar,
                         (long) (void far *) src[slot] );
         }
         for ( x = 0; x < v->x_res; x++ ) {
-            sx = (short) ( x + v_warp_wave( (short) ( y + phase ) ) );
-            sy = (short) ( y + v_warp_wave( (short) ( x + phase ) ) );
+            sx = (short) ( x + xwave );
+            sy = (short) ( y + wave[x & 63] );
             if ( sx < 0 ) sx = 0;
             if ( sx >= v->x_res ) sx = (short) ( v->x_res - 1 );
             if ( sy < 0 ) sy = 0;
