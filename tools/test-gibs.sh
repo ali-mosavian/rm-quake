@@ -23,7 +23,7 @@ names = [struct.unpack_from("<8s", data, 14 + i * 68)[0].rstrip(b"\0").decode() 
 wanted = [
     "spike", "s_spike", "grenade", "missile", "lavaball", "w_spike", "zom_gib",
     "gib1", "gib2", "gib3", "h_player", "h_guard", "h_knight", "h_dog",
-    "h_ogre", "h_demon", "h_zombie", "h_wizard", "h_shams",
+    "h_ogre", "h_demon", "h_zombie", "h_wizard", "h_shams", "bolt", "bolt3",
 ]
 if names != wanted:
     raise SystemExit(f"FAIL: effect bank contains {names}, wanted {wanted}")

@@ -61,4 +61,9 @@ short d_draw_gibs( World *world, Renderer *rdr, DiskPlane far *frustum,
                     Mat4 *mtx_fin, float xresh, float yresh,
                     float z_near, QSurf dst );
 
+/* bolt.mdl/bolt3.mdl segments for every live keyed beam. */
+short d_draw_beams( World *world, Renderer *rdr, DiskPlane far *frustum,
+                     Mat4 *mtx_fin, float xresh, float yresh,
+                     float z_near, QSurf dst );
+
 #endif

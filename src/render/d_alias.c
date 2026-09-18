@@ -18,6 +18,7 @@
 #include "weapons.h"
 #include "item.h"
 #include "gib.h"
+#include "d_beam.h"
 #include "qgl.h"
 #include "mod.h"
 #include "mod_tex.h"
@@ -242,6 +243,8 @@ static short mdl_draw_tris(
             qv[1].v = (float) t.v2 / MDL_UV_SCALE * srw[b];
             qv[2].u = (float) t.u3 / MDL_UV_SCALE * srw[c];
             qv[2].v = (float) t.v3 / MDL_UV_SCALE * srw[c];
+            /* The previous polygon mapped its EMS destination over PAGE_SLOT. */
+            vb = mdl_frame_verts( ms, frame, PAGE_SLOT );
             lit = mdl_lit_map( world, mdl_lit_row( &t, vb, scale, origin,
                                                    cyaw, syaw, cpitch, spitch,
                                                    croll, sroll, yaw_only ) );
@@ -337,6 +340,8 @@ static short mdl_draw_tris(
              - ( qv[2].x - qv[0].x ) * ( qv[1].y - qv[0].y );
         if ( bf_pre && area >= 0.0f ) bf_bad++;
         if ( area < 0.0f ) {
+            /* The previous polygon mapped its EMS destination over PAGE_SLOT. */
+            vb = mdl_frame_verts( ms, frame, PAGE_SLOT );
             lit = mdl_lit_map( world, mdl_lit_row( &t, vb, scale, origin,
                                                    cyaw, syaw, cpitch, spitch,
                                                    croll, sroll, yaw_only ) );
@@ -437,6 +442,24 @@ static short d_mdl_visible( World *world, Renderer *rdr, DiskPlane far *frustum,
     if ( vis ) rdr->dv_vis++;
 #endif
     return vis;
+}
+
+/* Temp entities have already passed the server's PVS. Their arbitrary
+   pitch and roll need a sphere, not d_mdl_visible's upright box. */
+static short near d_mdl_sphere_visible( DiskPlane far *frustum,
+                                         BspVec3 *org, float radius )
+{
+    float dp;
+    short i;
+
+    for ( i = 0; i < 6; i++ ) {
+        dp = frustum[i].norm.x * org->x
+           + frustum[i].norm.y * org->z
+           + frustum[i].norm.z * org->y
+           + frustum[i].dist;
+        if ( dp > radius ) return 0;
+    }
+    return -1;
 }
 
 /* One slot per entity, made on the first frame that wants it. Pickups use
@@ -933,5 +956,94 @@ short d_draw_spikes( World *world, Renderer *rdr, Fight *fight,
         drawn = (short) ( drawn + n );
         rdr->projectile_mdl_drawn = (short) ( rdr->projectile_mdl_drawn + n );
     }
+    return drawn;
+}
+
+short d_draw_beams( World *world, Renderer *rdr, DiskPlane far *frustum,
+                     Mat4 *mtx_fin, float xresh, float yresh,
+                     float z_near, QSurf dst )
+{
+    float *m = (float *) mtx_fin;
+    short i, seg, live = 0, drawn = 0, segments = 0;
+
+    rdr->beam_drawn = rdr->beam_segments = 0;
+    if ( rdr->beam_live <= 0 ) return 0;
+
+    for ( i = 0; i < BEAM_MAX; i++ ) {
+        Beam far *pool;
+        Beam b;
+        EffectModel model;
+        BspVec3 dist, at;
+        float len, left, h, cyaw, syaw, cpitch, spitch, roll, zrad, radius;
+        QSurf skin;
+
+        /* Alias geometry and its skin remap both EMS slots. Re-acquire the
+           state row before every small record. */
+        pool = d_beam_map( rdr, PAGE_SLOT );
+        if ( !pool ) break;
+        _fmemcpy( &b, &pool[i], sizeof(b) );
+        if ( !b.key ) continue;
+        if ( b.end_time < rdr->anim_time ) {
+            b.key = 0;
+            _fmemcpy( &pool[i], &b, sizeof(b) );
+            continue;
+        }
+        live++;
+        if ( b.model < 0 || b.model >= world->fx_mdl_count ) continue;
+        _fmemcpy( &model, &world->fx_mdl[b.model], sizeof(model) );
+        if ( !model.state.loaded ) continue;
+        skin = mdl_effect_skin( world, b.model );
+        if ( !skin ) continue;
+
+        dist.x = b.end.x - b.start.x;
+        dist.y = b.end.y - b.start.y;
+        dist.z = b.end.z - b.start.z;
+        len = (float) sqrt( dist.x*dist.x + dist.y*dist.y + dist.z*dist.z );
+        if ( len < 0.001f ) continue;
+        dist.x /= len; dist.y /= len; dist.z /= len;
+        h = (float) sqrt( dist.x*dist.x + dist.y*dist.y );
+        cyaw = h > 0.001f ? dist.x / h : 1.0f;
+        syaw = h > 0.001f ? dist.y / h : 0.0f;
+        cpitch = h;
+        spitch = -dist.z;
+        at = b.start;
+        left = len;
+        zrad = (float) fabs( model.state.zlo );
+        if ( (float) fabs( model.state.zhi ) > zrad )
+            zrad = (float) fabs( model.state.zhi );
+        radius = (float) sqrt( model.state.radius * model.state.radius
+                             + zrad * zrad );
+        seg = 0;
+
+        /* CL_UpdateTEnts advances by 30 regardless of the model's length.
+           The final segment is deliberately not trimmed. */
+        while ( left > 0.0f ) {
+            unsigned long seed = (unsigned long) ( rdr->anim_time * 1000.0f );
+            short n;
+
+            seed ^= (unsigned long) b.key * 25173UL + (unsigned long) seg * 13849UL;
+            roll = (float) ( seed % 360UL ) * 0.017453293f;
+            n = 0;
+            if ( d_mdl_sphere_visible( frustum, &at, radius ) )
+                n = mdl_draw_tris( world, model.state.ntri, model.state.nvert, 0, &at,
+                                    cyaw, syaw, cpitch, spitch,
+                                    (float) cos(roll), (float) sin(roll),
+                                    &model.state.scale, &model.state.origin,
+                                    &model.state, skin, m, xresh, yresh,
+                                    z_near, dst, QGL_Z_TEST );
+            drawn = (short) ( drawn + n );
+            if ( b.model == MDL_FX_BOLT ) rdr->beam_sham_tris += n;
+            if ( b.model == MDL_FX_BOLT3 ) rdr->beam_boss_tris += n;
+            at.x += dist.x * 30.0f;
+            at.y += dist.y * 30.0f;
+            at.z += dist.z * 30.0f;
+            left -= 30.0f;
+            seg++;
+            segments++;
+        }
+    }
+    rdr->beam_live = live;
+    rdr->beam_drawn = drawn;
+    rdr->beam_segments = segments;
     return drawn;
 }

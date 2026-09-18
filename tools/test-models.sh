@@ -9,6 +9,10 @@
 # assigned from args.no_mdl, so -nomdl drew the monsters too and the A/B
 # that should have caught it reported IDENTICAL either way.
 #
+# A third failure reused the EMS vertex pointer after qglRsPoly mapped the
+# destination over its slot, so every triangle after the first took its
+# lighting normal from framebuffer bytes. The frame hash catches that too.
+#
 # Hence both assertions: mdl= says triangles were submitted, the frame
 # against -nomdl says they reached the screen, and the -nomdl arm's
 # mdl=0 is what keeps the second from being vacuous.
@@ -48,8 +52,8 @@ PY
 )
 
 fail=0
-if [[ "$frame_md5" != 2678e13aab6c1c8676d84a4329ecf8c7 ]]; then
-    echo "FAIL: model frame is $frame_md5; affine u/z projection changed" >&2
+if [[ "$frame_md5" != 12783c0736255420b4be5ee6f3798ee2 ]]; then
+    echo "FAIL: model frame is $frame_md5; alias projection or lighting changed" >&2
     fail=1
 fi
 if [[ "${on:-0}" -lt 1 ]]; then

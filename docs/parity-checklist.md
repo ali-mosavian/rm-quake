@@ -39,14 +39,18 @@ PAK0 and are left out.
       trails and teleport splashes, with depth testing; `src/render/part.c`.
       Chthon's death emits an evenly sampled `R_LavaSplash` volume into
       the same one-page EMS pool.
-- [ ] Sprites: `s_explod.spr`, `s_bubble.spr`, `s_light.spr`
+- [x] Sprites: `s_explod.spr`, `s_bubble.spr`
       id: `r_sprite.c` `R_DrawSprite`
-      qcport: not loaded
-- [ ] Temp entities and beams: explosions, Chthon's and the shambler's
-      lightning, the lightning gun
+      qcport: stock explosion and bubble sprites, including player drowning
+      and map `air_bubbles`; `src/render/d_sprite.c`. `s_light.spr` belongs to
+      `light_globe`, of which PAK0's nine single-player maps contain none.
+- [x] In-scope temp entities and beams: explosions, Chthon's and the
+      shambler's lightning
       id: `cl_tent.c` `CL_ParseTEnt`, `CL_ParseBeam`, `CL_UpdateTEnts`
-      qcport (partial): the shambler's bolt hurts and draws nothing,
-      `src/game/mdl_ai.c:460`
+      qcport: explosions use the stock sprite; a 24-slot EMS beam pool draws
+      overlapping 30-unit `bolt.mdl`/`bolt3.mdl` segments with id's keyed
+      replacement and 0.2-second lifetime; `src/render/d_beam.c`,
+      `src/render/d_alias.c`. The deathmatch-only lightning gun is excluded.
 - [x] Item and backpack models
       id: each classname's `precache_model` in `items.qc`; the `.mdl` files
       are in PAK0

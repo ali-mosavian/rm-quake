@@ -12,7 +12,7 @@
 #define EMITTER_OFS ( SPAWNER_OFS + sizeof(SpriteBubbleSpawner) * SPR_SPAWNERS )
 
 typedef char SpritePoolFits[
-    ( EMITTER_OFS + sizeof(SpriteBubbleEmitter) * SPR_EMITTERS <= RDR_SPRITE_BYTES ) ? 1 : -1 ];
+    ( EMITTER_OFS + sizeof(SpriteBubbleEmitter) * SPR_EMITTERS <= RDR_BEAM_OFS ) ? 1 : -1 ];
 
 static QVert qv[4];
 

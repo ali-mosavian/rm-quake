@@ -126,7 +126,7 @@ KEY_MODELS = (
 EFFECT_MODELS = (
     "spike", "s_spike", "grenade", "missile", "lavaball", "w_spike", "zom_gib",
     "gib1", "gib2", "gib3", "h_player", "h_guard", "h_knight", "h_dog",
-    "h_ogre", "h_demon", "h_zombie", "h_wizard", "h_shams",
+    "h_ogre", "h_demon", "h_zombie", "h_wizard", "h_shams", "bolt", "bolt3",
 )
 EFFECT_PAGE = 16384
 EFFECT_SKIN_W = 256

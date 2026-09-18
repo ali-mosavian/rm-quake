@@ -23,6 +23,7 @@
 #include "lights.h"
 #include "item.h"
 #include "d_alias.h"
+#include "d_beam.h"
 #include "part.h"
 #include "d_sprite.h"
 #include "input.h"
@@ -608,6 +609,8 @@ static void near host_render_models( Host *h, RenderView *rv, Camera *cam )
                     rv->xresh, rv->yresh, z_near, dst );
     d_draw_gibs( world, rdr, rv->frustum, &rv->mtx_fin,
                   rv->xresh, rv->yresh, z_near, dst );
+    d_draw_beams( world, rdr, rv->frustum, &rv->mtx_fin,
+                   rv->xresh, rv->yresh, z_near, dst );
     part_frame( rdr, &rv->mtx_fin, rv->xresh, rv->yresh, z_near, dst, h->z_dc );
     d_draw_sprites( world, rdr, &rv->mtx_fin, &h->mtx_prj,
                      rv->xresh, rv->yresh, z_near, dst );
@@ -1724,6 +1727,7 @@ void host_frame( Host *h )
 static void near host_report( Host *h )
 {
     Fight *fight = &h->fight;
+    Beam   beam;
     char   buf[160];
     short  a, b, c;
 
@@ -1771,6 +1775,14 @@ static void near host_report( Host *h )
     sprintf( buf, "bubbles live=%d drawn=%d spawn=%d emitters=%d", (int) h->rdr.bubble_live,
              (int) h->rdr.bubble_drawn, (int) h->rdr.bubble_spawn_left,
              (int) h->rdr.bubble_emitters );
+    mark( buf );
+    if ( !d_beam_find( &h->rdr, MDL_FX_BOLT3, &beam ) )
+        beam.start.z = beam.end.z = 0.0f;
+    sprintf( buf, "beams live=%d drawn=%d seg=%d sham=%ld boss=%ld startz=%d endz=%d",
+             (int) h->rdr.beam_live,
+             (int) h->rdr.beam_drawn, (int) h->rdr.beam_segments,
+             h->rdr.beam_sham_tris, h->rdr.beam_boss_tris,
+             (int) beam.start.z, (int) beam.end.z );
     mark( buf );
     sprintf( buf, "boss drawn=%d", (int) h->rdr.boss_drawn );
     mark( buf );

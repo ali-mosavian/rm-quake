@@ -68,6 +68,8 @@ short part_init( Renderer *rdr )
     rdr->sprite_live = rdr->sprite_drawn = 0;
     rdr->bubble_live = rdr->bubble_drawn = rdr->bubble_spawn_left = 0;
     rdr->bubble_emitters = 0;
+    rdr->beam_live = rdr->beam_drawn = rdr->beam_segments = 0;
+    rdr->beam_sham_tris = rdr->beam_boss_tris = 0;
     rdr->part_last = rdr->anim_time;
     return -1;
 }
@@ -81,6 +83,8 @@ void part_shutdown( Renderer *rdr )
     rdr->sprite_live = rdr->sprite_drawn = 0;
     rdr->bubble_live = rdr->bubble_drawn = rdr->bubble_spawn_left = 0;
     rdr->bubble_emitters = 0;
+    rdr->beam_live = rdr->beam_drawn = rdr->beam_segments = 0;
+    rdr->beam_sham_tris = rdr->beam_boss_tris = 0;
 }
 
 void part_explosion( Renderer *rdr, BspVec3 *origin )

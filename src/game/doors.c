@@ -90,6 +90,17 @@ void ent_door_fire( World *world, Player *player, short grp )
     }
 }
 
+void ent_door_close( World *world, Player *player, short k )
+{
+    DoorEnt far *d;
+
+    if ( k < 0 || k >= world->door_count ) return;
+    d = &world->door[k];
+    if ( d->state != ENT_DOOR_OPEN ) return;
+    d->state = ENT_DOOR_CLOSING;
+    ent_door_sound( player, world, d, 1 );
+}
+
 /* door_touch's key half: without the key the message, two seconds
    apart; with it the key is spent and the group goes. */
 static void ent_door_key( World *world, Player *player, Fight *fight,

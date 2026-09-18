@@ -22,6 +22,7 @@
 #include "dl.h"
 #include "combat.h"
 #include "item.h"
+#include "d_beam.h"
 
 #define DEG2RAD 0.017453293f
 
@@ -522,9 +523,9 @@ static void mdl_fire( World *world, Player *player, Fight *fight,
     if ( dmg > 0 ) combat_damage_player( player, world, fight, rdr, dmg );
 }
 
-/* CastLightning: a line from 40 up toward 16 above the player's origin,
-   traced 600, and LightningDamage where it crosses their box. Nothing is
-   drawn for it. */
+/* CastLightning: a hull-0 line from 40 up toward 16 above the player's
+   origin. The endpoint is based on self.origin, not org: that 40-unit
+   mismatch is in id's QC. */
 static void mdl_bolt( World *world, Player *player, Fight *fight,
                        Renderer *rdr, MdlEnt far *ent )
 {
@@ -541,10 +542,11 @@ static void mdl_bolt( World *world, Player *player, Fight *fight,
     l = (float) sqrt( d.x*d.x + d.y*d.y + d.z*d.z );
     if ( l < 1.0f ) return;
     d.x /= l; d.y /= l; d.z /= l;
-    fin.x = org.x + d.x * SHAMBLER_BOLT_RANGE;
-    fin.y = org.y + d.y * SHAMBLER_BOLT_RANGE;
-    fin.z = org.z + d.z * SHAMBLER_BOLT_RANGE;
-    pl_trace( world, &org, &fin, &tr );
+    fin.x = ent->pos.x + d.x * SHAMBLER_BOLT_RANGE;
+    fin.y = ent->pos.y + d.y * SHAMBLER_BOLT_RANGE;
+    fin.z = ent->pos.z + d.z * SHAMBLER_BOLT_RANGE;
+    pl_trace_point( world, &org, &fin, &tr );
+    d_beam_spawn( rdr, ent->order, MDL_FX_BOLT, &org, &tr.end_pos );
     if ( mdl_ray_player( &player->pos, &org, &d,
                           SHAMBLER_BOLT_RANGE * tr.frac ) >= 0.0f )
         combat_damage_player( player, world, fight, rdr, SHAMBLER_BOLT_DMG );
@@ -725,7 +727,8 @@ static void near atk_shambler( Think *t )
 {
     short f = t->ent->anim_frame;
 
-    if ( f == SHAMBLER_BOLT_A || f == SHAMBLER_BOLT_B || f == SHAMBLER_BOLT_C )
+    if ( f == SHAMBLER_BOLT_A || f == SHAMBLER_BOLT_B || f == SHAMBLER_BOLT_C ||
+         ( f == SHAMBLER_BOLT_C + 1 && t->fight->skill == 3 ) )
         mdl_bolt( t->world, t->player, t->fight, t->rdr, t->ent );
 }
 

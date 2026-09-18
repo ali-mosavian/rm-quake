@@ -38,14 +38,16 @@ typedef struct {
 } DynLight;
 
 /* One EMS page shared by frame-sized renderer state. Particles occupy the
-   first 4 KB, dynamic lights the next 4 KB, gibs the next 4 KB and transient
-   sprites the last 4 KB. Each is mapped only while its own pass uses it. */
+   first 4 KB, dynamic lights the next 4 KB, gibs the next 4 KB, then sprites
+   and beams share the last 4 KB. Each is mapped only while its pass uses it. */
 #define RDR_PART_BYTES   4096
 #define RDR_DLIGHT_OFS   RDR_PART_BYTES
 #define RDR_GIB_OFS      8192
 #define RDR_GIB_BYTES    4096
 #define RDR_SPRITE_OFS   12288
 #define RDR_SPRITE_BYTES 4096
+#define RDR_BEAM_OFS     3072
+#define RDR_BEAM_BYTES   1024
 #define RDR_FRAME_BYTES  16384
 #define RDR_FRAME_ROWS   4
 
@@ -173,6 +175,11 @@ typedef struct {
     short bubble_drawn;
     short bubble_spawn_left;
     short bubble_emitters;
+    short beam_live;
+    short beam_drawn;
+    short beam_segments;
+    long  beam_sham_tris;
+    long  beam_boss_tris;
     short boss_drawn;     /* Chthon triangles submitted this frame */
     short ents_last;      /* brush entities after the world walk: with depth
                               unless -entinsert, or -badorder */

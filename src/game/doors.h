@@ -25,4 +25,7 @@ void ent_link_doors( World *world );
    opens a secret door. */
 void ent_door_fire( World *world, Player *player, short grp );
 
+/* door_go_down for one door, used when Chthon's electrode hold ends. */
+void ent_door_close( World *world, Player *player, short k );
+
 #endif

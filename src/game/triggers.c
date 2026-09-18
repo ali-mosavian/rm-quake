@@ -5,6 +5,7 @@
 
 #include <string.h>
 #include <math.h>
+#include <mem.h>
 
 #include "triggers.h"
 #include "doors.h"
@@ -18,10 +19,12 @@
 #include "center.h"
 #include "part.h"
 #include "weapons.h"
+#include "d_beam.h"
 
 #define ENT_BOSS_RISE_TIME 1.7f
 #define ENT_BOSS_SHOCK_TIME 1.0f
 #define ENT_BOSS_FIRST_SHOT 0.8f
+#define ENT_ABSMIN_PAD 2.0f
 
 void ent_say( Fight *fight, Renderer *rdr, char far *msg )
 {
@@ -65,6 +68,53 @@ static void ent_kill_targets( World *world, short id )
 /* lightning_use: both electrode doors at one end of their travel, then a
    point off an awake Chthon while the first is up. id's STATE_TOP is a
    door OPEN here. wait_left is lightning_end. */
+static short near ent_lightning_point( World *world, short door, BspVec3 *p )
+{
+    Submodel model;
+    BrushModel brush;
+    short model_id;
+
+    if ( door < 0 || door >= world->door_count ) return 0;
+    model_id = world->door[door].model;
+    if ( model_id <= 0 || model_id >= world->model_count ) return 0;
+    _fmemcpy( &model, &world->models[model_id], sizeof(model) );
+    _fmemcpy( &brush, &world->brush[model_id], sizeof(brush) );
+    p->x = ( model.mins.x + model.maxs.x ) * 0.5f + brush.ofs.x;
+    p->y = ( model.mins.y + model.maxs.y ) * 0.5f + brush.ofs.y;
+    /* id grows submodel bounds by one at load and one again at link. */
+    p->z = model.mins.z + brush.ofs.z - ENT_ABSMIN_PAD - 16.0f;
+    return -1;
+}
+
+static short near ent_lightning_points( World *world, TrigEnt far *t,
+                                        BspVec3 *p1, BspVec3 *p2 )
+{
+    short a = (short) t->ofs_out.x, b = (short) t->ofs_out.y;
+    BspVec3 dir;
+    float len;
+
+    /* Keeping both far door/model chains live makes bcc 3.1 lose ES for
+       the second one. Copy one electrode's records at a time. */
+    if ( !ent_lightning_point( world, a, p1 ) ||
+         !ent_lightning_point( world, b, p2 ) ) return 0;
+    dir.x = p2->x - p1->x; dir.y = p2->y - p1->y; dir.z = p2->z - p1->z;
+    len = (float) sqrt( dir.x*dir.x + dir.y*dir.y + dir.z*dir.z );
+    if ( len < 0.001f ) return 0;
+    p2->x -= dir.x / len * 100.0f;
+    p2->y -= dir.y / len * 100.0f;
+    p2->z -= dir.z / len * 100.0f;
+    return -1;
+}
+
+static void near ent_lightning_beam( World *world, Renderer *rdr,
+                                     TrigEnt far *t, short key )
+{
+    BspVec3 p1, p2;
+
+    if ( ent_lightning_points( world, t, &p1, &p2 ) )
+        d_beam_spawn( rdr, key, MDL_FX_BOLT3, &p1, &p2 );
+}
+
 static void ent_lightning( World *world, Player *player, Renderer *rdr, short k )
 {
     TrigEnt far *t = &world->trig[k];
@@ -80,8 +130,12 @@ static void ent_lightning( World *world, Player *player, Renderer *rdr, short k 
     if ( ( s1 != ENT_DOOR_OPEN && s1 != ENT_DOOR_SHUT ) ||
          ( s2 != ENT_DOOR_OPEN && s2 != ENT_DOOR_SHUT ) || s1 != s2 ) return;
     t->wait_left = now + 1.0f;
+    t->delay = now + 0.1f;
+    t->state = ENT_TRIG_ARMED;
+    world->door[a].hold_left = world->door[b].hold_left = 32767.0f;
     org = t->mins;
     snd_start( &world->snd, player, (short) ( SND_ENT_TRIG + k ), CHAN_VOICE, SND_POWER, &org, ATTN_NORM );
+    ent_lightning_beam( world, rdr, t, (short) ( BEAM_TRIGGER_KEY + k ) );
 
     for ( j = 0; j < world->trig_count; j++ ) {
         boss = &world->trig[j];
@@ -375,6 +429,20 @@ void ent_move_trigs( World *world, Player *player, Camera *cam, Fight *fight,
         case ENT_TRIG_SKILL:
             /* trigger_skill_touch: every touch, and the next map loads by it */
             if ( ent_box_touched( player, &t->mins, &t->maxs, 0.0f ) ) fight->skill = t->count;
+            break;
+
+        case ENT_TRIG_BOLT:
+            if ( t->state != ENT_TRIG_ARMED ) break;
+            if ( rdr->anim_time >= t->wait_left ) {
+                short a = (short) t->ofs_out.x, b2 = (short) t->ofs_out.y;
+                t->state = ENT_TRIG_READY;
+                ent_door_close( world, player, a );
+                ent_door_close( world, player, b2 );
+            } else if ( rdr->anim_time >= t->delay ) {
+                ent_lightning_beam( world, rdr, t,
+                                    (short) ( BEAM_TRIGGER_KEY + k ) );
+                t->delay = rdr->anim_time + 0.1f;
+            }
             break;
 
         case ENT_TRIG_FIREBALL:

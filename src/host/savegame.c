@@ -10,6 +10,7 @@
 #include "dl.h"
 #include "gib.h"
 #include "d_sprite.h"
+#include "d_beam.h"
 #include "item.h"
 
 #define SG_MAGIC   0x31565351L
@@ -476,6 +477,7 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
     rdr->bubble_drawn = 0;
     rdr->bubble_spawn_left = head.version >= 4 ? spawn_left : 0;
     rdr->bubble_emitters = emitters;
+    d_beam_clear( rdr );
     rdr->pvs_leaf = 0;
     if ( rdr->item_lc )
         for ( i = 0; i < world->item_count; i++ ) rdr->item_lc[i].ok = 0;
