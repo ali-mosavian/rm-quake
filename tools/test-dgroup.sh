@@ -47,15 +47,16 @@ elif [[ -n "$STKLEN" ]]; then
     echo "ok: near heap at least $NEAR_MIN"
 fi
 
-# The map the broken build had: DGROUP 0xa534 with the same stack. Fed
-# through the guard it must fail, or the guard cannot have caught it.
+# Synthesize a map that leaves one byte less than the guard's minimum.
+# A historical fixed size stopped being invalid when _stklen was reduced.
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-printf 'Group                           Address              Size\n=====\nDGROUP                          288b:0000            0000a534\n' > "$TMP/over.map"
+OVER=$((65536 - STKLEN - 4095))
+printf 'Group                           Address              Size\n=====\nDGROUP                          288b:0000            %08x\n' "$OVER" > "$TMP/over.map"
 if "$CHECK" "$TMP/over.map" "$STKLEN" >/dev/null 2>&1; then
-    echo "FAIL: the guard passed DGROUP 42292 + stack $STKLEN, which cannot start" >&2
+    echo "FAIL: the guard passed DGROUP $OVER + stack $STKLEN with under 4096 bytes free" >&2
     fail=1
 else
-    echo "ok: the guard rejects the DGROUP the dead build had"
+    echo "ok: the guard rejects a DGROUP with under 4096 bytes free"
 fi
 
 exit $fail
