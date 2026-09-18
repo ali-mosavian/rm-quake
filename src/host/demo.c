@@ -228,13 +228,9 @@ static void near demo_snapshot_apply( Demo *dm, DemoFrame *frame, World *world,
             float best = 4096.0f;
             for ( j = 0; !e.state && j < dm->snapshot_item_base; j++ ) {
                 ItemEnt far *candidate = &world->item[j];
-                float dx, dy, dz, dist, tx = e.x, ty = e.y;
+                float dx, dy, dz, dist;
                 if ( !candidate->gone || candidate->kind != e.kind ) continue;
-                if ( candidate->crate >= 0 && candidate->crate < world->crate_count ) {
-                    tx += world->crate[candidate->crate].size.x * 0.5f;
-                    ty += world->crate[candidate->crate].size.y * 0.5f;
-                }
-                dx = candidate->pos.x - tx; dy = candidate->pos.y - ty; dz = candidate->pos.z - e.z;
+                dx = candidate->pos.x - e.x; dy = candidate->pos.y - e.y; dz = candidate->pos.z - e.z;
                 dist = dx*dx + dy*dy + dz*dz;
                 if ( dist < best ) { best = dist; it = candidate; }
             }
@@ -247,10 +243,7 @@ static void near demo_snapshot_apply( Demo *dm, DemoFrame *frame, World *world,
             if ( !it ) continue;
             it->kind = e.kind; it->gone = 0;
             it->pos.x = e.x; it->pos.y = e.y; it->pos.z = e.z;
-            if ( it->crate >= 0 && it->crate < world->crate_count ) {
-                it->pos.x += world->crate[it->crate].size.x * 0.5f;
-                it->pos.y += world->crate[it->crate].size.y * 0.5f;
-            }
+            it->rot_at = 0.0f;
             item_applied++;
         } else if ( e.type == DEMO_ENT_LIGHT && e.kind >= 0 && e.kind <= LS_MAXSTYLE ) {
             ls->tab[e.kind].value = e.frame;

@@ -15,6 +15,7 @@ typedef struct {
     float height;
     short line_head, line_count, scroll;
     char  line[CON_LINES][CON_LINE];
+    float line_time[CON_LINES];
     char  input[CON_LINE];
     short input_len;
     char  history[CON_HISTORY][CON_LINE];

@@ -565,6 +565,7 @@ short d_draw_items( World *world, Renderer *rdr, Player *player,
         ItemEnt far *it = &world->item[i];
         AliasModel im;
         short have_mdl = 0;
+        short have_crate = (short) ( it->crate >= 0 && it->crate < world->crate_count );
 
         if ( it->gone ) continue;
         bob = it->pos;
@@ -572,7 +573,18 @@ short d_draw_items( World *world, Renderer *rdr, Player *player,
             _fmemcpy( &im, &world->item_mdl[world->item_mdl_slot[i]], sizeof(im) );
             have_mdl = im.state.loaded;
         }
-        if ( have_mdl ) {
+        if ( have_crate ) {
+            CrateModel far *cm = &world->crate[it->crate];
+            float radius;
+            bob.x += cm->size.x * 0.5f;
+            bob.y += cm->size.y * 0.5f;
+            bob.z += cm->size.z * 0.5f;
+            radius = 0.5f * (float) sqrt( cm->size.x * cm->size.x +
+                                          cm->size.y * cm->size.y );
+            if ( !d_mdl_visible( world, rdr, frustum, &bob, radius,
+                                  cm->size.z * -0.5f, cm->size.z * 0.5f,
+                                  lc_slot( rdr, &rdr->item_lc, world->item_max, i ) ) ) continue;
+        } else if ( have_mdl ) {
             if ( !d_mdl_visible( world, rdr, frustum, &bob,
                                   im.state.radius, im.state.zlo, im.state.zhi,
                                   lc_slot( rdr, &rdr->item_lc, world->item_max, i ) ) ) continue;
@@ -580,18 +592,15 @@ short d_draw_items( World *world, Renderer *rdr, Player *player,
                                      ENT_BOX_HALF * 1.5f, 0.0f, ENT_BOX_TOP + 8.0f,
                                      lc_slot( rdr, &rdr->item_lc, world->item_max, i ) ) ) continue;
 
-        if ( it->crate >= 0 && it->crate < world->crate_count ) {
-            /* the map's own b_*.bsp, still, and centred on the origin
-               as the touch already is -- Quake's spans origin to
-               origin + size. The mip by distance, d_faces.c's own
-               thresholds. */
+        if ( have_crate ) {
+            /* The map's own b_*.bsp spans origin to origin + size, as
+               its asymmetric trigger does. The mip is by distance,
+               using d_faces.c's own thresholds. */
             CrateModel far *cm = &world->crate[ it->crate ];
             BspVec3 corg = it->pos;
             float dx, dy, dz2, cdist;
             short cmip = 0;
 
-            corg.x -= cm->size.x * 0.5f;
-            corg.y -= cm->size.y * 0.5f;
             dx = corg.x - player->pos.x;
             dy = corg.y - player->pos.y;
             dz2 = corg.z - player->pos.z;

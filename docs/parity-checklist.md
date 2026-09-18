@@ -54,8 +54,10 @@ PAK0 and are left out.
       weapon pickups, powerups, the rune and dropped backpacks; ammo and
       health retain their original `b_*.bsp` models. Soldiers toss five-shell
       backpacks and ogres toss two-rocket backpacks; both land through hull 1,
-      expire after 120 seconds and release cleanly; `src/render/d_alias.c`,
-      `tools/test-backpacks.sh`
+      expire after 120 seconds and release cleanly. Touch bounds, ammo weapon
+      selection, independent megahealth decay, pickup notices, powerup expiry
+      warnings and the death-frame backpack drop match v1.01 QC;
+      `src/render/d_alias.c`, `tools/test-items.sh`, `tools/test-backpacks.sh`
 - [x] Projectile models
       id: `weapons.qc`; the `.mdl` files are in PAK0
       qcport: normal and super spikes, wizard spikes, grenades, rockets,

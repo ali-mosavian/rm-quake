@@ -202,6 +202,7 @@ typedef struct {
     short   order;       /* source edict order, for findradius */
     BspVec3 pos;         /* BSP space, on the floor */
     short   gone;
+    float   rot_at;      /* this megahealth's independent next decay think */
 } ItemEnt;
 
 /* q_ent.bi's CrateModel: a pickup's b_*.bsp as mkassets cut it -- the

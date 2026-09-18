@@ -114,6 +114,43 @@ if [[ -f "$OUT/dm3ish.qmp" ]]; then
             echo "ok: cells at $at -- $want"
         fi
     done
+
+    # Ammo boxes use items.qc's asymmetric 0..32 trigger bounds. The player
+    # at x=435 overlaps the box at x=395 by eight units; treating the map
+    # origin as the box centre leaves a false 8-unit gap and misses it.
+    run "dm3ish.qmp -nostats -noai -nosound -at 435 -227 -104 -ticks 2" || true
+    kit=$(tr -d '\r' < "$OUT/cstep.txt" 2>/dev/null | grep -m1 '^fight=')
+    cells=$(sed -n 's/.* cells \([0-9]*\).*/\1/p' <<< "$kit")
+    if [[ "${cells:-0}" -ne 6 ]]; then
+        echo "FAIL: overlapping the positive edge of a cell box gave [$kit], wanted 6 cells" >&2
+        fail=1
+    else
+        echo "ok: the asymmetric cell-box trigger takes at its positive edge"
+    fi
+
+    # ammo_touch only changes weapons when the current weapon was the old
+    # W_BestWeapon. With an owned SNG and no nails, the shotgun is best;
+    # taking nails promotes the SNG. A deliberately selected axe stays put.
+    for arm in "1|64|SNG selected" "4096|4096|axe retained"; do
+        IFS='|' read -r held want what <<< "$arm"
+        python3 - "$OUT/CARRY.BIN" "$held" <<'PY'
+import struct
+import sys
+open(sys.argv[1], "wb").write(struct.pack(
+    "<lhhfhhhhhhh", 1 | 64 | 4096, 100, 0, 0.0, 25, 0, 0,
+    int(sys.argv[2]), 0, 0, 0
+))
+PY
+        KEEP_CARRY=1 run "dm3ish.qmp -nostats -noai -nosound -carry -at -452 -580 280 -ticks 2" || true
+        kit=$(tr -d '\r' < "$OUT/cstep.txt" 2>/dev/null | grep -m1 '^fight=')
+        weapon=$(sed -n 's/.* weapon \([0-9]*\).*/\1/p' <<< "$kit")
+        if [[ "${weapon:-0}" -ne "$want" ]]; then
+            echo "FAIL: nail pickup with weapon $held gave [$kit], wanted $what" >&2
+            fail=1
+        else
+            echo "ok: nail pickup -- $what"
+        fi
+    done
 else
     echo "SKIP: no dm3ish.qmp in $OUT"
 fi

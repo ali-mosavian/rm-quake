@@ -59,6 +59,11 @@
 static void near host_apply_cvars( Host *h );
 static void near host_input_events( Host *h );
 static void near host_console_result( Host *h, CmdKind kind, CmdResult *result );
+
+static void far host_item_notice( void far *ctx, const char *text )
+{
+    con_print( (Console far *) ctx, text );
+}
 static short near host_save_slot( Host *h, short slot, char *error );
 static short near host_load_slot( Host *h, short slot, char *error );
 static short near host_attract_next( Host *h );
@@ -383,10 +388,12 @@ static void near host_tick( Host *h, float dt )
     /* after the movers: a plat can carry an item's floor out from under
        the player */
     pl_items_tick( world, fight, rdr, dt );
-    pl_items_touch( world, player, fight, rdr );
+    pl_items_touch( world, player, fight, rdr, host_item_notice,
+                    (void far *) h->console );
 
     /* after the player has moved: FindTarget sees where they are now */
-    if ( fight->state == GS_PLAY ) mdl_tick( world, player, fight, rdr );
+    if ( fight->state == GS_PLAY || fight->state == GS_WON || fight->state == GS_DEAD )
+        mdl_tick( world, player, fight, rdr, (short) ( fight->state != GS_DEAD ) );
 
     /* The shot goes after the monsters' think so it hits them where this
        frame drew them. A dead player fires nothing, but what is already
@@ -1762,9 +1769,9 @@ static void near host_report( Host *h )
              (int) h->rdr.gib_count );
     mark( buf );
 
-    sprintf( buf, "fight=health %d shells %d nails %d rockets %d armor %d items %ld took %d kills %d booms %d deaths %d cells %d",
+    sprintf( buf, "fight=health %d shells %d nails %d rockets %d armor %d items %ld weapon %d took %d kills %d booms %d deaths %d cells %d",
              fight->health, fight->shells, fight->nails, fight->rockets,
-             fight->armor, fight->items, item_taken( &h->world ), fight->kills,
+             fight->armor, fight->items, fight->weapon, item_taken( &h->world ), fight->kills,
              fight->booms, fight->deaths, fight->cells );
     mark( buf );
     sprintf( buf, "center msg=%d ms=%ld", fight->msg != 0,

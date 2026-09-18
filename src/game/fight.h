@@ -146,7 +146,7 @@ typedef struct {
     float weapon_at[6];       /* newly acquired weapon icon flash, status order */
     float face_until;         /* damage face, separate from pain sound throttling */
     short shells, nails, rockets, cells;
-    float rot_at;             /* megahealth: the next point over 100 rots then */
+    float rot_at;             /* retained in v1 saves; each mega now owns its thinker */
     float quad_until;         /* super_damage_finished */
     float suit_until;         /* radsuit_finished */
     float pent_until;         /* invincible_finished */

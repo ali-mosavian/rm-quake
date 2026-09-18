@@ -51,6 +51,12 @@ void con_animate( Console CMD_FAR *con, float dt, short screen_h )
 {
     float target = con->open ? screen_h * 0.5f : 0.0f;
     float step = 300.0f * dt;
+    short i;
+
+    for ( i = 0; i < CON_LINES; i++ ) {
+        con->line_time[i] -= dt;
+        if ( con->line_time[i] < 0.0f ) con->line_time[i] = 0.0f;
+    }
     if ( con->height < target ) {
         con->height += step;
         if ( con->height > target ) con->height = target;
@@ -75,7 +81,10 @@ void con_clear( Console CMD_FAR *con )
 {
     short i;
     con->line_head = con->line_count = 0;
-    for ( i = 0; i < CON_LINES; i++ ) con->line[i][0] = 0;
+    for ( i = 0; i < CON_LINES; i++ ) {
+        con->line[i][0] = 0;
+        con->line_time[i] = 0.0f;
+    }
 }
 
 void con_print( Console CMD_FAR *con, const char *text )
@@ -94,6 +103,7 @@ void con_print( Console CMD_FAR *con, const char *text )
         for ( n = 0; n < cut; n++ ) piece[n] = text[n];
         piece[cut] = 0;
         far_put( con->line[con->line_head], piece, CON_LINE );
+        con->line_time[con->line_head] = 3.0f;
         con->line_head = (short) ( ( con->line_head + 1 ) % CON_LINES );
         if ( con->line_count < CON_LINES ) con->line_count++;
         con->scroll = 0;
@@ -239,7 +249,18 @@ void con_draw( const Console CMD_FAR *con, Hud far *hud, QSurf dc, short w, shor
     short panel_h, rows, i, idx, y, cols, input_len, input_start;
     char input[CON_LINE];
 
-    if ( con->height <= 0.0f ) return;
+    if ( con->height <= 0.0f ) {
+        rows = con->line_count < 4 ? con->line_count : 4;
+        y = 0;
+        for ( i = rows; i > 0; i-- ) {
+            idx = (short) ( ( con->line_head - i + CON_LINES ) % CON_LINES );
+            if ( con->line_time[idx] <= 0.0f ) continue;
+            far_get( text, con->line[idx], CON_LINE );
+            draw_string( hud, dc, 4, y, text, hud->hc_text );
+            y = (short) ( y + 8 );
+        }
+        return;
+    }
     panel_h = (short) con->height;
     qglDrFill( dc, 0, 0, (short) ( w - 1 ), panel_h, hud->hc_bg );
     qglDrHline( dc, 0, panel_h, (short) ( w - 1 ), hud->hc_slabhi );

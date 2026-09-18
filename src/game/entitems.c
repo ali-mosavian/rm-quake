@@ -40,6 +40,7 @@ void ent_load_items( World *world, unsigned char far *buf, long *ofs, short coun
         p->order  = it.order;
         p->pos    = it.org;
         p->gone   = 0;
+        p->rot_at = 0.0f;
     }
 }
 
@@ -55,28 +56,38 @@ void ent_load_crates( World *world, unsigned char far *buf, long *ofs, short cou
 }
 
 /*
- * The trace starts PL_FEET ABOVE the origin, not at it:
+ * The trace starts PL_FEET ABOVE PlaceItem's six-unit lift, not at it:
  * SV_ClipMoveToEntity offsets the hull's clip_mins against the item's
  * mins, and an item the map put within 24 units of its floor otherwise
- * starts inside hull 1's grown solid. Where a room lay under it within
- * 256 it fell through; where none did it stopped 24 above the floor and
- * floated.
+ * starts inside hull 1's grown solid. The entity's own mins.z then puts
+ * centered keys and powerups 24 units above the floor, while crates and
+ * weapon models keep their origin on it.
  */
 void ent_items_drop( World *world )
 {
     short i;
-    BspVec3 org, fin;
+    BspVec3 org, fin, mins, maxs;
+    BspVec3 shift;
     TraceResult tr;
 
     for ( i = 0; i < world->item_count; i++ ) {
+        item_bounds( world->item[i].kind, world->item[i].crate, &mins, &maxs );
+        shift.x = ( mins.x + maxs.x ) * 0.5f;
+        shift.y = ( mins.y + maxs.y ) * 0.5f;
+        shift.z = mins.z + PL_FEET;
         org = world->item[i].pos;
-        org.z += PL_FEET;
+        org.x += shift.x;
+        org.y += shift.y;
+        org.z += shift.z + 6.0f;
         fin = org;
         fin.z -= 256.0f;
         pl_trace( world, &org, &fin, &tr );
         if ( tr.frac < 1.0f && !tr.all_solid ) {
             world->item[i].pos = tr.end_pos;
-            world->item[i].pos.z -= PL_FEET;
-        }
+            world->item[i].pos.x -= shift.x;
+            world->item[i].pos.y -= shift.y;
+            world->item[i].pos.z -= shift.z;
+        } else
+            world->item[i].gone = -1;
     }
 }

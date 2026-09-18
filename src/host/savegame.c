@@ -3,14 +3,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stddef.h>
 
 #include "savegame.h"
 #include "qgl.h"
 #include "dl.h"
 #include "gib.h"
+#include "item.h"
 
 #define SG_MAGIC   0x31565351L
-#define SG_VERSION 1
+#define SG_VERSION 2
+#define SG_VERSION_OLD 1
 #define SG_GIB_MAGIC 0x31424947L
 
 typedef struct {
@@ -68,7 +71,8 @@ static short near savegame_read_head( short slot, SaveHead *head )
     if ( !file ) return 0;
     if ( fread( head, sizeof(*head), 1, file ) != 1 ) head->magic = 0;
     fclose( file );
-    if ( head->magic != SG_MAGIC || head->version != SG_VERSION ) return 0;
+    if ( head->magic != SG_MAGIC ||
+         ( head->version != SG_VERSION && head->version != SG_VERSION_OLD ) ) return 0;
     head->map[8] = 0;
     head->comment[SG_COMMENT - 1] = 0;
     return -1;
@@ -235,6 +239,27 @@ static short near savegame_counts_match( const SaveHead *head, const World *worl
                      head->mon_count == world->mon_count );
 }
 
+static short near savegame_read_items( short file, ItemEnt far *item,
+                                       short count, short version )
+{
+    short i;
+    if ( version == SG_VERSION )
+        return savegame_read_block( file, (long) item,
+                                    (long) count * sizeof(ItemEnt) );
+    for ( i = 0; i < count; i++ ) {
+        item[i].rot_at = 0.0f;
+        if ( !savegame_read_block( file, (long) &item[i],
+                                   (long) offsetof(ItemEnt, rot_at) ) ) return 0;
+    }
+    return -1;
+}
+
+static float near savegame_warn_v1( float until, float warned, float now )
+{
+    if ( until <= now ) return 0.0f;
+    return warned == until ? now + 1.0f : -until;
+}
+
 short savegame_load( short slot, const char *map, World *world, Player *player,
                      Camera *cam, Fight *fight, Renderer *rdr,
                      short *mouse_x, short *mouse_y, char *error )
@@ -257,7 +282,9 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
         return 0;
     }
     head.map[8] = 0;
-    if ( head.magic != SG_MAGIC || head.version != SG_VERSION || stricmp( head.map, map ) ||
+    if ( head.magic != SG_MAGIC ||
+         ( head.version != SG_VERSION && head.version != SG_VERSION_OLD ) ||
+         stricmp( head.map, map ) ||
          !savegame_counts_match( &head, world ) ) {
         qglFileClose( file );
         strcpy( error, "Save file does not match this map" );
@@ -279,11 +306,11 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
                    savegame_read_block( file, (long) world->trig,
                                       (long) world->trig_count * sizeof(TrigEnt) ) &&
                    savegame_read_block( file, (long) world->light,
-                                      (long) world->light_count * sizeof(LightEnt) ) &&
-                   savegame_read_block( file, (long) world->item,
-                                      (long) head.item_count * sizeof(ItemEnt) ) &&
-                   savegame_read_block( file, (long) world->mon,
-                                      (long) world->mon_count * sizeof(MdlEnt) ) );
+                                      (long) world->light_count * sizeof(LightEnt) ) );
+    if ( ok ) ok = savegame_read_items( file, world->item,
+                                        head.item_count, head.version );
+    if ( ok ) ok = savegame_read_block( file, (long) world->mon,
+                                        (long) world->mon_count * sizeof(MdlEnt) );
     if ( ok ) {
         got = qglFileRead( file, (long) (void far *) &sg, sizeof(sg) );
         if ( got ) {
@@ -308,6 +335,21 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
     memcpy( world->fog_at, sw.fog_at, sizeof(sw.fog_at) );
     world->item_count = head.item_count;
     rdr->anim_time = sr.anim_time;
+    if ( head.version == SG_VERSION_OLD ) {
+        /* v1 had one player-wide mega timer. Preserve that behavior for
+           the old snapshot by handing it to one collected mega. */
+        if ( fight->rot_at > 0.0f ) for ( i = 0; i < world->item_count; i++ ) {
+            ItemEnt far *it = &world->item[i];
+            if ( it->gone && it->kind == ENT_ITEM_HEALTH && it->amount == ENT_ITEM_MEGA ) {
+                it->rot_at = fight->rot_at;
+                break;
+            }
+        }
+        fight->quad_warn = savegame_warn_v1( fight->quad_until, fight->quad_warn, sr.anim_time );
+        fight->suit_warn = savegame_warn_v1( fight->suit_until, fight->suit_warn, sr.anim_time );
+        fight->pent_warn = savegame_warn_v1( fight->pent_until, fight->pent_warn, sr.anim_time );
+        fight->invis_warn = savegame_warn_v1( fight->invis_until, fight->invis_warn, sr.anim_time );
+    }
     dl_import( rdr, sr.dlights );
     rdr->dl_tick = sr.dl_tick;
     rdr->dl_seed = sr.dl_seed;

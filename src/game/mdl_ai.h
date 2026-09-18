@@ -168,7 +168,8 @@ void mdl_think( World *world, Player *player, Fight *fight, Renderer *rdr,
  * desc: mdl_think over every monster the map spawned, and nothing when
  *       -noai is on.
  */
-void mdl_tick( World *world, Player *player, Fight *fight, Renderer *rdr );
+void mdl_tick( World *world, Player *player, Fight *fight, Renderer *rdr,
+               short live_ai );
 
 /*
  * name: mdl_vectoyaw

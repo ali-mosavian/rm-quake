@@ -139,13 +139,12 @@ void combat_damage_monster( World *world, Player *player, Fight *fight, Renderer
     if ( ent->health <= 0 ) {
         ent->state = MDL_ST_DEAD;
         ent->anim_frame = 0;
+        ent->next_think = rdr->anim_time + 0.1f;
         if ( ent->health < f->gib_below ) {
             mdl_voice( player, &world->snd, ent, CHAN_VOICE, SND_UDEATH, ATTN_NORM );
             gib_spawn_monster( world, rdr, ent, rdr->anim_time );
         } else {
             mdl_say( player, &world->snd, ent, 3 );
-            if ( f->drop_amount )
-                pl_backpack_add( world, ent, f->drop_kind, f->drop_amount, rdr->anim_time );
         }
         fight->kills++;
         return;

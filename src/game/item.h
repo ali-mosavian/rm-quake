@@ -55,12 +55,15 @@
 #define ENT_COL_BLUE    210      /* the quad */
 #define ENT_COL_GREEN   176      /* the suit */
 
+typedef void (far *ItemNotice)( void far *ctx, const char *text );
+
 /*
  * name: pl_items_touch
  * desc: Takes whatever the player's box overlaps, and rots what
  *       megahealth put over 100.
  */
-void pl_items_touch( World *world, Player *player, Fight *fight, Renderer *rdr );
+void pl_items_touch( World *world, Player *player, Fight *fight, Renderer *rdr,
+                     ItemNotice notice, void far *notice_ctx );
 
 /* MOVETYPE_TOSS for the backpacks monsters leave. */
 void pl_items_tick( World *world, Fight *fight, Renderer *rdr, float dt );
@@ -78,6 +81,9 @@ short item_selftest( void );
  *       table the touch reads.
  */
 void item_box_colours( short kind, short *side, short *top );
+
+/* items.qc's trigger box, relative to the entity origin. */
+void item_bounds( short kind, short crate, BspVec3 *mins, BspVec3 *maxs );
 
 /*
  * name: item_taken

@@ -135,7 +135,10 @@ void pl_game_reset( World *world, Player *player, Camera *cam, Fight *fight,
     /* the map's own pickups back; a backpack a soldier dropped is not
        one of them, so the count goes back to what ents.bin held */
     world->item_count = (short) ( world->item_max - world->mon_count );
-    for ( i = 0; i < world->item_count; i++ ) world->item[i].gone = 0;
+    for ( i = 0; i < world->item_count; i++ ) {
+        world->item[i].gone = 0;
+        world->item[i].rot_at = 0.0f;
+    }
     for ( i = 0; i < PL_NAILS_MAX; i++ ) fight->nail[i].alive = 0;
     gib_clear( rdr );
 

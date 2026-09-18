@@ -1198,7 +1198,12 @@ void mdl_think( World *world, Player *player, Fight *fight, Renderer *rdr,
     /* Dead: the death frames once, then a corpse. */
     if ( ent->state == MDL_ST_GIBBED ) return;
     if ( ent->state == MDL_ST_DEAD ) {
-        if ( ent->anim_frame < m->set_n[MDL_SET_DEATH] - 1 ) ent->anim_frame++;
+        if ( ent->anim_frame < m->set_n[MDL_SET_DEATH] - 1 ) {
+            ent->anim_frame++;
+            if ( ent->anim_frame == 2 && mon_facts[ent->kind].drop_amount )
+                pl_backpack_add( world, ent, mon_facts[ent->kind].drop_kind,
+                                 mon_facts[ent->kind].drop_amount, rdr->anim_time );
+        }
         return;
     }
 
@@ -1263,14 +1268,16 @@ short mdl_ai_visible_selftest( World *world, Player *player )
     return (short) ( i | ( ( tr.frac == 1.0f && !tr.all_solid ) ? 2 : 0 ) );
 }
 
-void mdl_tick( World *world, Player *player, Fight *fight, Renderer *rdr )
+void mdl_tick( World *world, Player *player, Fight *fight, Renderer *rdr,
+               short live_ai )
 {
     short i;
     BspVec3 was;
+    MdlState *m;
 
-    if ( rdr->no_ai ) return;
     for ( i = 0; i < world->mon_count; i++ ) {
-        MdlState *m = mdl_of( world, world->mon[i].kind );
+        if ( ( rdr->no_ai || !live_ai ) && !MDL_IS_DEAD( &world->mon[i] ) ) continue;
+        m = mdl_of( world, world->mon[i].kind );
         was = world->mon[i].pos;
         if ( m ) mdl_think( world, player, fight, rdr, &world->mon[i], m, -1 );
         if ( !MDL_IS_DEAD( &world->mon[i] ) && !world->mon[i].cruc ) {
