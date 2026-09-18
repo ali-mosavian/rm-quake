@@ -120,8 +120,8 @@ PAK0 and are left out.
       id: `items.qc` `item_artifact_invisibility`; `client.qc`
       `CheckPowerups`; `ai.qc` `FindTarget`; `player.qc` `player_pain`;
       `r_main.c` `R_DrawViewModel`
-      qcport: `ENT_ITEM_INVIS`; `tools/test-items.sh` on e1m3. Not ported:
-      the whisper's half volume and the eyes model
+      qcport: `ENT_ITEM_INVIS`; `tools/test-items.sh` on e1m3. The recurring
+      whisper uses id's 127/255 source volume. Not ported: the eyes model
 - [x] T_RadiusDamage as id runs it
       id: `combat.qc` `T_RadiusDamage`, `CanDamage`; `pr_cmds.c` `PF_findradius`
       qcport: source-edict order, damage + 40 cutoff, hull-0 `CanDamage`,

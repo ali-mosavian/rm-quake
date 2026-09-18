@@ -95,6 +95,9 @@ short snd_mix_wraps( const SndMix *mix );
 /* the sounds on the dynamic channels now, up to 8, and how many */
 short snd_mix_live( const SndMix *mix, short *ids );
 
+/* Current source volume for the first live dynamic channel playing id. */
+short snd_mix_live_volume( const SndMix *mix, short id );
+
 /* first placed static voice, for the headless stereo regression */
 short snd_mix_pan( const SndMix *mix, short *id, short *left, short *right );
 

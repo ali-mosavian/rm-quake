@@ -215,6 +215,16 @@ short snd_mix_start( SndMix *mix, short id, short vol, short ent, short chan, sh
     return pick;
 }
 
+short snd_mix_live_volume( const SndMix *mix, short id )
+{
+    short i;
+
+    if ( !mix->chan ) return -1;
+    for ( i = SND_DYN0; i < SND_VOICE0; i++ )
+        if ( mix->chan[i].end && mix->chan[i].id == id ) return mix->chan[i].master;
+    return -1;
+}
+
 void snd_mix_stop( SndMix *mix, short ent, short chan )
 {
     short i;

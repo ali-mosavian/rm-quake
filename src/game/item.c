@@ -395,10 +395,11 @@ void pl_items_touch( World *world, Player *player, Fight *fight, Renderer *rdr,
                      SND_INV_END, "Ring of Shadows magic is fading", notice, notice_ctx );
 
     /* CheckPowerups, after the touches as PlayerPostThink is: the ring
-       whispers from the tick it is taken, 1..4 seconds apart. id's is at
-       half volume, which the mixer has no argument for */
+       whispers from the tick it is taken, 1..4 seconds apart. PF_sound
+       truncates QC's 0.5 * 255 to 127. */
     if ( rdr->anim_time < fight->invis_until && rdr->anim_time >= fight->invis_snd_at ) {
-        snd_start( &world->snd, player, SND_ENT_PLAYER, CHAN_AUTO, SND_INV_IDLE, &player->pos, ATTN_IDLE );
+        snd_start_volume( &world->snd, player, SND_ENT_PLAYER, CHAN_AUTO,
+                          SND_INV_IDLE, &player->pos, ATTN_IDLE, 127 );
         fight->invis_snd_at = rdr->anim_time + 1.0f + rng_float( &world->rng ) * 3.0f;
     }
 }

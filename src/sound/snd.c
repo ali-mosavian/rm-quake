@@ -266,7 +266,7 @@ void snd_stats( const Sound *snd, short *started, short *loops, short *under )
 
 void snd_report( const Sound *snd, char *buf )
 {
-    short ids[8], i, n, id, left, right;
+    short ids[8], i, n, id, left, right, invvol;
     short lock = snd->on ? qglDspLock() : 0;
 
     n = snd_mix_live( &snd->mix, ids );
@@ -281,7 +281,10 @@ void snd_report( const Sound *snd, char *buf )
              (int) snd_mix_wraps( &snd->mix ), (int) snd_mix_leaf_vol( &snd->mix, 0 ),
              (int) snd_mix_leaf_vol( &snd->mix, 1 ),
              (int) snd_mix_voices( &snd->mix ) );
-    if ( snd_mix_pan( &snd->mix, &id, &left, &right ) )
+    invvol = snd_mix_live_volume( &snd->mix, SND_INV_IDLE );
+    if ( invvol >= 0 )
+        sprintf( buf + strlen( buf ), " invvol=%d", (int) invvol );
+    else if ( snd_mix_pan( &snd->mix, &id, &left, &right ) )
         sprintf( buf + strlen( buf ), " pan=%d:%d,%d", (int) id, (int) left, (int) right );
     if ( snd->on ) qglDspUnlock( lock );
 }
