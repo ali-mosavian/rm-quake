@@ -201,8 +201,14 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
             /* Backface cull: side 0 points along the normal, side 1
                against it, and a face is only ever visible from its
                own front. */
+            fmdl = (short) ( tri[i].side >> 1 );
             pl = &planes[ tri[i].plane_id ];
             dp_dist = r_cam_plane_dist( campos, pl );
+            if ( fmdl ) {
+                dp_dist -= brush[fmdl].ofs.x*pl->norm.x
+                         + brush[fmdl].ofs.y*pl->norm.y
+                         + brush[fmdl].ofs.z*pl->norm.z;
+            }
             if ( tri[i].side & 1 ) dp_dist = -dp_dist;
             if ( dp->backface != 0 && dp_dist <= 0.01f ) continue;
 
@@ -229,7 +235,6 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
             tex_id = texinf[tex].mip_tex;
             liquid = mipinf[tex_id].liquid;
             sky    = mipinf[tex_id].sky && world->sky_dc;
-            fmdl = (short) ( tri[i].side >> 1 );
             ofs3[0] = brush[fmdl].ofs.x;
             ofs3[1] = brush[fmdl].ofs.y;
             ofs3[2] = brush[fmdl].ofs.z;

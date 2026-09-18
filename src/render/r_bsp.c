@@ -310,6 +310,34 @@ void r_mark_leaves( World *world, Renderer *rdr, short nodenr, Vec3 *campos )
  *       of entities from there would not terminate against rdr->ent_left
  *       correctly, so it's skipped.
  */
+static void near r_draw_brush_model( World *world, Renderer *rdr,
+                                     DiskPlane far *frustum, short model,
+                                     Vec3 *campos )
+{
+    BspVec3 far *ofs = &world->brush[model].ofs;
+    Vec3 local_cam;
+    float saved_dist[6];
+    short i;
+
+    /* id's modelorg: brush nodes, bounds and planes stay in the BSP's
+       local coordinates while the entity moves. ign prevents a nested
+       entity walk, so retarget the shared frustum here and restore its
+       exact bits afterwards rather than accumulating inverse-roundoff. */
+    local_cam.x = campos->x - ofs->x;
+    local_cam.y = campos->y - ofs->z;
+    local_cam.z = campos->z - ofs->y;
+    for ( i = 0; i < 6; i++ ) {
+        saved_dist[i] = frustum[i].dist;
+        frustum[i].dist += frustum[i].norm.x*ofs->x
+                         + frustum[i].norm.y*ofs->z
+                         + frustum[i].norm.z*ofs->y;
+    }
+    r_recursive_world_node( world, rdr, frustum,
+                            (short) world->models[model].head_node0,
+                            &local_cam, 1, CLIP_ALL );
+    for ( i = 0; i < 6; i++ ) frustum[i].dist = saved_dist[i];
+}
+
 void r_emit_entities( World *world, Renderer *rdr, DiskPlane far *frustum,
                        short nodenr, Vec3 *campos, short ign )
 {
@@ -320,7 +348,7 @@ void r_emit_entities( World *world, Renderer *rdr, DiskPlane far *frustum,
     for ( m = 1; m < world->model_count; m++ ) {
         if ( world->brush[m].draw && world->brush[m].node == nodenr ) {
             rdr->ent_left--;
-            r_recursive_world_node( world, rdr, frustum, (short) world->models[m].head_node0, campos, 1, CLIP_ALL );
+            r_draw_brush_model( world, rdr, frustum, m, campos );
         }
     }
 }
@@ -427,9 +455,8 @@ void r_draw_world( World *world, Renderer *rdr, DiskPlane far *frustum,
        insertion for the A/B; -noz has no depth, so insertion is all. */
     if ( rdr->ents_last && !rdr->no_ents ) {
         for ( i = 1; i < world->model_count; i++ ) {
-            if ( world->brush[i].draw ) {
-                r_recursive_world_node( world, rdr, frustum, (short) world->models[i].head_node0, campos, 1, CLIP_ALL );
-            }
+            if ( world->brush[i].draw )
+                r_draw_brush_model( world, rdr, frustum, i, campos );
         }
     }
 }
