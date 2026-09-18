@@ -849,6 +849,7 @@ static void near host_load_rest( Host *h, LoadScreen *ldr )
     }
     mark( buf );
     if ( !part_init( &h->rdr ) ) sys_error( "particle EMS allocation failed" );
+    ent_load_air_bubbles( &h->world, &h->rdr );
     sprintf( buf, "part_init ok count=%d ems_free=%d", PART_MAX,
              (int) qglGemAvail() );
     mark( buf );
@@ -1767,8 +1768,9 @@ static void near host_report( Host *h )
     sprintf( buf, "sprites live=%d drawn=%d", (int) h->rdr.sprite_live,
              (int) h->rdr.sprite_drawn );
     mark( buf );
-    sprintf( buf, "bubbles live=%d drawn=%d spawn=%d", (int) h->rdr.bubble_live,
-             (int) h->rdr.bubble_drawn, (int) h->rdr.bubble_spawn_left );
+    sprintf( buf, "bubbles live=%d drawn=%d spawn=%d emitters=%d", (int) h->rdr.bubble_live,
+             (int) h->rdr.bubble_drawn, (int) h->rdr.bubble_spawn_left,
+             (int) h->rdr.bubble_emitters );
     mark( buf );
     sprintf( buf, "boss drawn=%d", (int) h->rdr.boss_drawn );
     mark( buf );

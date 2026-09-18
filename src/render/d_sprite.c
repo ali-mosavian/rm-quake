@@ -9,9 +9,10 @@
 #define SPR_SLOT 2
 #define BUBBLE_OFS 256
 #define SPAWNER_OFS ( BUBBLE_OFS + sizeof(SpriteBubble) * SPR_BUBBLES )
+#define EMITTER_OFS ( SPAWNER_OFS + sizeof(SpriteBubbleSpawner) * SPR_SPAWNERS )
 
 typedef char SpritePoolFits[
-    ( SPAWNER_OFS + sizeof(SpriteBubbleSpawner) * SPR_SPAWNERS <= RDR_SPRITE_BYTES ) ? 1 : -1 ];
+    ( EMITTER_OFS + sizeof(SpriteBubbleEmitter) * SPR_EMITTERS <= RDR_SPRITE_BYTES ) ? 1 : -1 ];
 
 static QVert qv[4];
 
@@ -37,6 +38,14 @@ SpriteBubbleSpawner far *d_spawner_map( Renderer *rdr, short slot )
     if ( !rdr->frame_dc ) return 0;
     row = (unsigned char far *) qglSfAccessWrEx( rdr->frame_dc, 3, slot );
     return row ? (SpriteBubbleSpawner far *) ( row + SPAWNER_OFS ) : 0;
+}
+
+SpriteBubbleEmitter far *d_emitter_map( Renderer *rdr, short slot )
+{
+    unsigned char far *row;
+    if ( !rdr->frame_dc ) return 0;
+    row = (unsigned char far *) qglSfAccessWrEx( rdr->frame_dc, 3, slot );
+    return row ? (SpriteBubbleEmitter far *) ( row + EMITTER_OFS ) : 0;
 }
 
 void d_sprite_explosion( Renderer *rdr, BspVec3 *origin )
@@ -68,12 +77,47 @@ void d_sprite_bubbles( Renderer *rdr, short count )
     if ( count <= 0 ) return;
     spawner = d_spawner_map( rdr, SPR_SLOT );
     if ( !spawner ) return;
-    for ( i = 0; i < SPR_SPAWNERS; i++ ) if ( spawner[i].left <= 0 ) {
+    for ( i = 0; i < SPR_SPAWNERS; i++ ) if ( spawner[i].left == 0 ) {
         spawner[i].left = count;
         spawner[i].next_think = rdr->anim_time + 0.1f;
         rdr->bubble_spawn_left = (short) ( rdr->bubble_spawn_left + count );
         return;
     }
+}
+
+void d_sprite_air_init( Renderer *rdr, BspVec3 far *origins, short count )
+{
+    SpriteBubbleEmitter far *emitter;
+    SpriteBubbleEmitter e;
+    short i;
+
+    if ( count < 0 ) count = 0;
+    if ( count > SPR_EMITTERS ) count = SPR_EMITTERS;
+    emitter = d_emitter_map( rdr, SPR_SLOT );
+    if ( !emitter ) return;
+    _fmemset( &e, 0, sizeof(e) );
+    for ( i = 0; i < SPR_EMITTERS; i++ ) {
+        if ( i < count ) {
+            _fmemcpy( &e.origin, &origins[i], sizeof(e.origin) );
+            e.next_think = rdr->anim_time + 1.0f;
+            e.live = -1;
+        } else {
+            _fmemset( &e, 0, sizeof(e) );
+        }
+        _fmemcpy( &emitter[i], &e, sizeof(e) );
+    }
+    rdr->bubble_emitters = count;
+}
+
+void d_sprite_air_reset( Renderer *rdr, float now )
+{
+    SpriteBubbleEmitter far *emitter;
+    short i;
+
+    emitter = d_emitter_map( rdr, SPR_SLOT );
+    if ( !emitter ) return;
+    for ( i = 0; i < SPR_EMITTERS; i++ )
+        if ( emitter[i].live ) emitter[i].next_think = now + 1.0f;
 }
 
 static short bubble_free( SpriteBubble far *bubble )
@@ -87,12 +131,15 @@ void d_sprite_tick( World *world, Renderer *rdr, Player *player, float dt )
 {
     SpriteBubble far *pool;
     SpriteBubbleSpawner far *spawner;
+    SpriteBubbleEmitter far *emitter;
     SpriteBubble bubble, child;
     SpriteBubbleSpawner spawn;
+    SpriteBubbleEmitter emit;
     float r1, r2, r3, think_time, tick_end = rdr->anim_time + dt;
     short i, n, live, pending;
 
-    if ( rdr->bubble_live <= 0 && rdr->bubble_spawn_left <= 0 ) return;
+    if ( rdr->bubble_live <= 0 && rdr->bubble_spawn_left <= 0 &&
+         rdr->bubble_emitters <= 0 ) return;
     pool = d_bubble_map( rdr, SPR_SLOT );
     if ( !pool ) return;
 
@@ -116,6 +163,27 @@ void d_sprite_tick( World *world, Renderer *rdr, Player *player, float dt )
         }
         spawn.next_think = think_time + 0.1f;
         _fmemcpy( &spawner[i], &spawn, sizeof(spawn) );
+    }
+
+    emitter = d_emitter_map( rdr, SPR_SLOT );
+    if ( !emitter ) return;
+    for ( i = 0; i < SPR_EMITTERS; i++ ) {
+        _fmemcpy( &emit, &emitter[i], sizeof(emit) );
+        if ( !emit.live || emit.next_think > tick_end ) continue;
+        think_time = emit.next_think;
+        if ( think_time < rdr->anim_time ) think_time = rdr->anim_time;
+        if ( ( n = bubble_free( pool ) ) >= 0 ) {
+            _fmemset( &bubble, 0, sizeof(bubble) );
+            bubble.origin = emit.origin;
+            bubble.velocity.z = 15.0f;
+            bubble.next_think = think_time + 0.5f;
+            bubble.live = -1;
+            _fmemcpy( &pool[n], &bubble, sizeof(bubble) );
+            emit.next_think = think_time + 0.5f + rng_float( &world->rng );
+        } else {
+            emit.next_think = think_time + 0.1f;
+        }
+        _fmemcpy( &emitter[i], &emit, sizeof(emit) );
     }
 
     for ( i = 0; i < SPR_BUBBLES; i++ ) {

@@ -185,6 +185,7 @@ void ent_load_spawn( World *world, Camera *cam, Fight *fight );
  *       monsters and drops the items onto the floor.
  */
 void ent_load_world( World *world );
+void ent_load_air_bubbles( World *world, Renderer *rdr );
 
 /* the map's trigger_secret count, for the intermission's tally */
 short ent_secret_total( World *world );

@@ -29,6 +29,7 @@
 #include "mdl_ai.h"
 #include "mdl.h"   /* mdl_load_monsters/mdl_spawn */
 #include "part.h"
+#include "d_sprite.h"
 #include "sys.h"
 
 /* Neither toolchain here defines F_FTOL@, the runtime helper bcc emits
@@ -750,6 +751,32 @@ void ent_load_world( World *world )
     world->title = ent_msg( world, h.title );
     ent_settle( world );
 
+    qglMemFree( (long) buf );
+}
+
+/* air.bin: four skill counts followed by each skill's BspVec3 run. It is
+   loaded after part_init because that call clears the EMS sprite page. */
+void ent_load_air_bubbles( World *world, Renderer *rdr )
+{
+    long n, ofs, bytes;
+    short counts[4], i, count;
+    unsigned char far *buf;
+
+    if ( !pak_has( &world->pak, "air.bin" ) ) return;
+    buf = pak_load_whole( &world->pak, "air.bin", &n );
+    if ( n < (long) sizeof(counts) ) sys_error( "air.bin is truncated" );
+    _fmemcpy( counts, buf, sizeof(counts) );
+    bytes = sizeof(counts);
+    for ( i = 0; i < 4; i++ ) {
+        if ( counts[i] < 0 || counts[i] > SPR_EMITTERS )
+            sys_error( "air.bin has invalid emitters" );
+        bytes += (long) counts[i] * sizeof(BspVec3);
+    }
+    if ( bytes != n ) sys_error( "air.bin is truncated" );
+    ofs = sizeof(counts);
+    for ( i = 0; i < world->skill; i++ ) ofs += (long) counts[i] * sizeof(BspVec3);
+    count = counts[world->skill];
+    d_sprite_air_init( rdr, (BspVec3 far *) ( buf + ofs ), count );
     qglMemFree( (long) buf );
 }
 

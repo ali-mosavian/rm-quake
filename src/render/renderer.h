@@ -172,6 +172,7 @@ typedef struct {
     short bubble_live;
     short bubble_drawn;
     short bubble_spawn_left;
+    short bubble_emitters;
     short boss_drawn;     /* Chthon triangles submitted this frame */
     short ents_last;      /* brush entities after the world walk: with depth
                               unless -entinsert, or -badorder */

@@ -18,22 +18,22 @@ import sys
 
 path = sys.argv[1]
 data = bytearray(open(path, "rb").read())
-header = data.rfind(b"SPR2")
-if header < 0 or struct.unpack_from("<3H", data, header + 4) != (8, 32, 8):
-    raise SystemExit("FAIL: save has no 8/32/8-record SPR2 trailer")
-records = header + 10
+header = data.rfind(b"SPR3")
+if header < 0 or struct.unpack_from("<4H", data, header + 4) != (8, 64, 8, 8):
+    raise SystemExit("FAIL: save has no 8/64/8/8-record SPR3 trailer")
+records = header + 12
 for i in range(8):
     struct.pack_into("<4fh", data, records + i * 18, 0.0, 0.0, 0.0, 0.0, 0)
 struct.pack_into("<4fh", data, records,      568.0, 1044.0, -316.0, 0.0, -1)
 struct.pack_into("<4fh", data, records + 18, 632.0, 1044.0, -316.0, 0.0, -1)
 bubbles = records + 8 * 18
-for i in range(32):
+for i in range(64):
     struct.pack_into("<7f3h", data, bubbles + i * 34, *(0.0,) * 7, 0, 0, 0)
 # Slot 1 splits into free slot 0. The parent is removed, so only the child
 # remains; a forward-loop tally used to report zero and suppress its draw.
 struct.pack_into("<7f3h", data, bubbles + 34,
                  600.0, 1044.0, -316.0, 0.0, 0.0, 15.0, 0.01, 0, 3, -1)
-spawners = bubbles + 32 * 34
+spawners = bubbles + 64 * 34
 for i in range(8):
     struct.pack_into("<fh", data, spawners + i * 6, 0.0, 0)
 open(path, "wb").write(data)
@@ -65,12 +65,12 @@ import sys
 
 path = sys.argv[1]
 data = bytearray(open(path, "rb").read())
-header = data.rfind(b"SPR2")
-records = header + 10
+header = data.rfind(b"SPR3")
+records = header + 12
 bubbles = records + 8 * 18
-for i in range(32):
+for i in range(64):
     struct.pack_into("<7f3h", data, bubbles + i * 34, *(0.0,) * 7, 0, 0, 0)
-spawners = bubbles + 32 * 34
+spawners = bubbles + 64 * 34
 for i in range(8):
     struct.pack_into("<fh", data, spawners + i * 6, 0.0, 0)
 # Both DeathBubbles calls must become due inside the first fixed tick.

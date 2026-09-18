@@ -143,9 +143,10 @@ PAK0 and are left out.
       id: `triggers.qc` `trigger_monsterjump_touch`
       qcport: `ent_monster_jump`, `tools/test-monsterjump.sh`. A thrown
       monster runs on landing and does not attack in the air
-- [ ] `air_bubbles` (2, e1m4)
+- [x] `air_bubbles` (2, e1m4)
       id: `misc.qc` `air_bubbles`, `make_bubbles`
-      qcport: no case, dropped
+      qcport: skill-filtered `air.bin`, recurring EMS emitters and stock bubble
+      timing; `tools/test-air-bubbles.sh`
 - [ ] Player death animation
       id: `player.qc` `PlayerDie`, `player_diea1`, `GibPlayer`, `ThrowGib`;
       `client.qc` `respawn`

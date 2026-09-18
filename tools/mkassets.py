@@ -959,6 +959,7 @@ class Ents:
     names: dict[str, int] = field(default_factory=dict)
     mons: list[tuple] = field(default_factory=list)
     ambs: list[tuple[int, int, tuple[float, float, float]]] = field(default_factory=list)
+    air_bubbles: list[tuple[float, float, float]] = field(default_factory=list)
     # targetname, origin, wait, target
     corners: list[tuple[str, tuple[float, float, float], float, str]] = field(default_factory=list)
     trains: list[tuple] = field(default_factory=list)   # model, speed, targetname id, first corner, sounds
@@ -1353,6 +1354,11 @@ def sp_plat(e: Ents, kv: dict[str, str]) -> bool:
     return True
 
 
+def sp_air_bubbles(e: Ents, kv: dict[str, str]) -> bool:
+    e.air_bubbles.append(ent_vec(kv.get('origin', '0 0 0')))
+    return True
+
+
 SPAWN: dict[str, Callable[[Ents, dict[str, str]], bool]] = {
     'worldspawn': sp_worldspawn,
     'info_player_start': sp_player_start,
@@ -1383,6 +1389,7 @@ SPAWN: dict[str, Callable[[Ents, dict[str, str]], bool]] = {
     'path_corner': sp_corner,
     'func_train': sp_train,
     'func_plat': sp_plat,
+    'air_bubbles': sp_air_bubbles,
 }
 
 
@@ -1628,6 +1635,11 @@ def convert_lumps(d, lumps, outdir, gravity, crates):
     spawned = [spawn_entities(ent_text, nmodels, boxes, skill, crates) for skill in range(SKILLS)]
     for skill, e in enumerate(spawned):
         out[f'ents{skill}.bin'] = pack_entities(e, nmodels, gravity, crates)
+    # Skill filtering happens before spawn functions, so keep one count and
+    # origin run per skill even though stock e1m4 happens to use all skills.
+    out['air.bin'] = (struct.pack('<4h', *(len(e.air_bubbles) for e in spawned)) +
+                      b''.join(struct.pack('<3f', *org)
+                               for e in spawned for org in e.air_bubbles))
 
     # marksurfaces: identical either side. models: 64 -> 32, bspfile.bi's
     # Submodel -- the box, hulls 0 and 1, the face run
