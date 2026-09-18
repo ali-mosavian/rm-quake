@@ -1100,6 +1100,9 @@ static void near host_map_init( Host *h )
     if ( !stricmp( h->args.map_name, "e1m1.qmp" ) ) {
         sprintf( buf, "mdl_bottom_selftest %d", mdl_bottom_selftest( &h->world, &h->player ) );
         mark( buf );
+        sprintf( buf, "mdl_nightmare_selftest %d",
+                 mdl_nightmare_selftest( &h->world, &h->player, &h->fight, &h->rdr ) );
+        mark( buf );
     }
     host_view_setup( h );
 

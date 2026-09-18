@@ -156,7 +156,7 @@ typedef struct {
     float   next_think;         /* anim_time of the next 10 Hz think */
     BspVec3 goal;               /* the wander or patrol destination */
     float   stand_until;        /* anim_time to leave STAND on */
-    short   wander_ticks;       /* think-ticks spent on this goal */
+    short   ai_count;           /* wander ticks, or the attack's refire state */
     short   health;
     short   hunting;            /* has seen the player */
     float   next_attack;

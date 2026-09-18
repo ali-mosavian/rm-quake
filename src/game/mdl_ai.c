@@ -26,6 +26,8 @@
 #include "d_beam.h"
 
 #define DEG2RAD 0.017453293f
+#define MDL_REFIRE_PENDING -1
+#define MDL_REFIRE_SPENT   -2
 
 /* ai_run(N)'s own per-frame distances, straight out of each .qc. */
 static const short far army_run_dist[8]     = { 11, 15, 10, 10, 8, 15, 10, 8 };
@@ -668,6 +670,19 @@ static short mdl_leap_height( float dz )
                      MDL_ZHI > dz + PL_ZLO + 0.25f * ( PL_ZHI - PL_ZLO ) );
 }
 
+#define MDL_ATTACK_NONE    0
+#define MDL_ATTACK_MELEE   1
+#define MDL_ATTACK_MISSILE 2
+
+/* CheckAttack tests melee before attack_finished. */
+static short mdl_attack_range( float d2, float now, float next_attack,
+                               short missile_waits )
+{
+    if ( d2 < MDL_RANGE_MELEE * MDL_RANGE_MELEE ) return MDL_ATTACK_MELEE;
+    return (short) ( !missile_waits || now >= next_attack
+                     ? MDL_ATTACK_MISSILE : MDL_ATTACK_NONE );
+}
+
 void mdl_spawn( World *world, MdlEnt far *ent )
 {
     BspVec3 start, fin;
@@ -677,7 +692,7 @@ void mdl_spawn( World *world, MdlEnt far *ent )
     ent->next_think = 0.0f;
     mdl_anim_start( ent, MDL_ST_STAND, ent->cruc ? MDL_SET_CRUC : MDL_SET_STAND );
     ent->goal = ent->pos;
-    ent->wander_ticks = 0;
+    ent->ai_count = 0;
     ent->hunting = 0;
     ent->next_attack = 0.0f;
     ent->flash_until = 0.0f;
@@ -912,6 +927,15 @@ static void near mdl_attack_start( Think *t, short set )
     mdl_attack_step( t );
 }
 
+/* SUB_AttackFinished: Nightmare still consumes normal's random argument,
+   resets cnt, and deliberately leaves the expired deadline untouched. */
+static void near mdl_attack_finished( Think *t, float normal )
+{
+    t->ent->ai_count = 0;
+    if ( t->fight->skill != 3 )
+        t->ent->next_attack = t->rdr->anim_time + normal;
+}
+
 /* The attack set, facing the player: the knight's and the demon's
    charge the frame's distance and strike on their own frames. The
    ogre's grenade, the zombie's gib and the wizard's spikes leave on
@@ -919,7 +943,14 @@ static void near mdl_attack_start( Think *t, short set )
 /* the sword on knight_atk's frames, within reach */
 static void near atk_army( Think *t )
 {
-    if ( t->ent->anim_frame != 4 ) return;
+    MdlEnt far *ent = t->ent;
+
+    if ( ent->anim_frame == 6 && t->fight->skill == 3 && ent->ai_count >= 0 ) {
+        BspVec3 eye = ent->pos, peye = t->player->pos;
+        eye.z += MDL_VIEW_OFS; peye.z += PL_EYE;
+        if ( mdl_visible( t->world, &eye, &peye ) ) ent->ai_count = MDL_REFIRE_PENDING;
+    }
+    if ( ent->anim_frame != 4 ) return;
     t->ent->flash_until = t->rdr->anim_time + MDL_FLASH;
     mdl_say( t->player, &t->world->snd, t->ent, 1 );
     mdl_fire( t->world, t->player, t->fight, t->rdr, t->ent );
@@ -997,6 +1028,8 @@ static void near atk_wizard( Think *t )
 {
     if ( mdl_wizard_fire_frame( t->ent->anim_frame ) )
         mdl_spike( t->world, t->player, t->fight, t->rdr, t->ent );
+    if ( t->ent->anim_frame == mdl_set_count( t->m, t->ent->anim_set ) - 1 )
+        mdl_attack_finished( t, WIZARD_ATK_WAIT );
 }
 
 static void near atk_shambler( Think *t )
@@ -1026,6 +1059,12 @@ static void near ai_attack( Think *t )
     MdlEnt far *ent = t->ent;
     short next;
 
+    if ( ent->kind == MDL_KIND_ARMY && ent->ai_count == MDL_REFIRE_PENDING ) {
+        ent->anim_frame = 0;
+        ent->ai_count = MDL_REFIRE_SPENT;
+        mdl_attack_step( t );
+        return;
+    }
     ent->anim_frame++;
     if ( ent->anim_frame < mdl_set_count( t->m, ent->anim_set ) ) {
         mdl_attack_step( t );
@@ -1151,7 +1190,7 @@ static void near ai_stand( Think *t )
         ent->hunting = -1;
         mdl_say( t->player, &world->snd, ent, 0 );
         mdl_anim_start( ent, MDL_ST_RUN, MDL_SET_RUN );
-        ent->wander_ticks = 0;
+        mdl_attack_finished( t, 1.0f );
     } else if ( rdr->anim_time >= ent->stand_until ) {
         if ( ent->corner >= 0 ) {
             mdl_patrol_to( world, ent, ent->corner );
@@ -1161,7 +1200,7 @@ static void near ai_stand( Think *t )
                                             ent->goal.y - ent->pos.y );
         }
         mdl_anim_start( ent, MDL_ST_RUN, MDL_SET_WALK );
-        ent->wander_ticks = 0;
+        ent->ai_count = 0;
     } else {
         ent->anim_frame = (short) ( ( ent->anim_frame + 1 ) % mdl_set_count( t->m, ent->anim_set ) );
     }
@@ -1209,23 +1248,24 @@ static short near ai_check_dog( Think *t )
     Fight *fight = t->fight;
     Renderer *rdr = t->rdr;
     MdlEnt far *ent = t->ent;
-    float dx, dy, dz;
+    float dx, dy, dz, d2;
+    short range;
 
-    if ( rdr->anim_time >= ent->next_attack &&
-         mdl_find_target( world, player, fight, rdr, ent ) ) {
+    if ( mdl_find_target( world, player, fight, rdr, ent ) ) {
         dx = player->pos.x - ent->pos.x;
         dy = player->pos.y - ent->pos.y;
         dz = player->pos.z - ent->pos.z;
-        if ( dx*dx + dy*dy + dz*dz < DOG_BITE_RANGE * DOG_BITE_RANGE ) {
-            ent->next_attack = rdr->anim_time + DOG_BITE_RATE;
+        d2 = dx*dx + dy*dy + dz*dz;
+        range = mdl_attack_range( d2, rdr->anim_time, ent->next_attack, 0 );
+        if ( range == MDL_ATTACK_MELEE ) {
             mdl_say( player, &world->snd, ent, 1 );
             mdl_attack_start( t, MDL_SET_ATK );
             return -1;
-        } else if ( dx*dx + dy*dy > DOG_LEAP_MIN * DOG_LEAP_MIN &&
+        } else if ( range == MDL_ATTACK_MISSILE &&
+                    dx*dx + dy*dy > DOG_LEAP_MIN * DOG_LEAP_MIN &&
                     dx*dx + dy*dy < DOG_LEAP_MAX * DOG_LEAP_MAX &&
                     mdl_leap_height( dz ) ) {
             mdl_leap_start( ent, dx, dy );
-            ent->next_attack = rdr->anim_time + DOG_BITE_RATE;
             mdl_say( player, &world->snd, ent, 1 );
             return -1;
         }
@@ -1243,27 +1283,21 @@ static short near ai_check_ogre( Think *t )
     Fight *fight = t->fight;
     Renderer *rdr = t->rdr;
     MdlEnt far *ent = t->ent;
-    float dx, dy, dz, d2, chance;
+    float dx, dy, dz, d2;
 
     if ( mdl_find_target( world, player, fight, rdr, ent ) ) {
         dx = player->pos.x - ent->pos.x;
         dy = player->pos.y - ent->pos.y;
         dz = player->pos.z - ent->pos.z;
         d2 = dx*dx + dy*dy + dz*dz;
-        if ( d2 < MDL_RANGE_MELEE * MDL_RANGE_MELEE ) {
-            if ( rdr->anim_time >= ent->next_attack ) {
-                ent->next_attack = rdr->anim_time + OGRE_SWING;
-                mdl_say( player, &world->snd, ent, 1 );
-                mdl_attack_start( t, rng_float( &world->rng ) > 0.5f ? MDL_SET_ATK3 : MDL_SET_ATK2 );
-                return -1;
-            }
-        } else if ( rdr->anim_time >= ent->next_attack ) {
-            chance = MDL_ATK_MID;
-            if ( d2 < MDL_RANGE_NEAR * MDL_RANGE_NEAR ) chance = MDL_ATK_NEAR_MELEE;
-            if ( d2 >= MDL_RANGE_MID * MDL_RANGE_MID )  chance = 0.0f;
-            if ( rng_float( &world->rng ) < chance ) {
+        if ( mdl_attack_range( d2, rdr->anim_time, ent->next_attack, -1 ) == MDL_ATTACK_MELEE ) {
+            mdl_say( player, &world->snd, ent, 1 );
+            mdl_attack_start( t, rng_float( &world->rng ) > 0.5f ? MDL_SET_ATK3 : MDL_SET_ATK2 );
+            return -1;
+        } else if ( mdl_attack_range( d2, rdr->anim_time, ent->next_attack, -1 ) == MDL_ATTACK_MISSILE ) {
+            if ( d2 < MDL_RANGE_MID * MDL_RANGE_MID ) {
                 /* ogre_nail1 says nothing; OgreFireGrenade's throw does */
-                ent->next_attack = rdr->anim_time + 2.0f * rng_float( &world->rng );
+                mdl_attack_finished( t, 1.0f + 2.0f * rng_float( &world->rng ) );
                 mdl_attack_start( t, MDL_SET_ATK );
                 return -1;
             }
@@ -1279,23 +1313,25 @@ static short near ai_check_demon( Think *t )
     Player *player = t->player;
     Renderer *rdr = t->rdr;
     MdlEnt far *ent = t->ent;
-    float dx, dy, dz, d2;
+    float dx, dy, dz, d2, d3;
+    short range;
 
     if ( mdl_find_target( world, player, t->fight, rdr, ent ) ) {
         dx = player->pos.x - ent->pos.x;
         dy = player->pos.y - ent->pos.y;
         dz = player->pos.z - ent->pos.z;
-        if ( dx*dx + dy*dy + dz*dz < MDL_RANGE_MELEE * MDL_RANGE_MELEE ) {
+        d3 = dx*dx + dy*dy + dz*dz;
+        range = mdl_attack_range( d3, rdr->anim_time, ent->next_attack, 0 );
+        if ( range == MDL_ATTACK_MELEE ) {
             mdl_attack_start( t, MDL_SET_ATK );
             mdl_say( player, &world->snd, ent, 1 );
             return -1;
-        } else if ( rdr->anim_time >= ent->next_attack ) {
+        } else if ( range == MDL_ATTACK_MISSILE ) {
             d2 = dx*dx + dy*dy;
             if ( d2 > DEMON_LEAP_MIN * DEMON_LEAP_MIN &&
                  ( d2 < DEMON_LEAP_MAX * DEMON_LEAP_MAX || rng_float( &world->rng ) < 0.1f ) &&
                  mdl_leap_height( dz ) ) {
                 mdl_leap_start( ent, dx, dy );
-                ent->next_attack = rdr->anim_time + 2.0f * rng_float( &world->rng );
                 mdl_voice( player, &world->snd, ent, CHAN_VOICE, SND_DJUMP, ATTN_NORM );
                 return -1;
             }
@@ -1319,26 +1355,23 @@ static short near ai_check_shambler( Think *t )
         dy = player->pos.y - ent->pos.y;
         dz = player->pos.z - ent->pos.z;
         d2 = dx*dx + dy*dy + dz*dz;
-        if ( d2 < MDL_RANGE_MELEE * MDL_RANGE_MELEE ) {
-            if ( rdr->anim_time >= ent->next_attack ) {
-                ent->next_attack = rdr->anim_time + SHAMBLER_SMASH;
-                /* sham_melee: the smash's melee1 past 0.6 or unhurt,
-                   swingr's melee2 past 0.3, swingl's melee1 */
-                chance = rng_float( &world->rng );
-                if ( chance > 0.6f || ent->health == SHAMBLER_HEALTH )
-                    mdl_attack_start( t, MDL_SET_ATK2 );
-                else if ( chance > 0.3f )
-                    mdl_attack_start( t, MDL_SET_ATK3 );
-                else
-                    mdl_attack_start( t, MDL_SET_ATK4 );
-                mdl_voice( player, &world->snd, ent, CHAN_VOICE,
-                           ent->anim_set == MDL_SET_ATK3 ? SND_SHAM_MELEE2 : SND_SHAM_MELEE,
-                           ATTN_NORM );
-                return -1;
-            }
-        } else if ( rdr->anim_time >= ent->next_attack &&
+        if ( mdl_attack_range( d2, rdr->anim_time, ent->next_attack, -1 ) == MDL_ATTACK_MELEE ) {
+            /* sham_melee: the smash's melee1 past 0.6 or unhurt,
+               swingr's melee2 past 0.3, swingl's melee1 */
+            chance = rng_float( &world->rng );
+            if ( chance > 0.6f || ent->health == SHAMBLER_HEALTH )
+                mdl_attack_start( t, MDL_SET_ATK2 );
+            else if ( chance > 0.3f )
+                mdl_attack_start( t, MDL_SET_ATK3 );
+            else
+                mdl_attack_start( t, MDL_SET_ATK4 );
+            mdl_voice( player, &world->snd, ent, CHAN_VOICE,
+                       ent->anim_set == MDL_SET_ATK3 ? SND_SHAM_MELEE2 : SND_SHAM_MELEE,
+                       ATTN_NORM );
+            return -1;
+        } else if ( mdl_attack_range( d2, rdr->anim_time, ent->next_attack, -1 ) == MDL_ATTACK_MISSILE &&
                     d2 < SHAMBLER_BOLT_RANGE * SHAMBLER_BOLT_RANGE ) {
-            ent->next_attack = rdr->anim_time + SHAMBLER_ATK_WAIT + 2.0f * rng_float( &world->rng );
+            mdl_attack_finished( t, SHAMBLER_ATK_WAIT + 2.0f * rng_float( &world->rng ) );
             mdl_attack_start( t, MDL_SET_ATK );
             mdl_say( player, &world->snd, ent, 1 );
             return -1;
@@ -1349,7 +1382,7 @@ static short near ai_check_shambler( Think *t )
 
 /* CheckAttack with a th_missile alone, and WizardCheckAttack:
    a clear line, ready, and a chance by range. */
-static short near ai_check_missile( Think *t, float near_p, float mid_p, float wait,
+static short near ai_check_missile( Think *t, float near_p, float mid_p,
                                     short say, short set )
 {
     World *world = t->world;
@@ -1373,13 +1406,13 @@ static short near ai_check_missile( Think *t, float near_p, float mid_p, float w
         else
             chance = 0.0f;
         if ( rng_float( &world->rng ) < chance ) {
-            ent->next_attack = rdr->anim_time +
-                ( wait > 0.0f ? wait : 2.0f * rng_float( &world->rng ) );
             if ( set < 0 ) {
                 float r = rng_float( &world->rng );
                 set = r < 0.3f ? MDL_SET_ATK : ( r < 0.6f ? MDL_SET_ATK2 : MDL_SET_ATK3 );
             }
             mdl_attack_start( t, set );
+            if ( ent->kind == MDL_KIND_ZOMBIE )
+                mdl_attack_finished( t, 2.0f * rng_float( &world->rng ) );
             /* Wiz_StartFast's wattack; the zombie's z_shot1 is the throw's */
             if ( say ) mdl_say( player, &world->snd, ent, 1 );
             return -1;
@@ -1390,14 +1423,13 @@ static short near ai_check_missile( Think *t, float near_p, float mid_p, float w
 
 static short near ai_check_zombie( Think *t )
 {
-    return ai_check_missile( t, ZOMBIE_ATK_NEAR, ZOMBIE_ATK_MID, 0.0f, 0, -1 );
+    return ai_check_missile( t, ZOMBIE_ATK_NEAR, ZOMBIE_ATK_MID, 0, -1 );
 }
 
 /* Wiz_StartFast's wait is fixed, and it says wattack */
 static short near ai_check_wizard( Think *t )
 {
-    return ai_check_missile( t, WIZARD_ATK_NEAR, WIZARD_ATK_MID, WIZARD_ATK_WAIT, -1,
-                             MDL_SET_ATK );
+    return ai_check_missile( t, WIZARD_ATK_NEAR, WIZARD_ATK_MID, -1, MDL_SET_ATK );
 }
 
 /* SoldierCheckAttack: a clear line, attack_finished passed, and
@@ -1422,8 +1454,9 @@ static short near ai_check_army( Think *t )
         else if ( d2 < MDL_RANGE_MID * MDL_RANGE_MID )    chance = MDL_ATK_MID;
         else                                              chance = 0.0f;
         if ( rng_float( &world->rng ) < chance ) {
-            ent->next_attack = rdr->anim_time + 1.0f + rng_float( &world->rng );
+            mdl_attack_finished( t, 1.0f + rng_float( &world->rng ) );
             mdl_attack_start( t, MDL_SET_ATK );
+            (void) rng_float( &world->rng ); /* SoldierCheckAttack's lefty roll */
             return -1;
         }
     }
@@ -1441,6 +1474,7 @@ static short near ai_walk( Think *t )
         ent->hunting = -1;
         mdl_say( t->player, &t->world->snd, ent, 0 );
         mdl_anim_start( ent, MDL_ST_RUN, MDL_SET_RUN );
+        mdl_attack_finished( t, 1.0f );
         return -1;
     }
     return 0;
@@ -1479,11 +1513,11 @@ static void near ai_wander_arrive( Think *t )
     MdlEnt far *ent = t->ent;
     float dx, dy;
 
-    ent->wander_ticks++;
+    ent->ai_count++;
     dx = ent->pos.x - ent->goal.x;
     dy = ent->pos.y - ent->goal.y;
     if ( dx*dx + dy*dy < MDL_WANDER_ARRIVE * MDL_WANDER_ARRIVE ||
-         ent->wander_ticks >= MDL_WANDER_MAXTICKS ) {
+         ent->ai_count >= MDL_WANDER_MAXTICKS ) {
         mdl_anim_start( ent, MDL_ST_STAND, MDL_SET_STAND );
         ent->stand_until = t->rdr->anim_time + MDL_STAND_MIN +
                             rng_float( &t->world->rng ) * ( MDL_STAND_MAX - MDL_STAND_MIN );
@@ -1622,6 +1656,111 @@ short mdl_bottom_selftest( World *world, Player *player )
     edge.pos = old;
     if ( mdl_movestep( world, player, &edge, 0.0f, 16.0f ) ) return 0;
     return (short) ( edge.pos.x == old.x && edge.pos.y == old.y && edge.pos.z == old.z );
+}
+
+short mdl_nightmare_selftest( World *world, Player *player, Fight *fight,
+                              Renderer *rdr )
+{
+    MdlEnt ent, copy;
+    MdlState model;
+    Think t;
+    Rng saved_rng;
+    BspVec3 eye, peye;
+    unsigned char counts[MDL_NSETS];
+    float dx, dy, dz, d2, saved_time;
+    short i, result = 0, saved_skill;
+
+    saved_rng = world->rng;
+    saved_skill = fight->skill;
+    saved_time = rdr->anim_time;
+    memset( &ent, 0, sizeof(ent) );
+    memset( &model, 0, sizeof(model) );
+    memset( counts, 0, sizeof(counts) );
+    for ( i = 0; i < world->mon_count; i++ ) {
+        if ( world->mon[i].kind != MDL_KIND_ARMY ) continue;
+        eye = world->mon[i].pos; eye.z += MDL_VIEW_OFS;
+        peye = player->pos; peye.z += PL_EYE;
+        dx = player->pos.x - world->mon[i].pos.x;
+        dy = player->pos.y - world->mon[i].pos.y;
+        dz = player->pos.z - world->mon[i].pos.z;
+        d2 = dx*dx + dy*dy + dz*dz;
+        if ( d2 > MDL_RANGE_MELEE * MDL_RANGE_MELEE &&
+             d2 < MDL_RANGE_NEAR * MDL_RANGE_NEAR && mdl_visible( world, &eye, &peye ) ) {
+            ent.pos = world->mon[i].pos;
+            break;
+        }
+    }
+    if ( i == world->mon_count ) { result = -1; goto done; }
+
+    rdr->anim_time = 10.0f;
+    t.world = world; t.player = player; t.fight = fight; t.rdr = rdr;
+    t.ent = &ent; t.m = &model; t.can_chase = -1;
+
+    ent.next_attack = 4.0f; ent.ai_count = 7; fight->skill = 2;
+    mdl_attack_finished( &t, 1.5f );
+    if ( ent.next_attack != 11.5f || ent.ai_count != 0 ) goto done;
+    ent.next_attack = 4.0f; ent.ai_count = 7; fight->skill = 3;
+    mdl_attack_finished( &t, 1.5f );
+    if ( ent.next_attack != 4.0f || ent.ai_count != 0 ) goto done;
+    if ( mdl_attack_range( 0.0f, 10.0f, 100.0f, -1 ) != MDL_ATTACK_MELEE ||
+         mdl_attack_range( 20000.0f, 10.0f, 100.0f, -1 ) != MDL_ATTACK_NONE ||
+         mdl_attack_range( 20000.0f, 10.0f, 100.0f, 0 ) != MDL_ATTACK_MISSILE ) goto done;
+
+    counts[MDL_SET_ATK] = 9;
+    mdl_set_counts( &model, counts );
+    ent.kind = MDL_KIND_ARMY;
+    ent.state = MDL_ST_ATTACK;
+    ent.anim_set = MDL_SET_ATK;
+    ent.anim_frame = 5;
+    ent.hunting = -1;
+
+    ai_attack( &t );
+    if ( ent.anim_frame != 6 || ent.ai_count != MDL_REFIRE_PENDING ) goto done;
+    ai_attack( &t );
+    if ( ent.anim_frame != 0 || ent.ai_count != MDL_REFIRE_SPENT ) goto done;
+    copy = ent;
+    memset( &ent, 0, sizeof(ent) );
+    memcpy( &ent, &copy, sizeof(ent) );
+    if ( ent.ai_count != MDL_REFIRE_SPENT || ent.anim_frame != 0 ) goto done;
+    ent.anim_frame = 5;
+    ai_attack( &t );
+    if ( ent.anim_frame != 6 || ent.ai_count != MDL_REFIRE_SPENT ) goto done;
+    ai_attack( &t );
+    if ( ent.anim_frame != 7 ) goto done;
+    ent.anim_frame = 6; ent.ai_count = 1;
+    atk_army( &t );
+    ai_attack( &t );
+    if ( ent.anim_frame != 0 || ent.ai_count != MDL_REFIRE_SPENT ) goto done;
+
+    memset( &ent, 0, sizeof(ent) );
+    ent.kind = MDL_KIND_OGRE;
+    ent.pos = world->mon[i].pos;
+    ent.yaw = mdl_vectoyaw( player->pos.x - ent.pos.x, player->pos.y - ent.pos.y );
+    t.ent = &ent;
+    saved_rng = world->rng;
+    rng_init( &world->rng );
+    (void) rng_float( &world->rng );
+    (void) rng_float( &world->rng );
+    fight->skill = 0;
+    if ( !ai_check_ogre( &t ) || ent.state != MDL_ST_ATTACK ||
+         ent.anim_set != MDL_SET_ATK || ent.next_attack <= 11.0f ) goto done;
+
+    memset( &ent, 0, sizeof(ent) );
+    memset( counts, 0, sizeof(counts) );
+    counts[MDL_SET_ATK] = 10;
+    mdl_set_counts( &model, counts );
+    ent.kind = MDL_KIND_WIZARD; ent.anim_set = MDL_SET_ATK; ent.anim_frame = 9;
+    ent.next_attack = 3.0f;
+    t.ent = &ent;
+    atk_wizard( &t );
+    if ( ent.next_attack != 12.0f ) goto done;
+    result = 1;
+
+done:
+    world->rng = saved_rng;
+    fight->skill = saved_skill;
+    rdr->anim_time = saved_time;
+    return result;
 }
 
 short mdl_anim_selftest( void )
