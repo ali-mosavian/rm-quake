@@ -33,6 +33,8 @@
 #define QGL_M_ATEX  4
 #define QGL_M_ALIT  5
 #define QGL_M_MATEX 6
+#define QGL_M_TURB  7
+#define QGL_M_ATURB 8
 
 /* Where a paged array store's records live. */
 #define QGL_AR_MEM 0
@@ -124,6 +126,8 @@ short pascal far qglRsLitMap( void far * lut );
 short pascal far qglRsPoly( long d, void far * v, short n, short mode, long src );
 short pascal far qglRsPolyBound( long d, void far * v, short n, short mode, long src, short uw, short vh );
 void pascal far qglRsRef( short on );
+short pascal far qglRsTurbInit( void far * table );
+void pascal far qglRsTurbPhase( short phase );
 short pascal far qglSbBuild( long dstDc, long texDc, long parm );
 void pascal far qglSetClipRect( long sf, void far * cr );
 short pascal far qglSetView( long sf, long ofs );

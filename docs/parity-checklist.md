@@ -11,9 +11,11 @@ PAK0 and are left out.
 
 ## Rendering
 
-- [ ] Per-pixel liquid warp
+- [x] Per-pixel liquid warp
       id: `d_scan.c` `Turbulent8`, `D_DrawTurbulent8Span`
-      qcport (partial): per-vertex sine displacement, `src/render/d_faces.c:360`
+      qcport: raw 64x64 mip-0 sampling with id's 128-step sine phase,
+      coordinate cross-warp and 16-pixel perspective spans;
+      `src/qgl/b8/b8span.asm`, `src/qgl/test/t44turb.asm`
 - [x] Underwater view warp
       id: `d_scan.c` `D_WarpScreen`, gated by `r_main.c` `r_dowarp`
       qcport: a two-axis row-dispatch warp over the EMS render surface;

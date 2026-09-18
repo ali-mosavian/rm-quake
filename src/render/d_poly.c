@@ -10,16 +10,13 @@
 
 #include "d_poly.h"
 
-/* Quake's rocket-trail turbulence is 8 texels of a 64-wide texture;
-   this table works in the normalised units the draw loop uses, so the
-   amplitude is that ratio. */
-#define TURB_AMP 0.125
+#include "qgl.h"
 
-/* Takes and returns double, matching the original BASIC evaluation:
-   i * (2.0*3.14159265/256.0) was double precision (unsuffixed BASIC
-   literals default to double), narrowed to single only at the store
-   into a single-precision array. FSIN is a plain 8087+ instruction;
-   this project already assumes the FPU is there, so no libm needed. */
+#define TURB_COUNT 128
+#define TURB_AMP   (8L * 65536L)
+
+/* FSIN is a plain 8087+ instruction; this project already assumes the
+   FPU is there, so the one-time table build needs no libm. */
 static double fsin( double rad )
 {
     double result;
@@ -31,17 +28,23 @@ static double fsin( double rad )
     return result;
 }
 
-static float turb_sin[256];
+static short turb_ready;
 
-void d_init_turb( void )
+short d_init_turb( void )
 {
     short i;
-    for ( i = 0; i < 256; i++ ) {
-        turb_sin[i] = (float) ( TURB_AMP * fsin( (double) i * (2.0 * 3.14159265 / 256.0) ) );
-    }
+    long table[TURB_COUNT];
+
+    for ( i = 0; i < TURB_COUNT; i++ )
+        table[i] = (long) ( (double) TURB_AMP
+                           + (double) TURB_AMP
+                           * fsin( (double) i * (2.0 * 3.14159265 / TURB_COUNT) ) );
+
+    turb_ready = qglRsTurbInit( (void far *) table );
+    return turb_ready;
 }
 
-float far *d_turb_table( void )
+short d_turb_ready( void )
 {
-    return turb_sin;
+    return turb_ready;
 }

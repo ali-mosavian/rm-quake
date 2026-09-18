@@ -548,8 +548,6 @@ static void near host_render_faces( Host *h, RenderView *rv, Camera *cam )
 #endif
 
     dp.h_dst_dc    = h->h_dst_dc;
-    dp.tex_ofs_ptr = world_tex_ofs_ptr( world );
-    dp.turb_ptr    = (long) (void far *) d_turb_table();
     dp.xresh       = rv->xresh;
     dp.yresh       = rv->yresh;
     dp.z_near      = h->cfg.z_near;
@@ -713,7 +711,7 @@ static void near host_video( Host *h )
         mark( buf );
     }
 
-    d_init_turb();
+    if ( !d_init_turb() ) sys_error( "liquid turbulence init failed" );
     mark( "d_init_turb ok" );
 }
 
@@ -1952,10 +1950,8 @@ void host_shutdown( Host *h )
     {
         FILE *f = fopen( "cport.txt", "w" );
         if ( f ) {
-            /* turb_table()[0] is sin 0: the table built and its far
-               pointer reads back */
-            fprintf( f, "OK vdc=%ld bdc=%ld turb0_is_zero=%d\n",
-                     v->h_video_dc, v->h_back_bdc, ( d_turb_table()[0] == 0.0f ) );
+            fprintf( f, "OK vdc=%ld bdc=%ld turb_ready=%d\n",
+                     v->h_video_dc, v->h_back_bdc, d_turb_ready() );
             fclose( f );
         }
     }

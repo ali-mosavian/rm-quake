@@ -167,12 +167,7 @@ endm
 GRADCHK         macro   fval:req, fxval:req, lbl:req
                 local   aff, done
                 cmp     qgl$mode, QGL_M_PTEX
-                je      @F
-                cmp     qgl$mode, QGL_M_ATEX
-                je      @F
-                cmp     qgl$mode, QGL_M_MATEX
-                jne     aff
-@@:
+                jb      aff
                 fld     fval
                 fabs
                 fcomp   cs:qgl$2gb
@@ -245,6 +240,8 @@ qgl$fdudx       real4   0.0                     ;; per PIXEL, for the span
 qgl$fdvdx       real4   0.0                     ;; start; fdzdx's pair, and
 qgl$fdzdx       real4   0.0                     ;; only qgl$drawP reads them
 qgl$litmap      db      256 dup (?)             ;; one copied colormap row
+qgl$turbtab     dd      128 dup (?)             ;; id's biased 16.16 sine table
+qgl$turbphase   dw      0                       ;; (time * 20) & 127
 
                 public  qgl$dudx, qgl$dvdx, qgl$fcol, qgl$mode
                 public  qgl$fdudxn, qgl$fdvdxn, qgl$fdzdxn
@@ -252,6 +249,7 @@ qgl$litmap      db      256 dup (?)             ;; one copied colormap row
                 public  qgl$tshift, qgl$tumsk, qgl$tvmsk, qgl$tofs
                 public  qgl$tseg, qgl$zmode
                 public  qgl$litmap
+                public  qgl$turbtab, qgl$turbphase
                 public  qgl$bound, qgl$bumax, qgl$bvmax
 
 
@@ -769,7 +767,7 @@ qglRsPoly     proc    public uses bx cx dx si di ds es,\
                 ja      @@bad
 
                 mov     ax, mode
-                cmp     ax, QGL_M_MATEX
+                cmp     ax, QGL_M_ATURB
                 ja      @@bad
                 mov     qgl$mode, ax
 
@@ -799,6 +797,14 @@ qglRsPoly     proc    public uses bx cx dx si di ds es,\
                 invoke  qgl$SetTex, src
                 test    ax, ax
                 jz      @@bad
+                cmp     qgl$mode, QGL_M_TURB
+                je      @@turbtex
+                cmp     qgl$mode, QGL_M_ATURB
+                jne     @@havesrc
+@@turbtex:      cmp     D qgl$twhole, 64
+                jne     @@bad
+                cmp     D qgl$thwhole, 64
+                jne     @@bad
                 jmp     @@havesrc
                 ;; A FLAT POLYGON STILL HAS GRADIENTS. qgl$Grad scales u
                 ;; and v by the texture size whatever the mode is, and
@@ -826,14 +832,7 @@ qglRsPoly     proc    public uses bx cx dx si di ds es,\
                 ;; below is picked off the same answer.
                 xor     ax, ax
                 cmp     qgl$mode, QGL_M_PTEX
-                je      @@persp
-                cmp     qgl$mode, QGL_M_ALIT
-                je      @@persp
-                cmp     qgl$mode, QGL_M_ATEX
-                je      @@persp
-                cmp     qgl$mode, QGL_M_MATEX
-                jne     @F
-@@persp:
+                jb      @F
                 inc     ax
 @@:             mov     persp, ax
 
@@ -1090,6 +1089,39 @@ qglRsPoly     proc    public uses bx cx dx si di ds es,\
 @@bad:          mov     ax, -1
                 ret
 qglRsPoly     endp
+
+;; qglRsTurbInit ( table:far ptr long[128] ) -> ax nonzero
+;;
+;; The renderer owns no persistent copy. qgl keeps the table beside the
+;; filler that consumes it, so a liquid polygon has no cross-call pointer.
+qglRsTurbInit proc public uses cx si di ds es, table:dword
+
+                mov     ax, W table+0
+                mov     dx, W table+2
+                or      ax, dx
+                jz      @@bad
+
+                lds     si, table
+                mov     ax, @data
+                mov     es, ax
+                mov     di, O qgl$turbtab
+                mov     cx, 128
+                cld
+                rep     movsd
+                mov     ax, 1
+                ret
+
+@@bad:          xor     ax, ax
+                ret
+qglRsTurbInit endp
+
+;; qglRsTurbPhase ( phase:word )
+qglRsTurbPhase proc public uses ax, phase:word
+                mov     ax, phase
+                and     ax, 127
+                mov     qgl$turbphase, ax
+                ret
+qglRsTurbPhase endp
 
 ;; qglRsLitMap ( lut:far ptr ) -> ax nonzero
 ;;

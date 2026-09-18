@@ -265,8 +265,6 @@ typedef struct {
    Not ported; a deliberate scope cut, not an oversight. */
 typedef struct {
     QSurf   h_dst_dc;
-    long  tex_ofs_ptr;
-    long  turb_ptr;
     float xresh, yresh;
     float z_near, z_far;
     float anim_time;

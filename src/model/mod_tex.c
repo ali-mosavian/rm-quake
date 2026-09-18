@@ -237,8 +237,3 @@ QSurf mod_tex_shaded( World *world, short k, short mip )
     return tex_view( world, k, mip, world->tex_shaded,
                      &world->tex_v_shaded, &world->tex_aim_shd );
 }
-
-long world_tex_ofs_ptr( World *world )
-{
-    return (long) (void far *) world->tex_ofs;
-}

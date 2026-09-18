@@ -43,10 +43,6 @@
 /* bspfile.bi's vertex2 is Q13.3. A multiply, not a divide. */
 #define VTX_UNSCALE  0.125f
 
-/* q_draw.bi's. */
-#define TURB_FREQ    326.0f
-#define TURB_RATE    40.74f
-
 /* ugl.bi's UGL.Z.* */
 #define QGL_Z_OFF    0
 #define QGL_Z_SET  1
@@ -149,8 +145,6 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
     short      far *order   = rdr->ord;
     short      fmdl;
     unsigned char far *pflag = rdr->pflag;
-    long       far *tex_ofs = (long far *) dp->tex_ofs_ptr;
-
     short mi, m_node, ti, i, j, v0, gn, vcnt, cnt;
     short all_in;
     float zn, zf;
@@ -161,22 +155,20 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
     short lm_state;
     short lm_mip, lm_floor, lm_sw, lm_sh, lm_fw, lm_fh;
     short leaf_indx, leaf_end, p2;
-    long  aim_ofs, lm_dc, src_dc, tex_dc, texofs;
+    long  aim_ofs, lm_dc, src_dc, tex_dc;
 #if QR_PROF
     long  bt0, bface, build_cyc = 0;
     long  rt0, raster_cyc = 0;
 #endif
     float su0, su1, su2, su3, sv0, sv1, sv2, sv3;
     float suv[8];
-    float tw, th, dp_dist, turbph, zl, zsum, sky_pan, sky_d, kx, ky, kz;
+    float tw, th, dp_dist, zl, zsum, sky_pan, sky_d, kx, ky, kz;
     float ofs3[3];          /* the owning submodel's offset, BSP-space */
-    float vx, vy, vz, tu, tv, rw, lm_su, lm_sv;
+    float vx, vy, vz, rw, lm_su, lm_sv;
     unsigned long dl_bits;
     unsigned long dl_on = dl_live( rdr );
     Plane far *pl;
     short far *gv;
-    float far *turb_sin = (float far *) dp->turb_ptr;
-
     dp->polys = 0;
     dp->tris  = 0;
 #if QR_PROF
@@ -188,7 +180,7 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
     dp->build_us = 0;
     dp->raster_us = 0;
 
-    turbph = dp->anim_time * TURB_RATE;
+    qglRsTurbPhase( (short) ( ifloor( dp->anim_time * 20.0f ) & 127 ) );
     sky_pan = d_sky_pan( dp->anim_time );
 
     /* The flag says the data was loaded; the toggle says whether to
@@ -268,7 +260,7 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
             th = mipinf[tex_id].hght;
 
             /* Surface-cache candidate? Needs a lightmap, and must be
-               neither liquid (perturbed per vertex) nor animated
+               neither liquid (warped per pixel) nor animated
                (would rebuild every time the frame index moved). */
             lm_on = 0;
             lm_stag = 0;
@@ -333,7 +325,7 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
                 tex_id = world->anim_tab[ mipinf[tex_id].anim_base
                        + ( ifloor( dp->anim_time * 5.0f ) % mipinf[tex_id].anim_count ) ];
 
-            if ( liquid || sky ) {
+            if ( sky ) {
                 for ( j = 0; j < vcnt; j++ ) {
                     v0 = (short)( j*3 + GEOM_VTX0 );
                     vx = gv[v0    ] * VTX_UNSCALE;
@@ -347,24 +339,15 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
                     vt_y[j] = vz + ofs3[2];
                     vt_z[j] = vy + ofs3[1];
 
-                    if ( sky ) {
-                        /* D_Sky_uv_To_st at the corners: the direction
-                           from the eye, bsp z tripled, SKY_SPAN texels
-                           a unit. id evaluates it every 16 pixels. */
-                        kx = vt_x[j] - campos->x;
-                        ky = vt_z[j] - campos->z;
-                        kz = ( vt_y[j] - campos->y ) * 3.0f;
-                        sky_d = SKY_SPAN / (float) sqrt( kx*kx + ky*ky + kz*kz );
-                        vt_u[j] = ( sky_pan + kx*sky_d ) * SKY_RECIP;
-                        vt_v[j] = ( sky_pan + ky*sky_d ) * SKY_RECIP;
-                        continue;
-                    }
-
-                    tu = su0*vx + su1*vy + su2*vz + su3;
-                    tv = sv0*vx + sv1*vy + sv2*vz + sv3;
-
-                    vt_u[j] = tu + turb_sin[ (short)( ifloor( tv*TURB_FREQ + turbph ) & 255 ) ];
-                    vt_v[j] = tv + turb_sin[ (short)( ifloor( tu*TURB_FREQ + turbph ) & 255 ) ];
+                    /* D_Sky_uv_To_st at the corners: the direction
+                       from the eye, bsp z tripled, SKY_SPAN texels
+                       a unit. id evaluates it every 16 pixels. */
+                    kx = vt_x[j] - campos->x;
+                    ky = vt_z[j] - campos->z;
+                    kz = ( vt_y[j] - campos->y ) * 3.0f;
+                    sky_d = SKY_SPAN / (float) sqrt( kx*kx + ky*ky + kz*kz );
+                    vt_u[j] = ( sky_pan + kx*sky_d ) * SKY_RECIP;
+                    vt_v[j] = ( sky_pan + ky*sky_d ) * SKY_RECIP;
                 }
 
                 /* Row-vector times a 4x4 with w = 1. Mat4's fields
@@ -431,9 +414,9 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
             else                      mip_level = 0;
 
             draw_mip = dp->use_mips ? mip_level : 0;
+            if ( liquid ) draw_mip = 0;
 
             src_dc = 0;
-            texofs = 0;
 
             if ( lm_on ) {
                 lm_mip   = dp->use_mips ? mip_level : 0;
@@ -490,7 +473,6 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
                         }
                     }
                     src_dc = lm_dc;
-                    texofs = aim_ofs;
                 } else {
                     /* The class was exhausted or the DC would not
                        fit. Coordinates are still in texel units, so
@@ -507,11 +489,9 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
                 if ( !sky_made ) { d_sky_make( world, dp->anim_time ); sky_made = 1; }
                 src_dc = (long) (void far *) world->sky_dc;
             } else if ( lm_on == 0 ) {
-                src_dc = (long) (void far *) mod_tex_shaded( world, tex_id, draw_mip );
-                /* ofs is [id*4 + level]. Getting this pair backwards
-                   aims the view at another cell entirely -- coherent
-                   geometry wearing noise. */
-                texofs = tex_ofs[ tex_id*4 + draw_mip ];
+                src_dc = (long) (void far *) ( liquid
+                       ? mod_tex_raw( world, tex_id, 0 )
+                       : mod_tex_shaded( world, tex_id, draw_mip ) );
             }
 
             /* One convex polygon, one call -- no fan pivot, so no
@@ -548,7 +528,9 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
                                     src_dc, lm_sw, lm_sh );
                 } else {
                     qglRsPoly( dp->h_dst_dc, (QVert far *) pvtx, cnt,
-                               dp->rend_mode == 0 ? QGL_M_PTEX : QGL_M_ATEX,
+                               liquid
+                               ? ( dp->rend_mode == 0 ? QGL_M_TURB : QGL_M_ATURB )
+                               : ( dp->rend_mode == 0 ? QGL_M_PTEX : QGL_M_ATEX ),
                                src_dc );
                 }
             }

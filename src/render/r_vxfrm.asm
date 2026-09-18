@@ -62,12 +62,9 @@
 ;; here is FPU-to-FPU or FPU-to-memory, nothing a discrete 8087's bus
 ;; race could still be racing DOSBox's dynamic core over.
 ;;
-;; Liquid faces are NOT handled here. The turbulence lookup (ifloor,
-;; &255, a table read through dp->turb_ptr) is per-vertex conditional
-;; work this routine has no branch for; the caller still runs the
-;; original C loop for those faces. Only two faces on the maps this
-;; renders are liquid at all -- not worth the risk of hand-porting the
-;; turb table path blind.
+;; Sky faces are not handled here because their coordinates come from
+;; the camera-to-corner direction. Liquids now arrive here unwarped;
+;; qgl's span filler applies Quake's turbulence per pixel.
 ;;
 ;; name: r_vxfrm
 ;; desc: Unpacks vcnt vertices out of gv (BSP-space Q13.3, GEOM_VTX0

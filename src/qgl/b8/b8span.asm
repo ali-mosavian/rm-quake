@@ -46,6 +46,8 @@
                 externdef qgl$bumax:dword
                 externdef qgl$bvmax:dword
                 externdef qgl$litmap:byte
+                externdef qgl$turbtab:dword
+                externdef qgl$turbphase:word
 
                 public  qgl$Fixup, b8_span, qglB8Selftest
 
@@ -604,6 +606,97 @@ PDIV            macro   ?u, ?v
                 add     D fs:?v, 32768
 endm
 
+FIX_TURB        macro   ?p
+                mov     W cs:[?p&_ofs_e-2], di
+endm
+
+;; Quake's turbulent sampler has no half-texel bias: its integer texture
+;; coordinate is the floor of the recovered 16.16 value itself.
+TDIV            macro   ?u, ?v
+                fld     D fs:qgl$p65536
+                fdiv    st(0), st(3)
+                fld     st(0)
+                fmul    st(0), st(2)
+                fxch    st(1)
+                fmul    st(0), st(3)
+                fxch    st(1)
+                fistp   D fs:?u
+                fistp   D fs:?v
+endm
+
+;; Advance the projective triple by qgl$pcount pixels. Unlike PSTEP this
+;; also handles id's final short span, whose endpoint is its last pixel.
+TSTEP_N         macro
+                fild    W fs:qgl$pcount         ;; n u' v' z'
+
+                fld     D fs:qgl$fdudx
+                fmul    st(0), st(1)
+                faddp   st(2), st(0)
+
+                fld     D fs:qgl$fdvdx
+                fmul    st(0), st(1)
+                faddp   st(3), st(0)
+
+                fld     D fs:qgl$fdzdx
+                fmulp   st(1), st(0)
+                faddp   st(3), st(0)
+endm
+
+TMKSTEP         macro
+                mov     eax, D fs:qgl$plu
+                sub     eax, D fs:qgl$ppu
+                cdq
+                movzx   ebx, W fs:qgl$pcount
+                idiv    ebx
+                mov     D fs:qgl$psdu, eax
+
+                mov     eax, D fs:qgl$plv
+                sub     eax, D fs:qgl$ppv
+                cdq
+                idiv    ebx
+                mov     D fs:qgl$psdv, eax
+endm
+
+;; Id's full 16-pixel span uses >>4, not signed division. They differ
+;; for a negative delta that is not a multiple of 16.
+TMKSTEP16       macro
+                mov     eax, D fs:qgl$plu
+                sub     eax, D fs:qgl$ppu
+                sar     eax, 4
+                mov     D fs:qgl$psdu, eax
+
+                mov     eax, D fs:qgl$plv
+                sub     eax, D fs:qgl$ppv
+                sar     eax, 4
+                mov     D fs:qgl$psdv, eax
+endm
+
+TURB_FETCH      macro   ?p
+                ;; sturb = ((s + sintable[(t>>16 + phase)&127])>>16)&63
+                mov     eax, edx
+                sar     eax, 16
+                add     ax, W fs:qgl$turbphase
+                and     eax, 127
+                mov     ebx, D fs:qgl$turbtab[eax*4]
+                add     ebx, ecx
+                sar     ebx, 16
+                and     ebx, 63
+
+                ;; tturb mirrors it with s and t exchanged.
+                mov     eax, ecx
+                sar     eax, 16
+                add     ax, W fs:qgl$turbphase
+                and     eax, 127
+                mov     eax, D fs:qgl$turbtab[eax*4]
+                add     eax, edx
+                sar     eax, 16
+                and     eax, 63
+                shl     eax, 6
+                add     bx, ax
+?p&_ofs:        mov     al, ds:[bx+__IMM16__]
+                ZEND    ?p&_ofs
+endm
+
 ;; Quake clamps the first recovered coordinate to zero and each later
 ;; sub-span endpoint to a tiny positive epsilon before deriving a
 ;; negative step. QGL_SUBDIVP is 16 where Quake's span is eight, so the
@@ -784,6 +877,117 @@ PTEX_BODY       macro   ?p, ?zwrite, ?ztest
 
 ;;              THE CALLER PUSHED THREE. Leaving them costs nothing on the
 ;;              first span and overflows the stack on the third.
+@@done:         fstp    st(0)
+                fstp    st(0)
+                fstp    st(0)
+                PP      bp, ebx
+                ret
+endm
+
+;; Quake liquid turbulence. Coordinates stay as full signed 16.16 values
+;; until both 128-entry phase lookups are complete; only the sampled texel
+;; wraps to 64. ?affine makes one exact endpoint pair for the whole row,
+;; while the perspective arm follows id's 16-pixel sub-spans and count-1
+;; final endpoint.
+TURB_BODY       macro   ?p, ?zwrite, ?ztest, ?affine
+
+                PS      ebx, bp
+                add     di, ax
+                mov     bp, si
+                add     di, si
+                neg     bp
+
+        ifnb    <?ztest>
+                ZDISP   ?p&_zcmp, ?p&_zofs
+        else
+          ifnb  <?zwrite>
+                ZDISP   ?p&_zofs
+          endif
+        endif
+
+                TDIV    qgl$ppu, qgl$ppv
+
+        ifnb    <?affine>
+                mov     ax, si
+                dec     ax                      ;; last covered pixel
+                mov     W fs:qgl$pcount, ax
+                mov     W fs:qgl$pend, 0
+                jz      @@single
+                TSTEP_N
+                TDIV    qgl$plu, qgl$plv
+                TMKSTEP
+                jmp     @@coords
+        else
+@@sub:          mov     ax, bp
+                neg     ax                      ;; pixels still uncovered
+                cmp     ax, QGL_SUBDIVP
+                jbe     @@tail
+                mov     W fs:qgl$pcount, QGL_SUBDIVP
+                mov     ax, bp
+                add     ax, QGL_SUBDIVP
+                mov     W fs:qgl$pend, ax
+                TSTEP_N
+                TDIV    qgl$plu, qgl$plv
+                TMKSTEP16
+                jmp     @@coords
+
+@@tail:         mov     W fs:qgl$pend, 0
+                dec     ax                      ;; id uses count-1 here
+                mov     W fs:qgl$pcount, ax
+                jz      @@single
+                TSTEP_N
+                TDIV    qgl$plu, qgl$plv
+                TMKSTEP
+                jmp     @@coords
+        endif
+
+@@single:       mov     D fs:qgl$psdu, 0
+                mov     D fs:qgl$psdv, 0
+
+@@coords:       mov     ecx, D fs:qgl$ppu
+                mov     edx, D fs:qgl$ppv
+
+@@inner:
+        ifnb    <?ztest>
+                mov     ax, W fs:qgl$zacc+2
+?p&_zcmp:       cmp     gs:[ebp*2+__IMM32__], ax
+                ZEND    ?p&_zcmp
+                jae     @@behind
+?p&_zofs:       mov     gs:[ebp*2+__IMM32__], ax
+                ZEND    ?p&_zofs
+                TURB_FETCH ?p
+                mov     es:[di+bp], al
+@@behind:       add     ecx, D fs:qgl$psdu
+                add     edx, D fs:qgl$psdv
+                Z_STEP  ?p
+        else
+                TURB_FETCH ?p
+                mov     es:[di+bp], al
+                add     ecx, D fs:qgl$psdu
+                add     edx, D fs:qgl$psdv
+          ifnb  <?zwrite>
+                mov     ax, W fs:qgl$zacc+2
+?p&_zofs:       mov     gs:[ebp*2+__IMM32__], ax
+                ZEND    ?p&_zofs
+                Z_STEP  ?p
+          endif
+        endif
+
+                inc     bp
+                jz      @@done
+        ifb     <?affine>
+                cmp     bp, W fs:qgl$pend
+                jne     @@inner
+
+                mov     eax, D fs:qgl$plu
+                mov     D fs:qgl$ppu, eax
+                mov     eax, D fs:qgl$plv
+                mov     D fs:qgl$ppv, eax
+                jmp     @@sub
+        else
+                jmp     @@inner
+        endif
+
 @@done:         fstp    st(0)
                 fstp    st(0)
                 fstp    st(0)
@@ -978,6 +1182,30 @@ qgl$PtexT      proc    near
                 PTEX_BODY pt, 1, 1
 qgl$PtexT      endp
 
+qgl$TurbO      proc    near
+                TURB_BODY uo
+qgl$TurbO      endp
+
+qgl$TurbW      proc    near
+                TURB_BODY uw, 1
+qgl$TurbW      endp
+
+qgl$TurbT      proc    near
+                TURB_BODY ut, 1, 1
+qgl$TurbT      endp
+
+qgl$AturbO     proc    near
+                TURB_BODY uao, , , AFFINE
+qgl$AturbO     endp
+
+qgl$AturbW     proc    near
+                TURB_BODY uaw, 1, , AFFINE
+qgl$AturbW     endp
+
+qgl$AturbT     proc    near
+                TURB_BODY uat, 1, 1, AFFINE
+qgl$AturbT     endp
+
 qgl$AtexO      proc    near
                 ATEX_BODY ao
 qgl$AtexO      endp
@@ -1080,6 +1308,22 @@ qgl$Fixup       proc    near uses ax bx cx dx si di bp
                 FIX_Z   alt
                 FIX_Z   amw
                 FIX_Z   amt
+
+                ;; Ordinary world polygons never execute these fillers.
+                ;; Avoid fourteen self-modifying writes in their hot path.
+                cmp     qgl$mode, QGL_M_TURB
+                jb      @@noturb
+                FIX_TURB uo
+                FIX_TURB uw
+                FIX_TURB ut
+                FIX_TURB uao
+                FIX_TURB uaw
+                FIX_TURB uat
+                FIX_Z   uw
+                FIX_Z   ut
+                FIX_Z   uaw
+                FIX_Z   uat
+@@noturb:
                 FIX_Z   fw
                 FIX_Z   ft
 
@@ -1116,6 +1360,10 @@ b8_span         proc    near
                 ;; semantic constants, so the scaling is here rather than
                 ;; baked into values that also cross into BASIC.
                 mov     ax, qgl$mode
+                cmp     ax, QGL_M_TURB
+                je      @@turb
+                cmp     ax, QGL_M_ATURB
+                je      @@aturb
                 cmp     ax, QGL_M_ATEX
                 je      @@atex
                 cmp     ax, QGL_M_MATEX
@@ -1147,6 +1395,24 @@ b8_span         proc    near
                 cmp     qgl$zmode, QGL_Z_SET
                 je      @@done
                 mov     ax, O qgl$MatexT
+                jmp     short @@done
+@@turb:
+                mov     ax, O qgl$TurbO
+                cmp     qgl$zmode, QGL_Z_OFF
+                je      @@done
+                mov     ax, O qgl$TurbW
+                cmp     qgl$zmode, QGL_Z_SET
+                je      @@done
+                mov     ax, O qgl$TurbT
+                jmp     short @@done
+@@aturb:
+                mov     ax, O qgl$AturbO
+                cmp     qgl$zmode, QGL_Z_OFF
+                je      @@done
+                mov     ax, O qgl$AturbW
+                cmp     qgl$zmode, QGL_Z_SET
+                je      @@done
+                mov     ax, O qgl$AturbT
 @@done:         ret
 @@table:
                 imul    ax, QGL_Z_KINDS
@@ -1272,6 +1538,28 @@ qglB8Selftest proc    far public
                 CKW     at_dzdxf
                 CKW     at_dzdxi
 
+                CKW     uo_ofs
+                CKW     uw_ofs
+                CKD     uw_zofs
+                CKW     uw_dzdxf
+                CKW     uw_dzdxi
+                CKW     ut_ofs
+                CKD     ut_zcmp
+                CKD     ut_zofs
+                CKW     ut_dzdxf
+                CKW     ut_dzdxi
+
+                CKW     uao_ofs
+                CKW     uaw_ofs
+                CKD     uaw_zofs
+                CKW     uaw_dzdxf
+                CKW     uaw_dzdxi
+                CKW     uat_ofs
+                CKD     uat_zcmp
+                CKD     uat_zofs
+                CKW     uat_dzdxf
+                CKW     uat_dzdxi
+
                 CKB     fo_col
                 CKB     fw_col
                 CKD     fw_zofs
@@ -1306,6 +1594,7 @@ qgl$plv         dd      0
 qgl$psdu        dd      0                       ;; per pixel, in between
 qgl$psdv        dd      0
 qgl$pend        dw      0                       ;; PTEX boundary / ATEX width
+qgl$pcount      dw      0                       ;; turbulent endpoint distance
 
 
 

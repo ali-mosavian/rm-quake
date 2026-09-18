@@ -39,9 +39,4 @@ PalRgb far * mod_load_textures( World *world, MapCounts *counts );
 QSurf mod_tex_raw( World *world, short k, short mip );
 QSurf mod_tex_shaded( World *world, short k, short mip );
 
-/* world->tex_ofs as a far pointer, packed into a long -- DrawParams'
-   own tex_ofs_ptr field (d_faces.c, not yet ported) carries every far
-   pointer this way, matching the rest of that struct. */
-long world_tex_ofs_ptr( World *world );
-
 #endif
