@@ -3,7 +3,7 @@
 
 #include "renderer.h"
 
-#define PART_BYTES    4096
+#define PART_BYTES    RDR_PART_BYTES
 #define PART_MAX      112
 #define PART_EMS_SLOT 3
 

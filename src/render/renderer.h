@@ -37,6 +37,13 @@ typedef struct {
     short   key;
 } DynLight;
 
+/* One EMS page shared by frame-sized renderer state. Particles occupy the
+   first 4 KB; dynamic lights follow. Both are mapped only while their own
+   pass is using them, and qglGemMap makes a repeated map a no-op. */
+#define RDR_PART_BYTES   4096
+#define RDR_DLIGHT_OFS   RDR_PART_BYTES
+#define RDR_FRAME_BYTES  8192
+
 #define PART_PENDING_MAX 16
 typedef struct {
     BspVec3 at;
@@ -60,12 +67,11 @@ typedef struct {
     short polys;
     short tris;
     float anim_time;
-    DynLight dlights[DL_MAX];
+    QSurf frame_dc;           /* particles and dynamic lights, one EMS page */
     short dl_tick;            /* dl_stag's clock */
     unsigned short dl_seed;   /* the flicker's LCG */
     short no_dlight;          /* -nodlight */
     short no_styles;          /* -nostyles: the light styles hold still */
-    QSurf part_dc;            /* one page: the complete particle pool */
     float part_last;
     unsigned short part_seed;
     short part_next;

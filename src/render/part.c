@@ -49,15 +49,15 @@ short part_init( Renderer *rdr )
     unsigned char far *bytes;
     short i;
 
-    rdr->part_dc = qglSfNew( PART_BYTES, 1, QGL_SURF_EMS );
-    if ( !rdr->part_dc ) return 0;
-    bytes = (unsigned char far *) qglSfAccessWrEx( rdr->part_dc, 0, PART_EMS_SLOT );
+    rdr->frame_dc = qglSfNew( RDR_FRAME_BYTES, 1, QGL_SURF_EMS );
+    if ( !rdr->frame_dc ) return 0;
+    bytes = (unsigned char far *) qglSfAccessWrEx( rdr->frame_dc, 0, PART_EMS_SLOT );
     if ( !bytes ) {
-        qglSfFree( rdr->part_dc );
-        rdr->part_dc = 0;
+        qglSfFree( rdr->frame_dc );
+        rdr->frame_dc = 0;
         return 0;
     }
-    for ( i = 0; i < PART_BYTES; i++ ) bytes[i] = 0;
+    for ( i = 0; i < RDR_FRAME_BYTES; i++ ) bytes[i] = 0;
     rdr->part_seed = 0x1234U;
     rdr->part_next = 0;
     rdr->part_pending_n = 0;
@@ -68,8 +68,8 @@ short part_init( Renderer *rdr )
 
 void part_shutdown( Renderer *rdr )
 {
-    if ( rdr->part_dc ) qglSfFree( rdr->part_dc );
-    rdr->part_dc = 0;
+    if ( rdr->frame_dc ) qglSfFree( rdr->frame_dc );
+    rdr->frame_dc = 0;
     rdr->part_pending_n = 0;
     rdr->part_live = rdr->part_drawn = 0;
 }
@@ -78,7 +78,7 @@ void part_explosion( Renderer *rdr, BspVec3 *origin )
 {
     PartEvent *ev;
 
-    if ( !rdr->part_dc || rdr->part_pending_n >= PART_PENDING_MAX ) return;
+    if ( !rdr->frame_dc || rdr->part_pending_n >= PART_PENDING_MAX ) return;
     ev = &rdr->part_pending[rdr->part_pending_n++];
     ev->at = *origin;
     ev->kind = PART_EVENT_EXPLOSION;
@@ -98,7 +98,7 @@ void part_effect( Renderer *rdr, BspVec3 *origin, BspVec3 *direction,
 {
     PartEvent *ev;
 
-    if ( !rdr->part_dc || count <= 0 ||
+    if ( !rdr->frame_dc || count <= 0 ||
          rdr->part_pending_n >= PART_PENDING_MAX ) return;
     ev = &rdr->part_pending[rdr->part_pending_n++];
     ev->at = *origin;
@@ -119,7 +119,7 @@ void part_trail( Renderer *rdr, BspVec3 *start, BspVec3 *end, short kind )
     float len = (float) sqrt( x*x + y*y + z*z );
     short count;
 
-    if ( !rdr->part_dc || len < 0.01f ||
+    if ( !rdr->frame_dc || len < 0.01f ||
          rdr->part_pending_n >= PART_PENDING_MAX ) return;
     count = (short) ceil( len / 3.0f );
     if ( count > 255 ) count = 255;
@@ -137,7 +137,7 @@ void part_teleport( Renderer *rdr, BspVec3 *origin )
 {
     PartEvent *ev;
 
-    if ( !rdr->part_dc || rdr->part_pending_n >= PART_PENDING_MAX ) return;
+    if ( !rdr->frame_dc || rdr->part_pending_n >= PART_PENDING_MAX ) return;
     ev = &rdr->part_pending[rdr->part_pending_n++];
     ev->at = *origin;
     ev->kind = PART_EVENT_TELEPORT;
@@ -147,7 +147,7 @@ void part_lava( Renderer *rdr, BspVec3 *origin )
 {
     PartEvent *ev;
 
-    if ( !rdr->part_dc || rdr->part_pending_n >= PART_PENDING_MAX ) return;
+    if ( !rdr->frame_dc || rdr->part_pending_n >= PART_PENDING_MAX ) return;
     ev = &rdr->part_pending[rdr->part_pending_n++];
     ev->at = *origin;
     ev->kind = PART_EVENT_LAVA;
@@ -371,11 +371,11 @@ void part_frame( Renderer *rdr, Mat4 *mtx, float xresh, float yresh,
     rdr->part_last = now;
     if ( dt < 0.0f ) dt = 0.0f;
     if ( dt > 0.1f ) dt = 0.1f;
-    if ( !rdr->part_dc || ( !rdr->part_live && !rdr->part_pending_n ) ) {
+    if ( !rdr->frame_dc || ( !rdr->part_live && !rdr->part_pending_n ) ) {
         rdr->part_drawn = 0;
         return;
     }
-    pool = (Particle far *) qglSfAccessWrEx( rdr->part_dc, 0, PART_EMS_SLOT );
+    pool = (Particle far *) qglSfAccessWrEx( rdr->frame_dc, 0, PART_EMS_SLOT );
     if ( !pool ) return;
     draw = (DrawPart far *) ( pool + PART_MAX );
     for ( e = 0; e < rdr->part_pending_n; e++ )

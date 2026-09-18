@@ -11,7 +11,7 @@
 #define DL_KEY_PLAYER 1
 #define DL_KEY_MON    2      /* + the monster's index */
 
-/* CL_DecayLights, at the top of a tick. */
+/* CL_DecayLights, once at the top of a rendered frame. */
 void dl_decay( Renderer *rdr, float dt );
 
 /* EF_MUZZLEFLASH from org, the entity's origin, facing fwd (unit). */
@@ -20,9 +20,8 @@ void dl_muzzle( Renderer *rdr, short key, BspVec3 *org, BspVec3 *fwd );
 /* TE_EXPLOSION's light. */
 void dl_explosion( Renderer *rdr, BspVec3 *org );
 
-/* The relink's per-tick lights: the quad's and pentagram's EF_DIMLIGHT
-   on the player, EF_ROCKET on rockets and lava balls. At the end of a
-   tick, after anim_time has moved. */
+/* The relink's per-frame lights: the quad's and pentagram's EF_DIMLIGHT
+   on the player, EF_ROCKET on rockets and lava balls. */
 void dl_relink( Renderer *rdr, Player *player, Fight *fight );
 
 /* The lights a frame draws, a bit a slot; 0 under -nodlight. */
@@ -45,6 +44,10 @@ short dl_stag( Renderer *rdr );
 void dl_add_luxels( Renderer *rdr, unsigned long bits, Plane far *pl,
                     TexInfo far *ti, short tms, short tmt,
                     unsigned char *lum, short lmw, short lmh );
+
+/* Save/load the EMS-backed pool without exposing a mapped pointer. */
+void dl_export( Renderer *rdr, DynLight far *dst );
+void dl_import( Renderer *rdr, DynLight far *src );
 
 /* 1, or the negative number of the check that failed. */
 short dl_selftest( void );

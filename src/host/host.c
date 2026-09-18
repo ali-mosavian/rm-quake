@@ -365,9 +365,6 @@ static void near host_tick( Host *h, float dt )
     short fire = keybind_action( h->keys, KA_ATTACK );
     short advance = (short) ( fire || keybind_action( h->keys, KA_JUMP ) );
 
-    /* id decays after drawing; this is the same place, before the next */
-    dl_decay( rdr, dt );
-
     v_update_camera( cam, player, world, input, h->keys, fight, rdr,
                      dt, scr_x_res, scr_y_res, h->forward_speed, h->invert_mouse );
 
@@ -413,7 +410,6 @@ static void near host_tick( Host *h, float dt )
         ls_animate( &h->ls, rdr->anim_time );
     }
 
-    dl_relink( rdr, player, fight );
     keybind_tick( h->keys );
 }
 
@@ -1653,8 +1649,13 @@ void host_frame( Host *h )
         dl_relink( &h->rdr, &h->player, &h->fight );
         if ( h->rdr.no_styles ) ls_hold( &h->ls );
         h->clock.accum = 0.0f;
-    } else
+    } else {
+        /* Visual lights need one update for the frame, not one for every
+           fixed simulation step the frame happened to spend. */
+        dl_decay( &h->rdr, frame_dt );
         dropped = host_advance( h, frame_dt );
+        dl_relink( &h->rdr, &h->player, &h->fight );
+    }
 
     /* A -ticks recording may spend only part of its final frame before
        the tick budget stops it. Store that spent time, or replay runs the

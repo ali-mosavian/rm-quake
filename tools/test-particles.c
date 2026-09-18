@@ -2,7 +2,7 @@
 #include <string.h>
 #include "part.h"
 
-static unsigned char page[4096];
+static unsigned char page[RDR_FRAME_BYTES];
 static unsigned char pixels[320 * 200];
 static unsigned short depth[320 * 200];
 static short part_maps;
@@ -11,7 +11,7 @@ static short z_maps;
 
 long pascal far qglSfNew( short w, short h, short where )
 {
-    assert( w == 4096 && h == 1 && where == QGL_SURF_EMS );
+    assert( w == RDR_FRAME_BYTES && h == 1 && where == QGL_SURF_EMS );
     return 1;
 }
 

@@ -14,7 +14,10 @@
    startup aborts before main to a stderr DOS does not redirect; 32768
    was 22 bytes over. tools/dgroup-check.sh fails the link instead. */
 extern unsigned _stklen;
-unsigned _stklen = 19700U;
+/* The EMS frame store removed 928 measured bytes from main's Host frame.
+   Give the same amount back to the near heap while increasing the measured
+   stack low-water margin from 1.6 KB to 2.5 KB. */
+unsigned _stklen = 18772U;
 
 int main( void )
 {

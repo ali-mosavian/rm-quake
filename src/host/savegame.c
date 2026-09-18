@@ -6,6 +6,7 @@
 
 #include "savegame.h"
 #include "qgl.h"
+#include "dl.h"
 
 #define SG_MAGIC   0x31565351L
 #define SG_VERSION 1
@@ -127,7 +128,7 @@ static short near savegame_write( short file, SaveHead *head, World *world,
     memcpy( sw.fog_org, world->fog_org, sizeof(sw.fog_org) );
     memcpy( sw.fog_at, world->fog_at, sizeof(sw.fog_at) );
     sr.anim_time = rdr->anim_time;
-    memcpy( sr.dlights, rdr->dlights, sizeof(sr.dlights) );
+    dl_export( rdr, sr.dlights );
     sr.dl_tick = rdr->dl_tick;
     sr.dl_seed = rdr->dl_seed;
     sr.mouse_x = mouse_x;
@@ -275,7 +276,7 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
     memcpy( world->fog_at, sw.fog_at, sizeof(sw.fog_at) );
     world->item_count = head.item_count;
     rdr->anim_time = sr.anim_time;
-    memcpy( rdr->dlights, sr.dlights, sizeof(sr.dlights) );
+    dl_import( rdr, sr.dlights );
     rdr->dl_tick = sr.dl_tick;
     rdr->dl_seed = sr.dl_seed;
     rdr->pvs_leaf = 0;
