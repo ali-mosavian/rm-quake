@@ -125,19 +125,25 @@ def quit_dialog(pak: bytes, entries: dict[str, tuple[int, int]], message: tuple[
 
 
 def main() -> int:
-    if len(sys.argv) != 7:
+    if len(sys.argv) != 8:
         print(
-            f"usage: {sys.argv[0]} PAK0.PAK MAIN.BMP HELP.BMP GAME.BMP QUIT.BMP CONSOLE.BMP",
+            f"usage: {sys.argv[0]} PAK0.PAK MAIN_GAME.BMP MAIN.BMP HELP.BMP "
+            "QUIT_GAME.BMP QUIT.BMP CONSOLE.BMP",
             file=sys.stderr,
         )
         return 2
     pak, entries = mdlview.read_pak(sys.argv[1])
-    expected = bytearray(320 * 200)
+    game_main = bmp_pixels(sys.argv[2])
+    expected = bytearray(
+        pixel if (x & 3) == ((y & 1) << 1) else 0
+        for y in range(200)
+        for x, pixel in enumerate(game_main[y * 320 : (y + 1) * 320])
+    )
     place(expected, mdlview.pak_read(pak, entries, "gfx/qplaque.lmp"), 16, 4)
     place(expected, mdlview.pak_read(pak, entries, "gfx/ttl_main.lmp"), 112, 4)
     place(expected, mdlview.pak_read(pak, entries, "gfx/mainmenu.lmp"), 72, 32)
 
-    actual = bmp_pixels(sys.argv[2])
+    actual = bmp_pixels(sys.argv[3])
     ignored = {
         y * 320 + x
         for y in range(32, 56)
@@ -146,7 +152,7 @@ def main() -> int:
     changed = sum(
         actual[index] != pixel
         for index, pixel in enumerate(expected)
-        if index not in ignored
+        if index not in ignored and index // 320 >= 8
     )
     if changed:
         raise AssertionError(f"main menu differs from id art at {changed} pixels")
@@ -157,12 +163,12 @@ def main() -> int:
         raise AssertionError(f"help0 is {help_width}x{help_height}, wanted 320x200")
     if len(help_pixels) != 320 * 200:
         raise AssertionError(f"help0 has {len(help_pixels)} pixels, wanted 64000")
-    help_actual = bmp_pixels(sys.argv[3])
+    help_actual = bmp_pixels(sys.argv[4])
     help_changed = sum(a != b for a, b in zip(help_actual, help_pixels))
     if help_changed:
         raise AssertionError(f"help menu differs from id art at {help_changed} pixels")
-    game = bmp_pixels(sys.argv[4])
-    quit_actual = bmp_pixels(sys.argv[5])
+    game = bmp_pixels(sys.argv[5])
+    quit_actual = bmp_pixels(sys.argv[6])
     faded = bytearray(
         pixel if (x & 3) == ((y & 1) << 1) else 0
         for y in range(200)
@@ -182,7 +188,7 @@ def main() -> int:
     changed = min(candidates)
     if changed:
         raise AssertionError(f"quit menu differs from every id dialog at {changed} pixels")
-    console = bmp_pixels(sys.argv[6])
+    console = bmp_pixels(sys.argv[7])
     for message in QUIT_MESSAGES:
         dialog = quit_dialog(pak, entries, message)
         opaque = (

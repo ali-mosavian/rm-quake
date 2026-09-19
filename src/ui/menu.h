@@ -49,7 +49,6 @@ short menu_open( Menu MENU_FAR *menu, Pak *pak, MenuPage page );
 short menu_quit( Menu MENU_FAR *menu, Pak *pak );
 void menu_close( Menu MENU_FAR *menu );
 short menu_is_open( const Menu MENU_FAR *menu );
-short menu_game_backdrop( const Menu MENU_FAR *menu );
 MenuAction menu_key( Menu MENU_FAR *menu, short key,
                      KeyBindings KB_FAR *keys, CmdState far *cmd, Pak *pak );
 void menu_draw( Menu MENU_FAR *menu, const KeyBindings KB_FAR *keys,

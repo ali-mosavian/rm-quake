@@ -1669,18 +1669,18 @@ static void near host_present( Host *h )
 {
     Video *v = &h->v;
     QSurf target;
-    short special, menu, game_menu;
+    short special, menu;
 #if QR_PROF
     float t0 = sys_now( &h->sysclk ), hud_t0;
 #endif
 
-    special = (short) ( h->fight.state == GS_EXIT || h->fight.state == GS_FINALE );
     menu = menu_is_open( h->menu );
-    game_menu = menu_game_backdrop( h->menu );
-    if ( h->player.water_level == 3 && !special && ( !menu || game_menu ) )
+    special = (short) ( !menu &&
+        ( h->fight.state == GS_EXIT || h->fight.state == GS_FINALE ) );
+    if ( h->player.water_level == 3 && !special )
         v_present_warp( v, h->h_dst_dc, 0, -1, h->rdr.anim_time );
     else
-        v_present( v, h->h_dst_dc, 0, (short) ( !special && ( !menu || game_menu ) ) );
+        v_present( v, h->h_dst_dc, 0, (short) !special );
     target = v->h_comp_dc;
     if ( h->cmd->cvar[h->crosshair_cvar].value )
         scr_sbar_crosshair( target,
@@ -1689,12 +1689,6 @@ static void near host_present( Host *h )
             (short) ( v->view_y + v->y_res * v->view_scale / 2 +
                       h->cmd->cvar[h->crosshair_y_cvar].value ),
             v->scr_x_res, v->scr_y_res );
-    if ( menu && !game_menu ) {
-        menu_draw( h->menu, h->keys, h->cmd, h->rdr.anim_time,
-                   target, v->scr_x_res, v->scr_y_res );
-        qglDrBlit( v->h_video_dc, 0, 0, target );
-        goto presented;
-    }
 #if QR_PROF
     hud_t0 = sys_now( &h->sysclk );
 #endif
@@ -1704,16 +1698,18 @@ static void near host_present( Host *h )
 #if QR_PROF
     pt_stop( h, hud_t0, &h->pt.hud_sum, &h->pt.hud_max );
 #endif
-    if ( h->fight.state == GS_EXIT )
+    if ( !menu && h->fight.state == GS_EXIT )
         scr_sbar_intermission( &h->world, &h->fight, target, v->scr_x_res, v->scr_y_res );
     else {
-        if ( h->fight.state == GS_FINALE ) scr_sbar_finale( target, v->scr_x_res );
+        if ( !menu && h->fight.state == GS_FINALE )
+            scr_sbar_finale( target, v->scr_x_res );
         scr_draw_center( h->hud, &h->fight, target,
                          v->scr_x_res, v->scr_y_res,
                          (short) ( !con_open( h->console ) && !menu ) );
-        scr_draw_msg( h->hud, &h->world, &h->fight, &h->rdr, target,
-                      v->scr_x_res, v->scr_y_res );
-        if ( h->fight.state != GS_FINALE )
+        if ( !menu )
+            scr_draw_msg( h->hud, &h->world, &h->fight, &h->rdr, target,
+                          v->scr_x_res, v->scr_y_res );
+        if ( menu || h->fight.state != GS_FINALE )
             scr_sbar_draw( &h->world, &h->fight, h->rdr.anim_time,
                            keybind_action( h->keys, KA_SHOWSCORES ), v->sbar_lines,
                            target, v->scr_x_res, v->scr_y_res );
@@ -1723,8 +1719,6 @@ static void near host_present( Host *h )
         menu_draw( h->menu, h->keys, h->cmd, h->rdr.anim_time,
                    target, v->scr_x_res, v->scr_y_res );
     qglDrBlit( v->h_video_dc, 0, 0, v->h_comp_dc );
-presented:
-    ;
 #if QR_PROF
     pt_stop( h, t0, &h->pt.present_sum, 0 );
 #endif

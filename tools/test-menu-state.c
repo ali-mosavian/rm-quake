@@ -172,11 +172,11 @@ int main( void )
 
     menu_close( &menu );
     assert( menu_quit( &menu, &pak ) );
-    assert( menu_game_backdrop( &menu ) && menu_is_open( &menu ) );
+    assert( menu.quit_active && menu.page == MENU_CLOSED && menu_is_open( &menu ) );
     menu_key( &menu, KEY_ENTER, &keys, &cmd, &pak );
     assert( menu.quit_active );
     menu_key( &menu, KEY_N, &keys, &cmd, &pak );
-    assert( !menu_is_open( &menu ) && !menu_game_backdrop( &menu ) );
+    assert( !menu_is_open( &menu ) );
     fail_new = 1;
     assert( !menu_quit( &menu, &pak ) && !menu_is_open( &menu ) );
 

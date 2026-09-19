@@ -206,11 +206,6 @@ short menu_is_open( const Menu MENU_FAR *menu )
     return (short) ( menu && ( menu->page != MENU_CLOSED || menu->quit_active ) );
 }
 
-short menu_game_backdrop( const Menu MENU_FAR *menu )
-{
-    return (short) ( menu && menu->quit_active && menu->page == MENU_CLOSED );
-}
-
 static void near menu_set_cvar( CmdState far *cmd, const char *name, float value )
 {
     char text[24], error[CMD_TEXT];
@@ -440,8 +435,6 @@ void menu_draw( Menu MENU_FAR *menu, const KeyBindings KB_FAR *keys,
     QSurf view;
 
     if ( !menu_is_open( menu ) ) return;
-    if ( menu->page != MENU_CLOSED )
-        qglDrFill( dst, 0, 0, (short) ( w - 1 ), (short) ( h - 1 ), 0 );
     if ( ox || oy ) {
         view = qglSfViewNew( dst, 320, 200, w );
         if ( !view ) return;
@@ -450,13 +443,16 @@ void menu_draw( Menu MENU_FAR *menu, const KeyBindings KB_FAR *keys,
             return;
         }
     } else view = dst;
-    if ( menu->page == MENU_CLOSED ) menu_fade( view, 320, 200 );
-    else if ( menu->page == MENU_HELP ) qglDrBlit( view, 0, 0, menu->atlas );
-    else if ( menu->page == MENU_MAIN ) menu_draw_main( menu, view, now );
-    else if ( menu->page == MENU_SINGLE ) menu_draw_single( menu, view, now );
-    else if ( menu->page == MENU_OPTIONS ) menu_draw_options( menu, (CmdState far *) cmd, view );
-    else if ( menu->page == MENU_KEYS ) menu_draw_keys( menu, keys, view );
-    else menu_draw_slots( menu, view, now );
+    if ( menu->page != MENU_HELP ) menu_fade( view, 320, 200 );
+    if ( menu->page != MENU_CLOSED ) {
+        if ( menu->page == MENU_HELP ) qglDrBlit( view, 0, 0, menu->atlas );
+        else if ( menu->page == MENU_MAIN ) menu_draw_main( menu, view, now );
+        else if ( menu->page == MENU_SINGLE ) menu_draw_single( menu, view, now );
+        else if ( menu->page == MENU_OPTIONS )
+            menu_draw_options( menu, (CmdState far *) cmd, view );
+        else if ( menu->page == MENU_KEYS ) menu_draw_keys( menu, keys, view );
+        else menu_draw_slots( menu, view, now );
+    }
     if ( menu->quit_active )
         menu_surface_pic( menu->quit_dialog, view, 0, 0, QUIT_W, QUIT_H, 56, 76 );
     if ( view != dst ) qglDelView( view );

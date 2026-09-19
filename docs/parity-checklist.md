@@ -210,7 +210,9 @@ PAK0 and are left out.
       `M_Menu_Load_f`, `M_Menu_Save_f`; `host_cmd.c` `Host_Savegame_f`,
       `Host_Loadgame_f`
       qcport: original main, single-player, options, keys and twelve-slot
-      load/save menus; binary snapshots preserve the port's mutable world
+      load/save menus; id's stippled live-frame backdrop and DOS quit dialogs;
+      binary snapshots preserve the port's mutable world; `tools/test-menu.sh`,
+      `tools/test-savegame.sh`
 - [x] Console and cvars
       id: `console.c` `Con_Init`, `cvar.c` `Cvar_RegisterVariable`
       qcport: queued keyboard input, scrollback/history/completion, bounded
