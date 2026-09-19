@@ -172,7 +172,7 @@ void ent_use_targets( World *world, Player *player, Fight *fight,
     /* train_use: once */
     for ( k = 0; k < world->plat_count; k++ )
         if ( world->plat[k].kind == ENT_PLAT_KIND_TRAIN &&
-             world->plat[k].targeted == id &&
+             world->plat[k].start.targeted == id &&
              world->plat[k].state == ENT_TRAIN_IDLE )
             world->plat[k].state = ENT_TRAIN_WAIT;
 

@@ -30,21 +30,29 @@ static short near ent_mover_xy( Player *player, PlatEnt far *plt,
 
 /* The plat trigger is a column above the brush. It starts the lift, but
    is not evidence that a TOSS/BOUNCE body is supported by the lift. */
-static short near ent_plat_activated( Player *player, PlatEnt far *plt,
-                                      BrushModel far *br )
+static short near ent_plat_activated( Player *player, PlatEnt far *plt )
 {
-    float top;
+    BspVec3 mins, maxs;
 
-    if ( !ent_mover_xy( player, plt, br ) ) return 0;
+    /* Mod_LoadSubmodels spreads the model by one before QC sees mins/maxs. */
+    mins.x = plt->mins.x - 1.0f + 25.0f;
+    maxs.x = plt->maxs.x + 1.0f - 25.0f;
+    mins.y = plt->mins.y - 1.0f + 25.0f;
+    maxs.y = plt->maxs.y + 1.0f - 25.0f;
+    if ( plt->maxs.x - plt->mins.x + 2.0f <= 50.0f ) {
+        mins.x = ( plt->mins.x + plt->maxs.x ) * 0.5f;
+        maxs.x = mins.x + 1.0f;
+    }
+    if ( plt->maxs.y - plt->mins.y + 2.0f <= 50.0f ) {
+        mins.y = ( plt->mins.y + plt->maxs.y ) * 0.5f;
+        maxs.y = mins.y + 1.0f;
+    }
 
-    /* Above its surface and within a body's height of it. Anything
-       higher is someone on a walkway over the shaft, not a passenger. */
-    top = plt->maxs.z + br->ofs.z;
+    maxs.z = plt->maxs.z + 1.0f + 8.0f;
+    mins.z = maxs.z - ( plt->time.travel + 8.0f );
+    if ( plt->start.low_trigger ) maxs.z = mins.z + 8.0f;
 
-    if ( player->pos.z - PL_FEET < top - 8.0f  ) return 0;
-    if ( player->pos.z - PL_FEET > top + 64.0f ) return 0;
-
-    return 1;
+    return ent_box_touched( player, &mins, &maxs, ENT_TOUCH_SLACK );
 }
 
 /* We do not retain groundentity, so support is reconstructed from the
@@ -86,7 +94,7 @@ static short near ent_mover_intersects( World *world, Player *player,
 short ent_plat_touched( Player *player, World *world, short p )
 {
     PlatEnt far *plt = &world->plat[p];
-    return ent_plat_activated( player, plt, &world->brush[plt->model] );
+    return ent_plat_activated( player, plt );
 }
 
 /*
@@ -110,21 +118,30 @@ void ent_move_plats( World *world, Player *player, float dt, short rider_kind )
         PlatEnt far *plt = &world->plat[p];
         BrushModel far *br = &world->brush[plt->model];
         short head = (short) ( rider_kind == ENT_RIDER_HEAD );
-        short activated = ent_plat_activated( player, plt, br );
+        short activated = ent_plat_activated( player, plt );
         short riding = ent_mover_supported( player, plt, br, head );
         float goal, step_z, moved, was;
 
         if ( plt->kind != ENT_PLAT_KIND_PLAT ) continue;   /* a train is ent_move_trains' */
 
-        plt->state = rider_kind == ENT_RIDER_LIVE && activated ? ENT_PLAT_UP : ENT_PLAT_DOWN;
-        goal = ( plt->state == ENT_PLAT_UP ) ? 0.0f : -plt->time.travel;
+        if ( plt->state == ENT_PLAT_BOTTOM ) {
+            if ( rider_kind == ENT_RIDER_LIVE && activated ) plt->state = ENT_PLAT_UP;
+        } else if ( plt->state == ENT_PLAT_TOP ) {
+            if ( rider_kind == ENT_RIDER_LIVE && activated ) plt->wait_left = 1.0f;
+            else {
+                plt->wait_left -= dt;
+                if ( plt->wait_left <= 0.0f ) plt->state = ENT_PLAT_DOWN;
+            }
+        }
+        goal = ( plt->state == ENT_PLAT_UP || plt->state == ENT_PLAT_TOP )
+             ? 0.0f : -plt->time.travel;
 
         was = br->ofs.z;
-        if ( br->ofs.z < goal ) {
+        if ( plt->state == ENT_PLAT_UP && br->ofs.z < goal ) {
             step_z = plt->speed * dt;
             br->ofs.z += step_z;
             if ( br->ofs.z > goal ) br->ofs.z = goal;
-        } else if ( br->ofs.z > goal ) {
+        } else if ( plt->state == ENT_PLAT_DOWN && br->ofs.z > goal ) {
             step_z = plt->speed * dt;
             br->ofs.z -= step_z;
             if ( br->ofs.z < goal ) br->ofs.z = goal;
@@ -138,6 +155,13 @@ void ent_move_plats( World *world, Player *player, float dt, short rider_kind )
             if ( !plt->mode.moving ) ent_brush_sound( player, world, plt->model, snd );
             plt->mode.moving = (short) ( br->ofs.z != goal );
             if ( !plt->mode.moving ) ent_brush_sound( player, world, plt->model, (short) ( snd + 1 ) );
+        }
+
+        if ( plt->state == ENT_PLAT_UP && br->ofs.z == 0.0f ) {
+            plt->state = ENT_PLAT_TOP;
+            plt->wait_left = 3.0f;
+        } else if ( plt->state == ENT_PLAT_DOWN && br->ofs.z == -plt->time.travel ) {
+            plt->state = ENT_PLAT_BOTTOM;
         }
 
         if ( !riding && moved != 0.0f )
@@ -165,7 +189,7 @@ void ent_train_init( World *world, PlatEnt far *p )
     b->ofs.z = world->corner[ p->first ].org.z - p->mins.z;
     b->node = ENT_NODE_DIRTY;
     p->wait_left = 0.0f;
-    p->state = p->targeted ? ENT_TRAIN_IDLE : ENT_TRAIN_WAIT;
+    p->state = p->start.targeted ? ENT_TRAIN_IDLE : ENT_TRAIN_WAIT;
 }
 
 static short near ent_train_push( World *world, Player *player,

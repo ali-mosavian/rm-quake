@@ -17,7 +17,7 @@ data = qmapread.read(sys.argv[2], "ents0.bin")
 head = struct.unpack_from("<4f3fff13hfhhh3ffh", data)
 ntele, nplat, nhide, nitem = head[10:14]
 ndoor, ntrig, nmon, ngate = head[14], head[15], head[16], head[30]
-offset = 90 + nmon * 24 + ntele * 22 + nplat * 12 + nhide * 2 + ngate * 6 + nitem * 22 + ndoor * 52
+offset = 90 + nmon * 24 + ntele * 22 + nplat * 14 + nhide * 2 + ngate * 6 + nitem * 22 + ndoor * 52
 kinds = [struct.unpack_from("<hh", data, offset + i * 54) for i in range(ntrig)]
 if (56, 14) not in kinds:
     raise SystemExit("FAIL: e1m2 func_button *56 was not packed as shoot-only")

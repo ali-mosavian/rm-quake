@@ -170,8 +170,10 @@ typedef struct {
 
 /* q_ent.bi's PlatEnt. A func_train shares the array: same brush, same
    speed, a different state machine. */
-#define ENT_PLAT_DOWN  0
-#define ENT_PLAT_UP    1
+#define ENT_PLAT_DOWN   0
+#define ENT_PLAT_UP     1
+#define ENT_PLAT_TOP    5
+#define ENT_PLAT_BOTTOM 6
 #define ENT_TRAIN_IDLE 2        /* a targeted train, before its trigger */
 #define ENT_TRAIN_WAIT 3        /* at a corner for wait_left */
 #define ENT_TRAIN_MOVE 4
@@ -184,7 +186,10 @@ typedef struct {
     short state;
     BspVec3  mins, maxs;
     short kind;
-    short targeted;      /* a train's name id; 0 starts by itself */
+    union {
+        short targeted;  /* a train's name id; 0 starts by itself */
+        short low_trigger;
+    } start;
     short first;         /* its first path_corner */
     short corner;        /* the one it is at, or bound for */
     float wait_left;

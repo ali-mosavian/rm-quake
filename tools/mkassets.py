@@ -274,7 +274,7 @@ def item_models(ents: list[bytes], monster_kinds: set[int]) -> set[str]:
         )
         ngate = struct.unpack_from("<h", data, struct.calcsize(ENTS_HEAD) - 2)[0]
         ofs = (struct.calcsize(ENTS_HEAD) + nmon * struct.calcsize(ENTS_MON)
-               + ntele * struct.calcsize("<h3ffhh") + nplat * struct.calcsize("<hffh")
+               + ntele * struct.calcsize("<h3ffhh") + nplat * struct.calcsize("<hffhh")
                + nhide * 2 + ngate * struct.calcsize("<hhh"))
         for i in range(nitem):
             kind, amount, _target, crate, _order = struct.unpack_from("<hhhhh", data, ofs + i * item_size)
@@ -1354,7 +1354,8 @@ def sp_plat(e: Ents, kv: dict[str, str]) -> bool:
     if not (m := ent_model(e, kv.get('model', ''))):
         return False
     e.plats.append((m, float(kv.get('speed', '0')), float(kv.get('height', '0')),
-                    int(kv.get('sounds', '0') or 0) or 2))
+                    int(kv.get('sounds', '0') or 0) or 2,
+                    int(kv.get('spawnflags', '0') or 0) & 1))
     return True
 
 
@@ -1510,8 +1511,8 @@ def pack_entities(e: Ents, nmodels: int, gravity: float, crates: CrateSet) -> by
         buf += struct.pack(ENTS_MON, kind, order, *org, yaw, corner_at.get(target, -1), cruc)
     for m, org, yaw, name, only in teles:
         buf += struct.pack('<h3ffhh', m, *org, yaw, name, only)
-    for m, speed, height, snd in plats:
-        buf += struct.pack('<hffh', m, speed, height, snd)
+    for m, speed, height, snd, low_trigger in plats:
+        buf += struct.pack('<hffhh', m, speed, height, snd, low_trigger)
     for m in hides:
         buf += struct.pack('<h', m)
     for m, boss, bits in e.gates:

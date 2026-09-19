@@ -90,6 +90,7 @@ typedef struct {
     float speed;
     float travel;
     short snd;          /* 1 plat1/plat2, 2 medplat */
+    short low_trigger;  /* PLAT_LOW_TRIGGER */
 } EntsPlat;
 
 /* The records between the ones cport reads. ents.bin's order is
@@ -147,7 +148,7 @@ typedef struct {
 #define REC_ENTSHEAD 90
 #define REC_ENTSMON  24
 #define REC_ENTSTELE 22
-#define REC_ENTSPLAT 12
+#define REC_ENTSPLAT 14
 #define REC_ENTSITEM 22
 #define REC_CRATE    92
 #define REC_ENTSDOOR 52

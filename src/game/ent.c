@@ -501,7 +501,7 @@ static void near ent_load_trains( World *world, unsigned char far *buf, long *of
         p->time.block_at = 0.0f;
         p->mode.dmg = tr.dmg > 0 ? tr.dmg : 2;
         p->kind  = ENT_PLAT_KIND_TRAIN;
-        p->targeted = tr.targeted;
+        p->start.targeted = tr.targeted;
         p->first = tr.first;
         p->corner = tr.first;
         p->wait_left = 0.0f;
@@ -641,9 +641,9 @@ static void near ent_load_plats( World *world, unsigned char far *buf, long *ofs
 
             /* Quake positions the brush raised, so a lift at rest is
                one full travel below where the map drew it. */
-            p->state = ENT_PLAT_DOWN;
+            p->state = ENT_PLAT_BOTTOM;
             p->kind  = ENT_PLAT_KIND_PLAT;
-            p->targeted = 0;
+            p->start.low_trigger = pr.low_trigger;
             p->first = p->corner = -1;
             p->wait_left = 0.0f;
             p->snd = pr.snd >= 1 && pr.snd <= 2 ? pr.snd : 2;

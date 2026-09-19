@@ -1,6 +1,7 @@
 #!/bin/sh
-# A plat trigger column is not support: airborne corpses stay independent,
-# grounded corpses follow, and a final AABB overlap still needs a hull hit.
+# A plat trigger is inset like id's: touching the solid side must not start it.
+# Its column is not support: airborne corpses stay independent, grounded
+# corpses follow, and a final AABB overlap still needs a hull hit.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 OUT=$(mktemp -d "${TMPDIR:-/tmp}/qcport-plats.XXXXXX")
@@ -12,4 +13,4 @@ cc -std=c89 -pedantic -Wall -Wextra -Werror -fpack-struct=2 \
   "$ROOT/tools/test-plats.c" "$ROOT/src/game/plats.c" \
   "$ROOT/src/host/mathlib.c" -o "$OUT/test-plats"
 "$OUT/test-plats"
-echo "ok: mover transport requires support or a final hull collision"
+echo "ok: plat trigger is inset; mover transport requires support or a final hull collision"

@@ -51,7 +51,7 @@ head = struct.unpack_from("<4f3fff13hfhhh3ffh", data)
 ntele, nplat, nhide, nitem, ndoor, ntrig, nmon, namb, ngate = (
     head[10], head[11], head[12], head[13], head[14], head[15], head[16], head[17], head[30]
 )
-offset = 90 + nmon * 24 + ntele * 22 + nplat * 12 + nhide * 2 + ngate * 6
+offset = 90 + nmon * 24 + ntele * 22 + nplat * 14 + nhide * 2 + ngate * 6
 offset += nitem * 22 + ndoor * 52 + ntrig * 54
 ambients = [struct.unpack_from("<hh3f", data, offset + i * 16) for i in range(namb)]
 want = (179, 127, 1312.0, 1088.0, -368.0)

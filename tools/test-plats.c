@@ -15,6 +15,17 @@ static short trace_clip;
 static short damage_calls;
 static float damage_value;
 
+short ent_box_touched( Player *player, BspVec3 *mins, BspVec3 *maxs, float slack )
+{
+    if ( player->pos.x + PL_HALF + slack < mins->x ) return 0;
+    if ( player->pos.x - PL_HALF - slack > maxs->x ) return 0;
+    if ( player->pos.y + PL_HALF + slack < mins->y ) return 0;
+    if ( player->pos.y - PL_HALF - slack > maxs->y ) return 0;
+    if ( player->pos.z + PL_ZHI  + slack < mins->z ) return 0;
+    if ( player->pos.z + PL_ZLO  - slack > maxs->z ) return 0;
+    return 1;
+}
+
 void combat_damage_player( Player *player, World *world, Fight *fight,
                            Renderer *rdr, float damage )
 {
@@ -88,6 +99,65 @@ int main( void )
 
     memset( &fight, 0, sizeof(fight) );
     memset( &rdr, 0, sizeof(rdr) );
+
+    /* dm3ish's lift: id's trigger is inset 25 units from the brush.
+       At x=-17 the player only touches the solid side and must get time
+       to step onto it; at x=-42 their box reaches the inset trigger. */
+    fixture( &world, &player, &plat, brush, &corner );
+    plat.mins.x = -127.0f; plat.maxs.x = -33.0f;
+    plat.mins.y = 545.0f;  plat.maxs.y = 639.0f;
+    plat.mins.z = -15.0f;  plat.maxs.z = 303.0f;
+    plat.time.travel = 288.0f;
+    brush[1].ofs.z = -288.0f;
+    player.pos.x = -17.0f; player.pos.y = 608.0f; player.pos.z = 39.0f;
+    assert( !ent_plat_touched( &player, &world, 0 ) );
+    player.pos.x = -40.0f;
+    assert( ent_plat_touched( &player, &world, 0 ) );
+
+    plat.start.low_trigger = 1;
+    player.pos.z = 300.0f;
+    assert( !ent_plat_touched( &player, &world, 0 ) );
+    player.pos.z = 39.0f;
+    assert( ent_plat_touched( &player, &world, 0 ) );
+
+    /* Leaving the inset trigger while the lift rises must not reverse it.
+       The player can cross the trigger before the platform reaches the
+       upper doorway, as in the reported dm3ish approach. */
+    fixture( &world, &player, &plat, brush, &corner );
+    brush[1].ofs.z = -16.0f;
+    plat.state = ENT_PLAT_BOTTOM;
+    player.pos.z = 8.0f;
+    ent_move_plats( &world, &player, 0.25f, ENT_RIDER_LIVE );
+    assert( plat.state == ENT_PLAT_UP && brush[1].ofs.z == -12.0f );
+    player.pos.x = 100.0f;
+    ent_move_plats( &world, &player, 0.25f, ENT_RIDER_LIVE );
+    assert( plat.state == ENT_PLAT_UP && brush[1].ofs.z == -8.0f );
+
+    fixture( &world, &player, &plat, brush, &corner );
+    brush[1].ofs.z = -16.0f;
+    plat.state = ENT_PLAT_BOTTOM;
+    player.pos.z = 8.0f;
+    ent_move_plats( &world, &player, 1.0f, ENT_RIDER_LIVE );
+    assert( plat.state == ENT_PLAT_TOP && plat.wait_left == 3.0f );
+    player.pos.x = 100.0f;
+    ent_move_plats( &world, &player, 1.0f, ENT_RIDER_LIVE );
+    ent_move_plats( &world, &player, 1.0f, ENT_RIDER_LIVE );
+    assert( plat.state == ENT_PLAT_TOP && brush[1].ofs.z == 0.0f );
+    ent_move_plats( &world, &player, 1.0f, ENT_RIDER_LIVE );
+    assert( plat.state == ENT_PLAT_BOTTOM && brush[1].ofs.z == -16.0f );
+
+    fixture( &world, &player, &plat, brush, &corner );
+    brush[1].ofs.z = -16.0f;
+    plat.state = ENT_PLAT_BOTTOM;
+    player.pos.z = 8.0f;
+    ent_move_plats( &world, &player, 1.0f, ENT_RIDER_LIVE );
+    ent_move_plats( &world, &player, 0.25f, ENT_RIDER_LIVE );
+    assert( plat.state == ENT_PLAT_TOP && plat.wait_left == 1.0f );
+    player.pos.x = 100.0f;
+    ent_move_plats( &world, &player, 0.5f, ENT_RIDER_LIVE );
+    assert( plat.state == ENT_PLAT_TOP && plat.wait_left == 0.5f );
+    ent_move_plats( &world, &player, 0.5f, ENT_RIDER_LIVE );
+    assert( plat.state == ENT_PLAT_DOWN && brush[1].ofs.z == -8.0f );
 
     fixture( &world, &player, &plat, brush, &corner );
     player.pos.z = 64.0f;
