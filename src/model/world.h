@@ -23,6 +23,14 @@ typedef struct {
     short name, style, on, start_on, stamp;
 } LightEnt;
 
+/* One makestatic flame model. These records live in EMS; set selects
+   flame2.mdl's small or large group. */
+typedef struct {
+    BspVec3 pos;
+    unsigned char model, set;
+} FlameEnt;
+typedef char rec_flameent_ok[ sizeof(FlameEnt) == 14 ? 1 : -1 ];
+
 /*
  * World -- the loaded map. Grows a field at a time as the module that
  * owns it gets ported; this is ent.bas's, pl_move.bas's and r_bsp.bas's
@@ -124,6 +132,7 @@ typedef struct {
     short       fx_geom_hnd;
     QSurf       fx_skin_atlas, fx_skin_view;
     short       fx_skin_aim;
+    short       flame_count, flame_hnd;
 
     short       crate_count;
     CrateModel  far *crate;

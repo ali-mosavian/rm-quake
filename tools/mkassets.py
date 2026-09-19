@@ -106,9 +106,13 @@ KEY_MODELS = (
     ("b_s_key", "b_g_key"),
 )
 EFFECT_MODELS = (
-    "spike", "s_spike", "grenade", "missile", "lavaball", "w_spike", "zom_gib",
-    "gib1", "gib2", "gib3", "h_player", "h_guard", "h_knight", "h_dog",
-    "h_ogre", "h_demon", "h_zombie", "h_wizard", "h_shams", "bolt", "bolt3", "bolt2",
+    *((name, "*") for name in (
+        "spike", "s_spike", "grenade", "missile", "lavaball", "w_spike", "zom_gib",
+        "gib1", "gib2", "gib3", "h_player", "h_guard", "h_knight", "h_dog",
+        "h_ogre", "h_demon", "h_zombie", "h_wizard", "h_shams", "bolt", "bolt3", "bolt2",
+    )),
+    ("flame", "flame:6"),
+    ("flame2", "flame:6,flameb:11"),
 )
 EFFECT_PAGE = 16384
 EFFECT_SKIN_W = 256
@@ -183,12 +187,12 @@ def build_models(pak: str, kinds: set[int], boss: bool, tmp: str) -> dict[str, b
     return out
 
 
-def build_bundled_model(pak: str, name: str, tmp: str) -> bytes:
+def build_bundled_model(pak: str, name: str, tmp: str, spec: str = "*") -> bytes:
     import subprocess
 
     os.makedirs(tmp, exist_ok=True)
     r = subprocess.run([sys.executable, os.path.join(os.path.dirname(__file__), "mkmdl.py"),
-                        pak, name, tmp, "*"], capture_output=True, text=True)
+                        pak, name, tmp, spec], capture_output=True, text=True)
     if r.returncode != 0:
         raise SystemExit(f"mkmdl {name}: {r.stderr.strip() or r.stdout.strip()}")
     return open(os.path.join(tmp, f"{name[:8]}.itm"), "rb").read()
@@ -205,7 +209,7 @@ def build_item_models(pak: str, names: set[str], tmp: str) -> dict[str, bytes]:
 def build_effect_models(pak: str, tmp: str) -> dict[str, bytes]:
     if not pak or not os.path.exists(pak):
         return {}
-    models = [(name, build_bundled_model(pak, name, tmp)) for name in EFFECT_MODELS]
+    models = [(name, build_bundled_model(pak, name, tmp, spec)) for name, spec in EFFECT_MODELS]
     geom = bytearray()
     skins = bytearray()
     records: list[tuple[str, bytes, int, int, int]] = []
@@ -911,6 +915,12 @@ AMB_KIND = {'ambient_comp_hum': ('ambience/comp1', 1.0), 'ambient_drone': ('ambi
             'light_flame_small_yellow': ('ambience/fire1', 0.5),
             'light_flame_small_white': ('ambience/fire1', 0.5),
             'light_fluoro': ('ambience/fl_hum1', 0.5), 'light_fluorospark': ('ambience/buzz1', 0.5)}
+FLAME_KIND = {
+    'light_torch_small_walltorch': (0, 0),
+    'light_flame_large_yellow': (1, 1),
+    'light_flame_small_yellow': (1, 0),
+    'light_flame_small_white': (1, 0),
+}
 
 
 @dataclass(slots=True)
@@ -941,6 +951,7 @@ class Ents:
     names: dict[str, int] = field(default_factory=dict)
     mons: list[tuple] = field(default_factory=list)
     ambs: list[tuple[int, int, tuple[float, float, float]]] = field(default_factory=list)
+    flames: list[tuple[tuple[float, float, float], int, int]] = field(default_factory=list)
     air_bubbles: list[tuple[float, float, float]] = field(default_factory=list)
     # targetname, origin, wait, target
     corners: list[tuple[str, tuple[float, float, float], float, str]] = field(default_factory=list)
@@ -1348,6 +1359,15 @@ def sp_air_bubbles(e: Ents, kv: dict[str, str]) -> bool:
     return True
 
 
+def sp_flame(e: Ents, kv: dict[str, str]) -> bool:
+    model, anim_set = FLAME_KIND[kv['classname']]
+    origin = ent_vec(kv.get('origin', '0 0 0'))
+    e.flames.append((origin, model, anim_set))
+    wav, volume = AMB_KIND[kv['classname']]
+    e.ambs.append((mksnd.SOUNDS.index(wav), int(255 * volume), origin))
+    return True
+
+
 SPAWN: dict[str, Callable[[Ents, dict[str, str]], bool]] = {
     'worldspawn': sp_worldspawn,
     'info_player_start': sp_player_start,
@@ -1379,6 +1399,7 @@ SPAWN: dict[str, Callable[[Ents, dict[str, str]], bool]] = {
     'func_train': sp_train,
     'func_plat': sp_plat,
     'air_bubbles': sp_air_bubbles,
+    **{name: sp_flame for name in FLAME_KIND},
 }
 
 
@@ -1631,7 +1652,10 @@ def convert_lumps(d, lumps, outdir, gravity, crates):
     # origin run per skill even though stock e1m4 happens to use all skills.
     out['air.bin'] = (struct.pack('<4h', *(len(e.air_bubbles) for e in spawned)) +
                       b''.join(struct.pack('<3f', *org)
-                               for e in spawned for org in e.air_bubbles))
+                               for e in spawned for org in e.air_bubbles) +
+                      struct.pack('<4H', *(len(e.flames) for e in spawned)) +
+                      b''.join(struct.pack('<3fBB', *org, model, anim_set)
+                               for e in spawned for org, model, anim_set in e.flames))
 
     # marksurfaces: identical either side. models: 64 -> 32, bspfile.bi's
     # Submodel -- the box, hulls 0 and 1, the face run

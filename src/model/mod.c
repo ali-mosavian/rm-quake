@@ -249,6 +249,7 @@ void mod_unload( World *world )
     mdl_unload( &world->boss );
     mdl_unload_items( world );
     mdl_unload_effects( world );
+    if ( world->flame_hnd ) qglGemFree( world->flame_hnd );
 
     if ( world->models )   qglMemFree( (long) world->models );
     if ( world->nodes )    qglMemFree( (long) world->nodes );

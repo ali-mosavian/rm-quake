@@ -51,6 +51,7 @@ static const ArgFlag far arg_flags[] = {
     { "-noents",    offsetof( RunArgs, no_ents ) },
     { "-noitems",   offsetof( RunArgs, no_items ) },
     { "-nomdl",     offsetof( RunArgs, no_mdl ) },
+    { "-noflame",   offsetof( RunArgs, no_flame ) },
     { "-nobeam",    offsetof( RunArgs, no_beam ) },
     { "-noai",      offsetof( RunArgs, no_ai ) },
     { "-fire",      offsetof( RunArgs, fire ) },

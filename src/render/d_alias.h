@@ -34,6 +34,11 @@ short d_draw_models( World *world, Renderer *rdr, DiskPlane far *frustum,
                       Mat4 *mtx_fin, float xresh, float yresh, float z_near,
                       QSurf dst );
 
+/* makestatic flame.mdl/flame2.mdl entities, animated from their frame groups. */
+short d_draw_flames( World *world, Renderer *rdr, DiskPlane far *frustum,
+                      Mat4 *mtx_fin, float xresh, float yresh,
+                      float z_near, QSurf dst );
+
 /* Chthon, once boss_awake has raised him from the lava. */
 short d_draw_boss( World *world, Renderer *rdr, DiskPlane far *frustum,
                     Mat4 *mtx_fin, float xresh, float yresh, float z_near,

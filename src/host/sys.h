@@ -72,6 +72,7 @@ typedef struct {
     short no_ents;            /* -noents */
     short no_items;           /* -noitems: the reference frame for the pickups */
     short no_mdl;             /* -nomdl: and for the monsters */
+    short no_flame;           /* -noflame: static alias evidence control */
     short no_beam;            /* -nobeam: visual evidence control */
     short no_view;            /* -noview: the view weapon left out */
     short no_sound;           /* -nosound: the card left alone */

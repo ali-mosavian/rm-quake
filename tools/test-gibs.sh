@@ -24,6 +24,7 @@ wanted = [
     "spike", "s_spike", "grenade", "missile", "lavaball", "w_spike", "zom_gib",
     "gib1", "gib2", "gib3", "h_player", "h_guard", "h_knight", "h_dog",
     "h_ogre", "h_demon", "h_zombie", "h_wizard", "h_shams", "bolt", "bolt3",
+    "bolt2", "flame", "flame2",
 ]
 if names != wanted:
     raise SystemExit(f"FAIL: effect bank contains {names}, wanted {wanted}")
@@ -38,7 +39,7 @@ print("ok: shared effect bank carries the projectiles, gibs and heads")
 PY
 
 # Start with the rocket launcher. One direct rocket overkills the 25-health dog
-# 100 units ahead, below dog_die's -35 gib threshold.
+# 60 units ahead, below dog_die's -35 gib threshold.
 python3 - "$OUT/CARRY.BIN" <<'PY'
 import struct
 import sys
@@ -51,7 +52,7 @@ PY
 rm -f "$OUT/s11.sav" "$OUT/s11.tmp" "$OUT/s11.old"
 trap 'rm -f "$OUT/s11.sav" "$OUT/s11.tmp" "$OUT/s11.old"' EXIT
 KEEP_CARRY=1 CYCLES=max TIMEOUT="${TIMEOUT:-200}" "${RUN_SH:-$HERE/run.sh}" "$OUT" \
-    "e1m1.qmp -nostats -noai -carry -at 88 1420 -190 -yaw 270 -fire +wait;wait;wait;wait;wait;save s11;load s11;quit" \
+    "e1m1.qmp -nostats -noai -carry -at 88 1460 -190 -yaw 270 -fire +wait;wait;wait;wait;wait;save s11;load s11;quit" \
     >/dev/null 2>&1 || true
 
 reports=$(tr -d '\r' < "$OUT/cstep.txt" 2>/dev/null | grep '^gib mdl=' || true)

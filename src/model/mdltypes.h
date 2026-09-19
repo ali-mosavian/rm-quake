@@ -141,7 +141,9 @@ typedef struct {
 #define MDL_FX_BOLT     19
 #define MDL_FX_BOLT3    20
 #define MDL_FX_BOLT2    21
-#define MDL_FX_N        22
+#define MDL_FX_FLAME    22
+#define MDL_FX_FLAME2   23
+#define MDL_FX_N        24
 
 /* One spawned monster: everything mdl_think owns, separate from the
    MdlState a whole kind shares. BSP space, Z up, like Player.pos, so it

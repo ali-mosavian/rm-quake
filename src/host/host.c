@@ -633,8 +633,11 @@ static void near host_render_models( Host *h, RenderView *rv, Camera *cam )
 
     d_draw_items( world, rdr, &h->player, rv->frustum, &rv->mtx_fin,
                    rv->xresh, rv->yresh, z_near, dst );
-    rdr->mdl_drawn = d_draw_models( world, rdr, rv->frustum, &rv->mtx_fin,
+    rdr->mdl_drawn = d_draw_flames( world, rdr, rv->frustum, &rv->mtx_fin,
                                      rv->xresh, rv->yresh, z_near, dst );
+    rdr->mdl_drawn = (short) ( rdr->mdl_drawn +
+        d_draw_models( world, rdr, rv->frustum, &rv->mtx_fin,
+                        rv->xresh, rv->yresh, z_near, dst ) );
     rdr->boss_drawn = d_draw_boss( world, rdr, rv->frustum, &rv->mtx_fin,
                                     rv->xresh, rv->yresh, z_near, dst );
     rdr->mdl_drawn = (short) ( rdr->mdl_drawn + rdr->boss_drawn );
@@ -1043,6 +1046,7 @@ static void near host_view_setup( Host *h )
     rdr->no_ents   = a->no_ents;
     rdr->no_items  = a->no_items;
     rdr->no_mdl    = a->no_mdl;
+    rdr->no_flame  = a->no_flame;
     rdr->no_beam   = a->no_beam;
     rdr->no_view   = a->no_view;
     rdr->demo_view_frame = -1;
@@ -1356,6 +1360,7 @@ static void near host_console_result( Host *h, CmdKind kind, CmdResult *result )
             h->rdr.no_ents = h->args.no_ents;
             h->rdr.no_items = h->args.no_items;
             h->rdr.no_mdl = h->args.no_mdl;
+            h->rdr.no_flame = h->args.no_flame;
             h->rdr.no_view = h->args.no_view;
             h->rdr.demo_view_frame = -1;
             strncpy( h->fight.next_map, h->args.map_name, 8 );
@@ -1864,6 +1869,9 @@ static void near host_report( Host *h )
     sprintf( buf, "gib mdl=%d live=%d", (int) h->rdr.gib_mdl_drawn,
              (int) h->rdr.gib_count );
     mark( buf );
+    sprintf( buf, "flames live=%d drawn=%d", (int) h->world.flame_count,
+             (int) h->rdr.flame_mdl_drawn );
+    mark( buf );
 
     sprintf( buf, "fight=health %d shells %d nails %d rockets %d armor %d items %ld weapon %d took %d kills %d booms %d deaths %d cells %d",
              fight->health, fight->shells, fight->nails, fight->rockets,
@@ -1941,6 +1949,7 @@ static void near host_change_args( RunArgs *args, char *map )
     args->no_stats = old.no_stats;
     args->no_ai = old.no_ai;
     args->no_mdl = old.no_mdl;
+    args->no_flame = old.no_flame;
     args->no_beam = old.no_beam;
     args->no_items = old.no_items;
     args->no_view = old.no_view;

@@ -87,13 +87,28 @@ static void near mdl_beam_start( Beam *beam, const Player *player )
     if ( beam->key == BEAM_PLAYER_KEY ) beam->start = player->pos;
 }
 
+static short near mdl_flame_frame( const MdlState *m, short set, long tick )
+{
+    short count = mdl_set_count( m, set );
+
+    if ( !count ) return -1;
+    return mdl_set_frame( m, set, (short) ( tick % count ) );
+}
+
 short d_alias_selftest( void )
 {
     Beam beam;
     Player player;
+    MdlState flame;
+    unsigned char counts[MDL_NSETS];
 
     memset( &beam, 0, sizeof(beam) );
     memset( &player, 0, sizeof(player) );
+    memset( &flame, 0, sizeof(flame) );
+    memset( counts, 0, sizeof(counts) );
+    counts[0] = 6;
+    counts[1] = 11;
+    mdl_set_counts( &flame, counts );
     beam.key = BEAM_PLAYER_KEY;
     beam.start.z = 16.0f;
     player.pos.x = 10.0f;
@@ -102,7 +117,12 @@ short d_alias_selftest( void )
     /* id's d_xdenom is the negative of this screen-space area. */
     return (short) ( mdl_front_area( 1.0f ) && !mdl_front_area( -1.0f ) &&
                      mdl_front_det( -1.0f ) && !mdl_front_det( 1.0f ) &&
-                     beam.start.x == 10.0f && beam.start.z == 20.0f );
+                     beam.start.x == 10.0f && beam.start.z == 20.0f &&
+                     mdl_flame_frame( &flame, 0, 5 ) == 5 &&
+                     mdl_flame_frame( &flame, 0, 6 ) == 0 &&
+                     mdl_flame_frame( &flame, 1, 0 ) == 6 &&
+                     mdl_flame_frame( &flame, 1, 10 ) == 16 &&
+                     mdl_flame_frame( &flame, 1, 11 ) == 6 );
 }
 
 /* id's alias light points along world -x. qgl's alias path has no light
@@ -737,6 +757,53 @@ short d_draw_models( World *world, Renderer *rdr, DiskPlane far *frustum,
             &ms->scale, &ms->origin, ms, ms->skin,
             m, xresh, yresh, z_near, dst, QGL_Z_TEST ) );
     }
+    return drawn;
+}
+
+short d_draw_flames( World *world, Renderer *rdr, DiskPlane far *frustum,
+                      Mat4 *mtx_fin, float xresh, float yresh,
+                      float z_near, QSurf dst )
+{
+    float *m = (float *) mtx_fin;
+    EffectModel model;
+    short i, seg, drawn = 0, loaded_id = -1;
+
+    rdr->flame_mdl_drawn = 0;
+    if ( rdr->no_flame || !world->flame_count || !world->flame_hnd ) return 0;
+
+    for ( i = 0; i < world->flame_count; i++ ) {
+        FlameEnt flame;
+        FlameEnt far *pool;
+        QSurf skin;
+        short id, frame, n;
+
+        /* mdl_effect_model and the triangle draw remap PAGE_SLOT, so no
+           pointer into this EMS pool survives past the record copy. */
+        seg = qglGemMap( world->flame_hnd, 0, PAGE_SLOT );
+        if ( !seg ) continue;
+        pool = (FlameEnt far *) ((long) seg << 16);
+        _fmemcpy( &flame, &pool[i], sizeof(flame) );
+
+        id = (short) ( flame.model ? MDL_FX_FLAME2 : MDL_FX_FLAME );
+        if ( id != loaded_id ) {
+            if ( !mdl_effect_model( world, id, &model ) ) continue;
+            loaded_id = id;
+        }
+        if ( !d_mdl_visible( world, rdr, frustum, &flame.pos,
+                              model.state.radius, model.state.zlo, model.state.zhi,
+                              (LeafCache far *) 0 ) ) continue;
+        frame = mdl_flame_frame( &model.state, flame.set,
+                                  (long) ( rdr->anim_time * 10.0f ) );
+        if ( frame < 0 ) continue;
+        skin = mdl_effect_skin( world, id, &model );
+        if ( !skin ) continue;
+        n = mdl_draw_tris( world, model.state.ntri, model.state.nvert, frame,
+                           &flame.pos, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f,
+                           &model.state.scale, &model.state.origin, &model.state, skin,
+                           m, xresh, yresh, z_near, dst, QGL_Z_TEST );
+        drawn = (short) ( drawn + n );
+    }
+    rdr->flame_mdl_drawn = drawn;
     return drawn;
 }
 

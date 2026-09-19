@@ -31,6 +31,13 @@ PAK0 and are left out.
       id: `r_alias.c` `R_AliasSetupLighting`
       qcport: face-normal colormap shading copied before the triangle page
       remaps its EMS slot; `src/render/d_alias.c`
+- [x] Static torch and flame models
+      id: `misc.qc` `light_torch_small_walltorch`,
+      `light_flame_large_yellow`, `light_flame_small_yellow` and
+      `light_flame_small_white`
+      qcport: the original grouped `flame.mdl`/`flame2.mdl` animations,
+      synchronized like id's static-entity path, with map records kept in one EMS page;
+      `src/render/d_alias.c`, `tools/test-flames.sh`
 - [x] Particles: blood, gunshots, explosions, trails, teleport and lava
       splashes
       id: `r_part.c` `R_ParticleExplosion`, `R_RocketTrail`,

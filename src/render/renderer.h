@@ -162,6 +162,7 @@ typedef struct {
     short no_ents;        /* -noents */
     short no_items;       /* -noitems */
     short no_mdl;         /* -nomdl */
+    short no_flame;       /* -noflame: static alias evidence control */
     short no_beam;        /* -nobeam: keep state, omit beam raster */
     short no_view;        /* -noview: no weapon in hand, for a reference frame */
     short demo_view_frame;/* recorded QDS1 frame, -1 outside demo playback */
@@ -170,6 +171,7 @@ typedef struct {
     short item_mdl_drawn; /* pickup alias triangles submitted this frame */
     short projectile_mdl_drawn; /* projectile alias triangles this frame */
     short gib_mdl_drawn;  /* ThrowGib/ThrowHead triangles this frame */
+    short flame_mdl_drawn;/* makestatic flame triangles this frame */
     short gib_count;      /* transient GibEnt records in frame_dc */
     short sprite_live;
     short sprite_drawn;

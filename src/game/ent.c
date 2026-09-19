@@ -30,6 +30,8 @@
 #include "d_sprite.h"
 #include "sys.h"
 
+#define FLAME_SLOT 2
+
 /* Neither toolchain here defines F_FTOL@, the runtime helper bcc emits
    for a float/double-to-integer cast (checked bcpp31's and tc201's
    CC.LIB by string search, present in neither) -- so a cast goes
@@ -716,6 +718,52 @@ static void near ent_settle( World *world )
     for ( i = 0; i < world->mon_count; i++ ) mdl_spawn( world, &world->mon[i] );
 }
 
+/* air.bin's second section: four skill counts and one FlameEnt
+   run per skill. The selected run streams straight into one EMS page; no
+   low-memory copy of all four skill sets exists during map load. */
+static void near ent_load_flames( World *world )
+{
+    short air[4], counts[4], i, count, fh, seg;
+    long n, ofs, bytes, total;
+
+    world->flame_count = world->flame_hnd = 0;
+    if ( !pak_has( &world->pak, "air.bin" ) ) return;
+    fh = pak_seek( &world->pak, "air.bin", &n );
+    if ( n < (long) sizeof(air) ||
+         qglFileRead( fh, (long) (void far *) air, sizeof(air) ) != sizeof(air) )
+        sys_error( "air.bin is truncated" );
+    ofs = sizeof(air);
+    for ( i = 0; i < 4; i++ ) {
+        if ( air[i] < 0 ) sys_error( "air.bin has invalid emitters" );
+        ofs += (long) air[i] * sizeof(BspVec3);
+    }
+    if ( ofs + (long) sizeof(counts) > n ) sys_error( "air.bin has no flame table" );
+    fh = pak_seek_part( &world->pak, "air.bin", ofs, sizeof(counts) );
+    if ( qglFileRead( fh, (long) (void far *) counts, sizeof(counts) ) != sizeof(counts) )
+        sys_error( "air.bin flame table is truncated" );
+
+    ofs += sizeof(counts);
+    total = ofs;
+    for ( i = 0; i < 4; i++ ) {
+        if ( counts[i] < 0 || (long) counts[i] * sizeof(FlameEnt) > WORLD_EMS_PAGE_BYTES )
+            sys_error( "air.bin has invalid flames" );
+        total += (long) counts[i] * sizeof(FlameEnt);
+    }
+    if ( total != n ) sys_error( "air.bin has the wrong size" );
+
+    for ( i = 0; i < world->skill; i++ ) ofs += (long) counts[i] * sizeof(FlameEnt);
+    count = counts[world->skill];
+    if ( !count ) return;
+    bytes = (long) count * sizeof(FlameEnt);
+    world->flame_hnd = qglGemAlloc( bytes );
+    if ( !world->flame_hnd ) sys_error( "flames: no EMS" );
+    seg = qglGemMap( world->flame_hnd, 0, FLAME_SLOT );
+    fh = pak_seek_part( &world->pak, "air.bin", ofs, bytes );
+    if ( !seg || qglFileRead( fh, (long) seg << 16, bytes ) != bytes )
+        sys_error( "air.bin flames would not load" );
+    world->flame_count = count;
+}
+
 /*
  * name: ent_load_world
  * desc: Loads ents.bin a record kind at a time, in the file's order.
@@ -783,6 +831,7 @@ void ent_load_world( World *world )
     mdl_load_monster_models( world );
     mdl_load_items( world, h.worldtype );
     mdl_load_effects( world );
+    ent_load_flames( world );
     mdl_load_boss( world );
     ent_settle( world );
 }
@@ -793,24 +842,31 @@ void ent_load_air_bubbles( World *world, Renderer *rdr )
 {
     long n, ofs, bytes;
     short counts[4], i, count;
-    unsigned char far *buf;
+    short fh;
+    BspVec3 origins[SPR_EMITTERS];
 
     if ( !pak_has( &world->pak, "air.bin" ) ) return;
-    buf = pak_load_whole( &world->pak, "air.bin", &n );
-    if ( n < (long) sizeof(counts) ) sys_error( "air.bin is truncated" );
-    _fmemcpy( counts, buf, sizeof(counts) );
+    fh = pak_seek( &world->pak, "air.bin", &n );
+    if ( n < (long) sizeof(counts) ||
+         qglFileRead( fh, (long) (void far *) counts, sizeof(counts) ) != sizeof(counts) )
+        sys_error( "air.bin is truncated" );
     bytes = sizeof(counts);
     for ( i = 0; i < 4; i++ ) {
         if ( counts[i] < 0 || counts[i] > SPR_EMITTERS )
             sys_error( "air.bin has invalid emitters" );
         bytes += (long) counts[i] * sizeof(BspVec3);
     }
-    if ( bytes != n ) sys_error( "air.bin is truncated" );
+    if ( bytes > n ) sys_error( "air.bin is truncated" );
     ofs = sizeof(counts);
     for ( i = 0; i < world->skill; i++ ) ofs += (long) counts[i] * sizeof(BspVec3);
     count = counts[world->skill];
-    d_sprite_air_init( rdr, (BspVec3 far *) ( buf + ofs ), count );
-    qglMemFree( (long) buf );
+    if ( count ) {
+        bytes = (long) count * sizeof(BspVec3);
+        fh = pak_seek_part( &world->pak, "air.bin", ofs, bytes );
+        if ( qglFileRead( fh, (long) (void far *) origins, bytes ) != bytes )
+            sys_error( "air.bin emitters would not load" );
+    }
+    d_sprite_air_init( rdr, origins, count );
 }
 
 /* A message by its byte offset in the map's NUL string pool. */
