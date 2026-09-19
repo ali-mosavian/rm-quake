@@ -33,8 +33,11 @@
 #define SC_HINDEX_MASK 0x07FF
 #define SC_GRAN_MASK 0x3FFF
 #define SC_DYNAMIC 0x4000
+#define SC_STATE_HI 0x8000
 #define SC_OWNER_MASK 0x1FFF
 #define SC_MIP_SHIFT 13
+#define SC_SIB_NEXT_MASK 0x1800
+#define SC_FREE 0x2000
 
 static short sc_hindex( unsigned short h )
 {
@@ -46,23 +49,18 @@ static short sc_hstate( SurfCache far *sc, unsigned short h )
 {
     short b = sc_hindex( h );
     return (short) ( sc->bstate[b]
-                   | ( ( sc->bstate[SC_NBLK + ( b >> 3 )] >> ( b & 7 ) ) & 1 ) << 8 );
+                   | ( sc->bgrn[b] & SC_STATE_HI ? 0x100 : 0 ) );
 }
 
 static unsigned short sc_handle( SurfCache far *sc, short b, short state )
 {
-    unsigned char mask = (unsigned char) ( 1 << ( b & 7 ) );
-    unsigned char far *hi = &sc->bstate[SC_NBLK + ( b >> 3 )];
-
     sc->bstate[b] = (unsigned char) state;
-    if ( state & 0x100 ) *hi |= mask;
-    else                 *hi &= (unsigned char) ~mask;
     return (unsigned short) b;
 }
 
 static short sc_owner( SurfCache far *sc, short b )
 {
-    return sc->bown[b] == 0xFFFF ? -1 : (short) ( sc->bown[b] & SC_OWNER_MASK );
+    return sc->bsib[b] & SC_FREE ? -1 : (short) ( sc->bown[b] & SC_OWNER_MASK );
 }
 
 static short sc_mip( SurfCache far *sc, short b )
@@ -72,7 +70,20 @@ static short sc_mip( SurfCache far *sc, short b )
 
 static void sc_set_owner( SurfCache far *sc, short b, short face, short mip )
 {
-    sc->bown[b] = (unsigned short) ( face | ( mip << SC_MIP_SHIFT ) );
+    sc->bown[b] = (unsigned short) ( ( sc->bown[b] & 0x8000 ) |
+                                     face | ( mip << SC_MIP_SHIFT ) );
+    sc->bsib[b] &= (unsigned short) ~SC_FREE;
+}
+
+static void sc_set_free( SurfCache far *sc, short b )
+{
+    sc->bsib[b] |= SC_FREE;
+}
+
+static void sc_sib_set( SurfCache far *sc, short b, unsigned short h )
+{
+    sc->bsib[b] = (unsigned short) ( ( sc->bsib[b] & ~SC_HINDEX_MASK ) |
+                                     ( h & SC_HINDEX_MASK ) );
 }
 
 static unsigned short sc_face_head( SurfCache far *sc, short face )
@@ -98,29 +109,21 @@ static short sc_gran( SurfCache far *sc, short b )
 
 static short sc_next_get( SurfCache far *sc, short b )
 {
-    short bit = (short) ( b * 3 );
-    short off = (short) ( bit >> 3 );
-    short shift = (short) ( bit & 7 );
-    unsigned short hi = (unsigned short) sc->bnext[SC_NBLK + off]
-                      | ( (unsigned short) sc->bnext[SC_NBLK + off + 1] << 8 );
     unsigned short v = (unsigned short) sc->bnext[b]
-                     | (unsigned short) ( ( ( hi >> shift ) & 7 ) << 8 );
+                     | (unsigned short) ( ( sc->bown[b] & 0x8000 ) >> 7 )
+                     | (unsigned short) ( ( sc->bsib[b] & SC_SIB_NEXT_MASK ) >> 2 );
     return v == SC_NULL_INDEX ? -1 : (short) v;
 }
 
 static void sc_next_set( SurfCache far *sc, short b, short next )
 {
-    short bit = (short) ( b * 3 );
-    short off = (short) ( bit >> 3 );
-    short shift = (short) ( bit & 7 );
-    unsigned short mask = (unsigned short) ( 7 << shift );
-    unsigned short hi = (unsigned short) sc->bnext[SC_NBLK + off]
-                      | ( (unsigned short) sc->bnext[SC_NBLK + off + 1] << 8 );
     unsigned short n = next < 0 ? SC_NULL_INDEX : (unsigned short) next;
+
     sc->bnext[b] = (unsigned char) n;
-    hi = (unsigned short) ( ( hi & ~mask ) | ( ( ( n >> 8 ) << shift ) & mask ) );
-    sc->bnext[SC_NBLK + off] = (unsigned char) hi;
-    sc->bnext[SC_NBLK + off + 1] = (unsigned char) ( hi >> 8 );
+    sc->bown[b] = (unsigned short) ( ( sc->bown[b] & 0x7FFF ) |
+                                     ( ( n & 0x0100 ) << 7 ) );
+    sc->bsib[b] = (unsigned short) ( ( sc->bsib[b] & ~SC_SIB_NEXT_MASK ) |
+                                     ( ( n & 0x0600 ) << 2 ) );
 }
 
 /* Smallest power-of-two shift that covers v, clamped to the classes
@@ -174,7 +177,7 @@ static void sc_bput( SurfCache far *sc, short b )
    costs nothing. */
 static void sc_fpush( SurfCache far *sc, short b, short ord )
 {
-    sc->bown[b] = 0xFFFF;
+    sc_set_free( sc, b );
     sc_next_set( sc, b, sc->fhead[ord] );
     sc->fhead[ord] = b;
 }
@@ -213,7 +216,7 @@ static void sc_bfree( SurfCache far *sc, short blk, short ord )
 {
     short b = blk, bud, g;
 
-    sc->bown[b] = 0xFFFF;
+    sc_set_free( sc, b );
 
     while ( ord < SC_NORD - 1 ) {
         g = sc_gran( sc, b ) ^ (short) (1 << ord);
@@ -340,9 +343,9 @@ static void sc_chain_drop( SurfCache far *sc, short face, short b )
 
     while ( k >= 0 && k != b ) { p = h; h = sc->bsib[k]; k = sc_hindex( h ); }
     if ( k < 0 ) return;
-    if ( sc_hindex( p ) >= 0 ) sc->bsib[ sc_hindex( p ) ] = sc->bsib[k];
+    if ( sc_hindex( p ) >= 0 ) sc_sib_set( sc, sc_hindex( p ), sc->bsib[k] );
     else sc_face_set_head( sc, face, sc->bsib[k] );
-    sc->bsib[k] = SC_NULL_HANDLE;
+    sc_sib_set( sc, k, SC_NULL_HANDLE );
 }
 
 static void sc_chain_front( SurfCache far *sc, short face, unsigned short h )
@@ -350,7 +353,7 @@ static void sc_chain_front( SurfCache far *sc, short face, unsigned short h )
     short b = sc_hindex( h );
     if ( sc_face_head( sc, face ) == h ) return;
     sc_chain_drop( sc, face, b );
-    sc->bsib[b] = sc_face_head( sc, face );
+    sc_sib_set( sc, b, sc_face_head( sc, face ) );
     sc_face_set_head( sc, face, h );
 }
 
@@ -365,8 +368,10 @@ static void sc_reset_lists( SurfCache far *sc )
     sc->rfree = -1;
 }
 
-static short sc_why  = 0;   /* the allocation sc_init stopped on */
+static short sc_why  = 0;   /* the allocation sc_create stopped on */
 static long  sc_want = 0;   /* and the bytes it asked that one for */
+
+#define SC_HEAD_BYTES ((long) sizeof(SurfCache) + SC_META_BYTES)
 
 void sc_fail( short *step, long *want )
 {
@@ -374,13 +379,31 @@ void sc_fail( short *step, long *want )
     *want = sc_want;
 }
 
+SurfCache far *sc_create( void )
+{
+    SurfCache far *sc;
+
+    sc_why = 1;
+    sc_want = SC_HEAD_BYTES;
+    sc = (SurfCache far *) qglMemAlloc( SC_HEAD_BYTES );
+    if ( !sc ) return 0;
+    _fmemset( sc, 0, (size_t) SC_HEAD_BYTES );
+    sc->meta = (unsigned char far *) sc + sizeof(SurfCache);
+    sc->bgrn = (unsigned short far *) sc->meta;
+    sc->bown = sc->bgrn + SC_NBLK;
+    sc->bsib = sc->bown + SC_NBLK;
+    sc->bstate = (unsigned char far *) ( sc->bsib + SC_NBLK );
+    sc->bnext = sc->bstate + SC_STATE_BYTES;
+    sc_why = 0;
+    return sc;
+}
+
 short sc_init( SurfCache far *sc, Face far *faces, short face_count )
 {
     short i;
 
+    if ( !sc || !sc->meta || !sc->bgrn || !sc->bown || !sc->bsib ) return 0;
     sc->faces = faces;
-    sc->meta = 0;
-    sc->bgrn = 0; sc->bown = 0; sc->bstate = 0; sc->bnext = 0; sc->bsib = 0;
     sc->desc = 0;
     sc->hnd = 0;
 
@@ -396,15 +419,6 @@ short sc_init( SurfCache far *sc, Face far *faces, short face_count )
     sc->dlit    = 0;
     sc->nofresh = 0;
 
-    sc_want = SC_META_BYTES;
-    sc_why = 1; sc->meta = (unsigned char far *) qglMemAlloc( sc_want );
-    if ( !sc->meta ) { sc_shutdown( sc ); return 0; }
-    sc->bgrn = (unsigned short far *) sc->meta;
-    sc->bown = (unsigned short far *) ( sc->meta + SC_NBLK * sizeof(unsigned short) );
-    sc->bsib = (unsigned short far *) ( sc->meta + SC_NBLK * 2L * sizeof(unsigned short) );
-    sc->bstate = sc->meta + SC_NBLK * 3L * sizeof(unsigned short);
-    sc->bnext = sc->bstate + SC_STATE_BYTES;
-    _fmemset( sc->bstate + SC_NBLK, 0, (SC_NBLK + 7) / 8 );
     sc_why = 0;
 
     sc->desc = 0;
@@ -458,8 +472,9 @@ void sc_reset( SurfCache far *sc, short face_count )
     sc->next = 0;
 }
 
-void sc_shutdown( SurfCache far *sc )
+void sc_delete( SurfCache far *sc )
 {
+    if ( !sc ) return;
     /* views first: they borrow the store's pixels, so the store
        outlives them */
     if ( sc->desc != 0 ) qglDelView( sc->desc );
@@ -470,10 +485,7 @@ void sc_shutdown( SurfCache far *sc )
     sc->next = 0;
     sc->ok   = 0;
 
-    if ( sc->meta ) qglMemFree( (long) (void far *) sc->meta );
-    sc->faces = 0; sc->bgrn = 0;
-    sc->bown = 0; sc->bnext = 0;
-    sc->bsib = 0; sc->bstate = 0; sc->meta = 0;
+    qglMemFree( (long) (void far *) sc );
 }
 
 void sc_flush( SurfCache far *sc, short face_count )
@@ -643,11 +655,13 @@ QSurf sc_alloc( SurfCache far *sc, short face, short mip, short w, short h, shor
         sc_set_owner( sc, blk, face, mip );
         sc_next_set( sc, blk, -1 );
         newh = sc_handle( sc, blk, state < 0 ? 0 : state );
-        sc->bsib[blk] = sc_face_head( sc, face );
+        sc_sib_set( sc, blk, sc_face_head( sc, face ) );
         sc_face_set_head( sc, face, newh );
         sc->live++;
     }
-    sc->bgrn[blk] = (unsigned short) ( sc_gran( sc, blk ) | ( state < 0 ? SC_DYNAMIC : 0 ) );
+    sc->bgrn[blk] = (unsigned short) ( sc_gran( sc, blk ) |
+                      ( state < 0 ? SC_DYNAMIC : 0 ) |
+                      ( state >= 0 && ( state & 0x100 ) ? SC_STATE_HI : 0 ) );
     ofs = (long) sc_gran( sc, blk ) * SC_GRAN;
     if ( sc->next > sc->peak ) sc->peak = sc->next;
 
@@ -701,11 +715,7 @@ short sc_frame_end( SurfCache far *sc )
 
 short sc_ready( SurfCache far *sc )
 {
-    /* NULL is a real caller state, not a contract violation: main marks
-       "sc_init FAILED" and carries on so a map too big for the cache
-       still draws, just unlit. It used to dereference straight through
-       and take the program with it -- on e1m1, only once an unrelated
-       memory change let the run get this far. */
+    /* Defensive for partial startup/shutdown; a loaded map always owns sc. */
     if ( !sc ) return 0;
     return sc->ok;
 }
@@ -745,6 +755,31 @@ static short sc_selftest_run( SurfCache far *sc )
     if ( !sc->ok ) return -1;
 
     sc_reset( sc, 10 );
+
+    /* Packed free/FIFO link bits share the otherwise unused high bits of
+       owner and sibling words. Each field must survive writes to the others. */
+    {
+        short p = SC_NBLK - 1;
+        short j;
+        short links[5] = { 0x101, 0x201, 0x401, 7, 1793 };
+        sc->bown[p] = 0;
+        sc->bsib[p] = 0;
+        sc_set_owner( sc, p, 123, 2 );
+        sc_sib_set( sc, p, 321 );
+        for ( j = 0; j < 5; j++ ) {
+            sc_next_set( sc, p, links[j] );
+            if ( sc_next_get( sc, p ) != links[j] || sc_owner( sc, p ) != 123 ||
+                 sc_mip( sc, p ) != 2 || sc_hindex( sc->bsib[p] ) != 321 ) return -109;
+        }
+        sc_sib_set( sc, p, 654 );
+        sc_set_owner( sc, p, SC_OWNER_MASK, 3 );
+        if ( sc_next_get( sc, p ) != 1793 || sc_owner( sc, p ) != SC_OWNER_MASK ||
+             sc_mip( sc, p ) != 3 || sc_hindex( sc->bsib[p] ) != 654 ) return -110;
+        sc_set_free( sc, p );
+        if ( sc_next_get( sc, p ) != 1793 || sc_owner( sc, p ) != -1 ) return -111;
+        sc_next_set( sc, p, -1 );
+        if ( sc_next_get( sc, p ) != -1 || sc_owner( sc, p ) != -1 ) return -112;
+    }
 
     /* 224 rounds to 256, 112 to 128, 20 to 32 */
     if ( sc_shift( 224 ) != 8 ) return -2;
@@ -921,7 +956,7 @@ static short sc_selftest_run( SurfCache far *sc )
     if ( sc_find( sc, 1, 0, 112, 112, 0, &aim ) == 0 ) return -61;
 
     /* The animation phase extends the key to nine bits. Its high bit
-       must survive the packed state table instead of aliasing state 255. */
+       must survive in bgrn instead of aliasing state 255. */
     if ( sc_alloc( sc, 9, 0, 16, 16, 16, 16, 511, 10, &aim ) == 0 ) return -106;
     if ( sc_find( sc, 9, 0, 16, 16, 511, &aim ) == 0 ) return -107;
     if ( sc_find( sc, 9, 0, 16, 16, 255, &aim ) != 0 ) return -108;
@@ -993,39 +1028,36 @@ static short sc_selftest_run( SurfCache far *sc )
     return 1;
 }
 
-/* sc_init refused must return 0 and keep nothing. The struct is 0xFF, as
-   uncleared qglMemAlloc bytes can be. Memory is filled with small blocks
-   and two non-adjacent ones freed, so the total free memory is misleading
-   but the consolidated metadata block cannot fit. */
-static short sc_selftest_short( SurfCache far *sc )
+/* Refusal in fragmented memory must retain nothing. */
+static short sc_selftest_short( void )
 {
-    long hog[256];   /* on the stack: static is 1K of DGROUP */
-    Face faces[10];
-    long before, want;
-    short n = 0, k, r, ok, step;
+    long hog[256];
+    SurfCache far *sc;
+    long before, largest, total, want;
+    short n = 0, k, step, shape_ok;
 
-    qglMemAvail( QGL_MEM_LARGEST );   /* merge, or TOTAL reads short */
+    qglMemAvail( QGL_MEM_LARGEST );
     before = qglMemAvail( QGL_MEM_TOTAL );
-
-    while ( n < 256 && ( hog[n] = qglMemAlloc( (long) SC_NBLK * (long) sizeof(short) ) ) != 0 ) n++;
+    while ( n < 256 && ( hog[n] = qglMemAlloc( SC_HEAD_BYTES / 2 ) ) != 0 ) n++;
     if ( n < 4 ) {
         for ( k = 0; k < n; k++ ) qglMemFree( hog[k] );
-        return -86;
+        return -90;
     }
     qglMemFree( hog[0] );
     qglMemFree( hog[2] );
 
-    _fmemset( sc, 0xFF, sizeof(SurfCache) );
-    r = sc_init( sc, (Face far *) faces, 10 );
-    ok = sc->ok;
-    sc_fail( &step, &want );
+    largest = qglMemAvail( QGL_MEM_LARGEST );
+    total = qglMemAvail( QGL_MEM_TOTAL );
+    shape_ok = (short) ( largest < SC_HEAD_BYTES && total >= SC_HEAD_BYTES );
+    sc = shape_ok ? sc_create() : 0;
+    if ( shape_ok ) sc_fail( &step, &want );
+    if ( sc ) sc_delete( sc );
 
     for ( k = 1; k < n; k++ ) if ( k != 2 ) qglMemFree( hog[k] );
-    if ( r != 0 ) return -87;
-    if ( ok != 0 ) return -88;
-    if ( step != 1 || want != SC_META_BYTES ) return -86;
+    if ( !shape_ok || sc ) return -91;
+    if ( step != 1 || want != SC_HEAD_BYTES ) return -92;
     qglMemAvail( QGL_MEM_LARGEST );
-    if ( qglMemAvail( QGL_MEM_TOTAL ) != before ) return -89;
+    if ( qglMemAvail( QGL_MEM_TOTAL ) != before ) return -93;
     return 1;
 }
 
@@ -1036,18 +1068,17 @@ short sc_selftest( void )
     short face_count = 10;
     short result;
 
-    sc = (SurfCache far *) qglMemAlloc( (long) sizeof(SurfCache) );
+    sc = sc_create();
     if ( !sc ) return -1;
 
     if ( !sc_init( sc, (Face far *) faces, face_count ) ) {
-        qglMemFree( (long) (void far *) sc );
+        sc_delete( sc );
         return -1;
     }
 
     result = sc_selftest_run( sc );
 
-    sc_shutdown( sc );
-    if ( result == 1 ) result = sc_selftest_short( sc );
-    qglMemFree( (long) (void far *) sc );
+    sc_delete( sc );
+    if ( result == 1 ) result = sc_selftest_short();
     return result;
 }

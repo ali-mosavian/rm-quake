@@ -18,23 +18,50 @@
 
 typedef void (far *SndDspCallback)( unsigned char far *, unsigned short );
 
-static SndMix *snd_irq_mix;
+static Sound *snd_irq_sound;
+static short  snd_device_on;
 
 static void far cdecl snd_dsp_callback( unsigned char far *dst, unsigned short bytes )
 {
-    if ( snd_irq_mix ) snd_mix_paint( snd_irq_mix, dst, (short) ( bytes >> 1 ) );
+    if ( snd_irq_sound ) {
+        snd_mix_paint( &snd_irq_sound->mix, dst, (short) ( bytes >> 1 ) );
+        snd_irq_sound->painted++;
+    }
 }
 
-static void snd_dsp_attach( SndMix *mix )
+static void snd_dsp_attach( Sound *snd )
 {
-    snd_irq_mix = mix;
+    snd_irq_sound = snd;
     qglDspCallback( (long) (SndDspCallback) snd_dsp_callback );
 }
 
 static void snd_dsp_detach( void )
 {
     qglDspCallback( 0L );
-    snd_irq_mix = 0;
+    snd_irq_sound = 0;
+}
+
+static void snd_dsp_silence( void )
+{
+    short lock;
+
+    if ( !snd_device_on ) return;
+    lock = qglDspLock();
+    _fmemset( (unsigned char far *) qglDspBuf(), 128, 4096 );
+    qglDspUnlock( lock );
+}
+
+void snd_device_init( short off )
+{
+    snd_device_on = (short) ( !off && qglDspInit( SND_RATE ) );
+}
+
+void snd_device_shutdown( void )
+{
+    if ( !snd_device_on ) return;
+    snd_dsp_detach();
+    qglDspShutdown();
+    snd_device_on = 0;
 }
 
 void snd_init( Sound *snd, Pak *pak, short off )
@@ -47,13 +74,12 @@ void snd_init( Sound *snd, Pak *pak, short off )
 
     snd->on = 0;
     snd->hash = 0UL;
-    if ( off ) return;
+    snd->painted = 0;
+    if ( off || !snd_device_on ) return;
     if ( !pak_has( pak, "snd.bsc" ) || !pak_has( pak, "sndtab.raw" ) || !pak_has( pak, "snddec.raw" ) ) {
         fprintf( stderr, "no sounds in the container -- rebuild its assets with the PAK\n" );
         return;
     }
-    if ( !qglDspInit( SND_RATE ) ) return;   /* no card: play nothing, run on */
-
     /* the table first: its count has to agree with snd.h's SND_*,
        which are indices into it. A table from another mksnd.py run
        would play the wrong sound for every id and say nothing. */
@@ -62,7 +88,6 @@ void snd_init( Sound *snd, Pak *pak, short off )
     if ( count != SND_COUNT || n < 2 + (long) count * sizeof(SndRec) ) {
         fprintf( stderr, "sndtab.raw has %d sounds, snd.h says %d\n", (int) count, SND_COUNT );
         qglMemFree( (long) raw );
-        qglDspShutdown();
         return;
     }
     tab = (SndRec far *) ( raw + 2 );
@@ -76,7 +101,6 @@ void snd_init( Sound *snd, Pak *pak, short off )
         fprintf( stderr, "snd.bsc: no EMS for %ld bytes\n", remain );
         qglMemFree( (long) dec );
         qglMemFree( (long) raw );
-        qglDspShutdown();
         return;
     }
     saved_map = qglGemSaveMap( PAGE_SLOT );
@@ -99,12 +123,11 @@ void snd_init( Sound *snd, Pak *pak, short off )
         qglMemFree( (long) raw );
         qglGemFree( snd->hnd );
         snd->hnd = 0;
-        qglDspShutdown();
         return;
     }
     qglMemFree( (long) dec );
     qglMemFree( (long) raw );
-    snd_dsp_attach( &snd->mix );
+    snd_dsp_attach( snd );
     snd->on = -1;
 }
 
@@ -117,7 +140,7 @@ unsigned long snd_sum( Sound *snd )
     if ( !snd->on ) return 0L;
     snd_dsp_detach();
     sum = snd_mix_sum( &snd->mix );
-    snd_dsp_attach( &snd->mix );
+    snd_dsp_attach( snd );
     return sum;
 }
 
@@ -137,7 +160,7 @@ short snd_sum_slot_test( Sound *snd, unsigned long *sum )
     if ( !sentinel || !qglGemMap( sentinel, 0, PAGE_SLOT ) ) {
         if ( sentinel ) qglGemFree( sentinel );
         qglGemRestoreMap( outer, PAGE_SLOT );
-        snd_dsp_attach( &snd->mix );
+        snd_dsp_attach( snd );
         return 0;
     }
     expected = qglGemSaveMap( PAGE_SLOT );
@@ -152,7 +175,7 @@ short snd_sum_slot_test( Sound *snd, unsigned long *sum )
     frame_ok = actual == expected;
     restored = qglGemRestoreMap( outer, PAGE_SLOT );
     qglGemFree( sentinel );
-    snd_dsp_attach( &snd->mix );
+    snd_dsp_attach( snd );
     return restored && sum_ok && frame_ok;
 }
 
@@ -245,7 +268,7 @@ void snd_shutdown( Sound *snd )
 {
     if ( snd->on ) {
         snd_dsp_detach();
-        qglDspShutdown();
+        snd_dsp_silence();
     }
     if ( snd->hnd ) qglGemFree( snd->hnd );
     if ( snd->mix.pts ) qglMemFree( (long) (void far *) snd->mix.pts );
@@ -254,38 +277,97 @@ void snd_shutdown( Sound *snd )
     snd->mix.ptmax = snd->mix.npts = 0;
 }
 
-void snd_stats( const Sound *snd, short *started, short *loops, short *under )
+void snd_stats( const Sound *snd, short *started, short *loops, short *under,
+                unsigned short *painted )
 {
     short lock = snd->on ? qglDspLock() : 0;
 
     *started = snd->started;
     *loops   = snd_mix_loops( &snd->mix );
     *under   = snd->under;
+    if ( painted ) *painted = snd->painted;
     if ( snd->on ) qglDspUnlock( lock );
 }
 
-void snd_report( const Sound *snd, char *buf )
+static void snd_report_add( char *buf, short cap, const char *text )
+{
+    short used = (short) strlen( buf );
+
+    if ( used < cap - 1 ) strncat( buf, text, (size_t) ( cap - used - 1 ) );
+    buf[cap - 1] = 0;
+}
+
+void snd_report( const Sound *snd, char *buf, short cap )
 {
     short ids[8], i, n, id, left, right, invvol;
     short lock = snd->on ? qglDspLock() : 0;
+    char piece[64];
 
     n = snd_mix_live( &snd->mix, ids );
 
-    strcpy( buf, "snd seen=" );
-    for ( i = 0; i < (short) sizeof(snd->seen); i++ )
-        sprintf( buf + strlen( buf ), "%02X", (int) snd->seen[i] );
-    strcat( buf, " live=" );
-    for ( i = 0; i < n; i++ )
-        sprintf( buf + strlen( buf ), i ? ",%d" : "%d", (int) ids[i] );
-    sprintf( buf + strlen( buf ), " wraps=%d water=%d sky=%d voices=%d",
+    if ( cap <= 0 ) goto done;
+    buf[0] = 0;
+    snd_report_add( buf, cap, "snd seen=" );
+    for ( i = 0; i < (short) sizeof(snd->seen); i++ ) {
+        sprintf( piece, "%02X", (int) snd->seen[i] );
+        snd_report_add( buf, cap, piece );
+    }
+    snd_report_add( buf, cap, " live=" );
+    for ( i = 0; i < n; i++ ) {
+        sprintf( piece, i ? ",%d" : "%d", (int) ids[i] );
+        snd_report_add( buf, cap, piece );
+    }
+    sprintf( piece, " wraps=%d water=%d sky=%d voices=%d",
              (int) snd_mix_wraps( &snd->mix ), (int) snd_mix_leaf_vol( &snd->mix, 0 ),
              (int) snd_mix_leaf_vol( &snd->mix, 1 ),
              (int) snd_mix_voices( &snd->mix ) );
-    sprintf( buf + strlen( buf ), " stack=%d", (int) qglDspStackFree() );
+    snd_report_add( buf, cap, piece );
+    sprintf( piece, " stack=%d", (int) qglDspStackFree() );
+    snd_report_add( buf, cap, piece );
     invvol = snd_mix_live_volume( &snd->mix, SND_INV_IDLE );
-    if ( invvol >= 0 )
-        sprintf( buf + strlen( buf ), " invvol=%d", (int) invvol );
-    else if ( snd_mix_pan( &snd->mix, &id, &left, &right ) )
-        sprintf( buf + strlen( buf ), " pan=%d:%d,%d", (int) id, (int) left, (int) right );
+    if ( invvol >= 0 ) {
+        sprintf( piece, " invvol=%d", (int) invvol );
+        snd_report_add( buf, cap, piece );
+    } else if ( snd_mix_pan( &snd->mix, &id, &left, &right ) ) {
+        sprintf( piece, " pan=%d:%d,%d", (int) id, (int) left, (int) right );
+        snd_report_add( buf, cap, piece );
+    }
+done:
     if ( snd->on ) qglDspUnlock( lock );
+}
+
+short snd_report_selftest( void )
+{
+    Sound snd;
+    SndChan chan[SND_ALL];
+    struct {
+        char buf[160];
+        unsigned char guard[24];
+    } out;
+    short i;
+
+    memset( &snd, 0, sizeof(snd) );
+    memset( chan, 0, sizeof(chan) );
+    memset( snd.seen, 0xFF, sizeof(snd.seen) );
+    memset( &out, 0, sizeof(out) );
+    memset( out.guard, 0xA5, sizeof(out.guard) );
+    snd.painted = 65535U;
+    snd.mix.chan = (SndChan far *) chan;
+    snd.mix.wraps = 32767;
+    snd.mix.nvoice = SND_VOICES;
+    chan[0].left = chan[0].right = 255;
+    chan[1].left = chan[1].right = 255;
+    for ( i = SND_LEAF; i < SND_LEAF + SND_CHANS; i++ ) {
+        chan[i].end = 1;
+        chan[i].id = SND_COUNT - 1;
+    }
+    chan[SND_LEAF + SND_CHANS].end = 1;
+    chan[SND_LEAF + SND_CHANS].id = SND_COUNT - 1;
+    chan[SND_LEAF + SND_CHANS].left = 255;
+    chan[SND_LEAF + SND_CHANS].right = 255;
+
+    snd_report( &snd, out.buf, sizeof(out.buf) );
+    for ( i = 0; i < (short) sizeof(out.guard); i++ )
+        if ( out.guard[i] != 0xA5 ) return 0;
+    return 1;
 }

@@ -770,6 +770,8 @@ static void near host_selftests( void )
 
     sprintf( buf, "ls_selftest %d", ls_selftest() );
     mark( buf );
+    sprintf( buf, "snd_report_selftest %d", snd_report_selftest() );
+    mark( buf );
 
     /* LARGEST first: a failing 48h merges the free blocks, and TOTAL
        counts each unmerged one 16 bytes short. */
@@ -879,7 +881,7 @@ static void near host_load_rest( Host *h, LoadScreen *ldr )
     snd_init( &h->world.snd, &h->world.pak, h->args.no_sound );
     snd_volume( &h->world.snd, cvar_value( h->cmd, "volume" ) );
     {   short st, lp, un;
-        snd_stats( &h->world.snd, &st, &lp, &un );
+        snd_stats( &h->world.snd, &st, &lp, &un, 0 );
         sprintf( buf, "snd loops=%d", (int) lp );
         mark( buf );
     }
@@ -892,17 +894,23 @@ static void near host_load_rest( Host *h, LoadScreen *ldr )
     ld_step( ldr, vdc, h->hud );
 
     ld_stage( ldr, vdc, h->hud, "surface cache" );
-    h->sc = (SurfCache far *) qglMemAlloc( (long) sizeof(SurfCache) );
-    if ( !h->sc || !sc_init( h->sc, h->world.faces, h->world.face_count ) ) {
-        short step; long want;
+    /* Sound's temporary table and decoder are gone, leaving the largest
+       conventional-memory hole available to the cache metadata. */
+    h->sc = sc_create();
+    if ( !h->sc ) {
+        short step;
+        long want;
         sc_fail( &step, &want );
-        sprintf( buf, "sc_init FAILED step=%d want=%ld largest=%ld total=%ld",
+        sprintf( buf, "sc_create FAILED step=%d want=%ld largest=%ld total=%ld",
                  (int) step, want, qglMemAvail( QGL_MEM_LARGEST ),
                  qglMemAvail( QGL_MEM_TOTAL ) );
-    } else {
-        sprintf( buf, "sc_init ok largest=%ld total=%ld",
-                 qglMemAvail( QGL_MEM_LARGEST ), qglMemAvail( QGL_MEM_TOTAL ) );
+        mark( buf );
+        sys_error( "out of far memory for surface cache" );
     }
+    if ( !sc_init( h->sc, h->world.faces, h->world.face_count ) )
+        sys_error( "surface cache initialization failed" );
+    sprintf( buf, "sc_init ok largest=%ld total=%ld",
+             qglMemAvail( QGL_MEM_LARGEST ), qglMemAvail( QGL_MEM_TOTAL ) );
     mark( buf );
     if ( !part_init( &h->rdr ) ) sys_error( "particle EMS allocation failed" );
     ent_load_air_bubbles( &h->world, &h->rdr );
@@ -1152,6 +1160,10 @@ void host_init( Host *h )
 
     host_video( h );
     host_selftests();
+    /* The DMA ring, mixer scratch and ISR stack are one 13,248-byte DOS
+       block. Keep it ahead of every map allocation and in the session
+       baseline; only samples and channel state belong to a map. */
+    snd_device_init( h->args.no_sound );
     in_init( &h->input, h->v.h_video_dc );
     h->cmd = (CmdState far *) qglMemAlloc( (long) sizeof(*h->cmd) );
     h->console = (Console far *) qglMemAlloc( (long) sizeof(*h->console) );
@@ -1854,8 +1866,10 @@ static void near host_report( Host *h )
 {
     Fight *fight = &h->fight;
     Beam   beam;
+    CacheStats scs;
     char   buf[160];
     short  a, b, c;
+    unsigned short painted;
 
     sprintf( buf, "frames=%d polys=%ld tris=%ld mdl=%ld ticks=%ld pos=%ld,%ld,%ld",
              h->bs.frame, h->bs.poly_sum, h->bs.tri_sum, h->bs.mdl_sum,
@@ -1869,10 +1883,16 @@ static void near host_report( Host *h )
              (int) ent_fireballs_sent( &h->world ), (int) h->world.mon_jumps );
     mark( buf );
 
-    snd_stats( &h->world.snd, &a, &b, &c );
-    sprintf( buf, "snd started=%d loops=%d under=%d", (int) a, (int) b, (int) c );
+    snd_stats( &h->world.snd, &a, &b, &c, &painted );
+    sprintf( buf, "snd started=%d loops=%d under=%d paints=%u",
+             (int) a, (int) b, (int) c, painted );
     mark( buf );
-    snd_report( &h->world.snd, buf );
+    snd_report( &h->world.snd, buf, sizeof(buf) );
+    mark( buf );
+
+    sc_stats( h->sc, &scs );
+    sprintf( buf, "sc builds=%ld live=%ld blocks=%d flushes=%ld nofresh=%ld",
+             scs.total_builds, scs.live, (int) scs.blocks, scs.flushes, scs.nofresh );
     mark( buf );
 
     sprintf( buf, "gs_state %d map %s next %s secrets %d/%d skill %d",
@@ -1964,8 +1984,7 @@ static void near host_map_release( Host *h )
     if ( h->z_dc ) qglSfZFree( h->h_dst_dc );
     h->z_dc = 0;
     if ( h->sc ) {
-        sc_shutdown( h->sc );
-        qglMemFree( (long) (void far *) h->sc );
+        sc_delete( h->sc );
         h->sc = 0;
     }
     part_shutdown( &h->rdr );
@@ -2064,6 +2083,7 @@ void host_shutdown( Host *h )
     if ( !host_write_config( h, "config.cfg" ) ) mark( "config write failed" );
     host_map_finish( h );
     host_map_release( h );
+    snd_device_shutdown();
     if ( h->cmd ) cmd_shutdown( h->cmd );
     if ( h->console ) qglMemFree( (long) (void far *) h->console );
     if ( h->keys ) qglMemFree( (long) (void far *) h->keys );

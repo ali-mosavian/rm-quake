@@ -14,6 +14,7 @@ typedef struct {
     short  on;          /* the card is up and the samples are in */
     short  hnd;         /* the samples' EMS handle */
     short  started, under;
+    unsigned short painted; /* half-buffers this map's ISR callback filled */
     unsigned long hash; /* every snd_start's (id, chan), -nosound included */
     unsigned char seen[(SND_COUNT + 7) / 8];   /* every id started, a bit each */
     SndMix mix;

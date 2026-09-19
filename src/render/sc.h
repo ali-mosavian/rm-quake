@@ -9,26 +9,20 @@
  * already combined, wait to be drawn. C port of d_surf.bas's sc_*
  * slice (see sc.c's own header for the pool's shape and why).
  *
- * SurfCache is heap-sized, not stack/DGROUP-sized -- its block tables
- * are 17.4 KB, and
- * medium model's DGROUP is 64 KB shared with the stack and every other
- * near global. Its owner allocates it with qglMemAlloc (mgl's dos.h, the
- * standard far heap, not a MEM/EMS uGL store -- this is bookkeeping,
- * not surface bytes) and every function here takes SurfCache far*,
- * not SurfCache* -- the one struct in cport/ that has to be far,
- * because it's the one struct big enough that near addressing (a
- * DGROUP offset) couldn't reach all of it if it were DGROUP-resident
- * in the first place.
+ * SurfCache is heap-sized, not stack/DGROUP-sized: sc_create reserves the
+ * struct and its 14,400-byte block tables after transient texture ingestion.
+ * The EMS surface bytes remain lazy. Every
+ * function takes SurfCache far*, because medium model's DGROUP is 64 KB
+ * shared with the stack and every other near global.
  */
 
 #define SC_MINSH  4    /* 16, the smallest class */
 #define SC_MAXSH  8    /* 256 on one axis, if the other stays small */
 #define SC_MAXSUM 14   /* 2^a * 2^b <= 16384: one EMS page, all a single
                            rdAccess brings in */
-#define SC_NBLK   2046  /* block records, free buddy halves included. At
-                           384 e1m1's (480,-19,29) ran out, every flicker
-                           rebuilt its (0,10) faces: 800 builds in 300
-                           ticks, 4 ms a frame. */
+#define SC_NBLK   1800  /* block records, free buddy halves included. A measured
+                           three-demo run peaked at 1,148; 384 made e1m1 rebuild
+                           flickering surfaces every frame. */
 #define SC_GRAN   256    /* smallest class, 16x16: the offset unit */
 
 #define SC_VARIANTS 4   /* surfaces one face may hold at each mip, one per
@@ -46,8 +40,8 @@
 
 #define SC_NULL_INDEX 2047
 #define SC_NULL_HANDLE 0x07FF
-#define SC_NEXT_BYTES 2814
-#define SC_STATE_BYTES (SC_NBLK + (SC_NBLK + 7) / 8)
+#define SC_NEXT_BYTES SC_NBLK
+#define SC_STATE_BYTES SC_NBLK
 #define SC_META_BYTES ((long) SC_NBLK * 3L * sizeof(unsigned short) + SC_STATE_BYTES + SC_NEXT_BYTES)
 
 /* bspfile.bi's CacheStats -- sc_stats' own snapshot, one crossing
@@ -88,13 +82,13 @@ typedef struct {
        per face. Offsets are kept in SC_GRAN granules so they fit a
        short: SC_GRAN is the smallest class, so every block is a whole
        number of them, and SC_STORE/SC_GRAN is 16,384, inside int16. */
-    unsigned char far *meta;  /* one DOS block, so map-sized allocation holes
-                                 cannot strand one of the tables */
-    unsigned short far *bsib; /* next block in this face's chain */
-    unsigned short far *bgrn; /* low 14: granule; bit 14: dynamic */
-    unsigned short far *bown; /* low 13: face; bits 13..14: mip; 0xffff free */
-    unsigned char far *bstate; /* exact nine-bit light-style/animation key */
-    unsigned char far *bnext; /* byte low + packed three-bit free/FIFO link */
+    unsigned char far *meta;  /* all tables follow the struct in its allocation */
+    unsigned short far *bsib; /* low 11: face sibling; bits 11..12: list link;
+                                 bit 13: free */
+    unsigned short far *bgrn; /* low 14: granule; bit 14: dynamic; bit 15: state */
+    unsigned short far *bown; /* low 13: face; bits 13..14: mip; bit 15: list link */
+    unsigned char far *bstate; /* low eight bits of light-style/animation key */
+    unsigned char far *bnext; /* low eight bits of free/FIFO link */
     short     bcnt;     /* blocks made so far */
     short     rfree;    /* recycled block records, via bnext */
 
@@ -115,27 +109,21 @@ typedef struct {
 } SurfCache;
 
 /*
- * name: sc_init
- * desc: Allocates sc's compact block tables and clears each face's packed head. The store DC
- *       itself is claimed lazily, on first use (sc_store_open) -- see
- *       its own header for why. Returns 0 if the far heap couldn't
- *       supply the bookkeeping arrays (a hard failure, unlike EMS
- *       being absent, which just leaves sc->ok false and every call
- *       a harmless no-op).
+ * name: sc_create/sc_delete
+ * desc: Own the struct and compact block tables in one far-heap allocation.
+ *       sc_init binds the loaded map's faces and clears their packed heads.
+ *       The store DC itself is claimed lazily on first use.
  */
+SurfCache far *sc_create( void );
+void sc_delete( SurfCache far *sc );
 short sc_init( SurfCache far *sc, Face far *faces, short face_count );
 
-/* Why the last sc_init returned 0: which allocation, and its size. */
+/* Why the last sc_create returned 0: which allocation, and its size. */
 void sc_fail( short *step, long *want );
 
 /* Drops every slot without giving up the DCs, for when the map changes
    and the face numbering with it. */
 void  sc_reset( SurfCache far *sc, short face_count );
-
-/* Frees sc's far-heap bookkeeping and deletes every DC and view the
-   pool made. sc itself is not freed -- its own storage is the
-   caller's, matching every other cport/ context struct. */
-void  sc_shutdown( SurfCache far *sc );
 
 /* Every cached surface becomes a miss and every DC goes back to its
    class. The DCs themselves are kept -- they cost EMS, not

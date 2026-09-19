@@ -9,12 +9,11 @@
 /*
  * snd.h -- the sound layer: Quake's snd_dma.c stereo spatializer.
  *
- * qglDspInit starts a Sound Blaster playing a 4096-byte ring in
- * auto-init DMA; snd.bsc, mksnd.py's concatenation of the game's wavs
- * as bsc4/32n, goes into one EMS handle a page at a time and
- * snddec.raw is the table it is decoded through. The SB ISR gives each
- * completed 2048-byte half to snd_mix.c, which refills it before the DSP
- * acknowledges the interrupt.
+ * snd_device_init keeps the Sound Blaster's ring, scratch and ISR stack
+ * for the session so map allocations cannot fragment the block away.
+ * snd.bsc, mksnd.py's concatenation of the game's wavs as bsc4/32n, goes
+ * into one EMS handle per map. The SB ISR gives each completed 2048-byte
+ * half to snd_mix.c, which refills it before acknowledging the interrupt.
  */
 
 /* the sounds, in tools/mksnd.py's SOUNDS order -- q_pl.bi's own
@@ -141,12 +140,15 @@
 #define SND_ENT_TRIG  2048    /* a point entity, by its trigger index */
 
 /*
- * name: snd_init
- * desc: The card, snd.bsc into EMS, and the mixer over dsp.asm's ring.
- *       Quiet and harmless on a machine with no card, on -nosound, or
- *       with no sounds in the container: every call below then returns
- *       at once.
+ * name: snd_device_init/snd_device_shutdown
+ * desc: Own the card and its conventional-memory DMA block for the session.
+ *       Call before the map-memory baseline and release after the last map.
  */
+void snd_device_init( short off );
+void snd_device_shutdown( void );
+
+/* snd.bsc into EMS and the map mixer over the session device. Quiet and
+   harmless without a card, on -nosound, or without map sound assets. */
 void snd_init( Sound *snd, Pak *pak, short off );
 
 /* room for the map's n static points, before the first snd_ambient */
@@ -197,11 +199,13 @@ short snd_sum_slot_test( Sound *snd, unsigned long *sum );
 /* for bench.txt: sounds started, ambients looping, and the legacy
    underrun field. IRQ refill has no foreground polling window, so the
    latter remains zero. */
-void snd_stats( const Sound *snd, short *started, short *loops, short *under );
+void snd_stats( const Sound *snd, short *started, short *loops, short *under,
+                unsigned short *painted );
 
 /* the run's sound record, one line: every id started as a bitmap in hex,
    the ids on the dynamic channels now, loop wraps, the leaf ambients'
    volumes and the statics */
-void snd_report( const Sound *snd, char *buf );
+void snd_report( const Sound *snd, char *buf, short cap );
+short snd_report_selftest( void );
 
 #endif
