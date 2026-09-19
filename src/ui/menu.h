@@ -36,7 +36,9 @@ typedef enum {
 
 typedef struct {
     QSurf atlas;
+    QSurf quit_dialog;
     short page, cursor, bind_grab, help_page;
+    short quit_active, quit_message;
     char notice[40];
     char slots[SG_SLOTS][SG_COMMENT];
     unsigned char loadable[SG_SLOTS];
@@ -44,8 +46,10 @@ typedef struct {
 
 void menu_init( Menu MENU_FAR *menu );
 short menu_open( Menu MENU_FAR *menu, Pak *pak, MenuPage page );
+short menu_quit( Menu MENU_FAR *menu, Pak *pak );
 void menu_close( Menu MENU_FAR *menu );
 short menu_is_open( const Menu MENU_FAR *menu );
+short menu_game_backdrop( const Menu MENU_FAR *menu );
 MenuAction menu_key( Menu MENU_FAR *menu, short key,
                      KeyBindings KB_FAR *keys, CmdState far *cmd, Pak *pak );
 void menu_draw( Menu MENU_FAR *menu, const KeyBindings KB_FAR *keys,

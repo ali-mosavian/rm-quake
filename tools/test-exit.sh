@@ -138,7 +138,7 @@ if [[ -f "$OUT/start.qmp" && -f "$OUT/e1m1.qmp" ]]; then
     cp "$OUT/QCPORT.EXE" "$OUT/stuff.ini" "$OUT/default.cfg" \
        "$OUT/start.qmp" "$OUT/e1m1.qmp" "$savework/"
     TIMEOUT="${TIMEOUT:-300}" "$RUN" "$savework" \
-        "start.qmp -nostats -noai -nosound -at -64 1628 176 -ticks 1 +save s0;quit" >/dev/null 2>&1
+        "start.qmp -nostats -noai -nosound -at -64 1628 176 -ticks 1 +save s0;toggleconsole;quit" >/dev/null 2>&1
     python3 - "$savework/s0.sav" <<'PY'
 import struct
 import sys

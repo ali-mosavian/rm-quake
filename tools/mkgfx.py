@@ -38,6 +38,27 @@ CHARS_Y = 288
 MENU_W = 256
 MENU_H = 384
 MENU_CHARS_Y = 320
+QUIT_W = 208
+QUIT_H = 48
+
+QUIT_MESSAGES = (
+    ("  Are you gonna quit    ", "  this game just like   ",
+     "   everything else?     ", "                        "),
+    (" Milord, methinks that  ", "   thou art a lowly     ",
+     " quitter. Is this true? ", "                        "),
+    (" Do I need to bust your ", "  face open for trying  ",
+     "        to quit?        ", "                        "),
+    (" Man, I oughta smack you", "   for trying to quit!  ",
+     "     Press Y to get     ", "      smacked out.      "),
+    (" Press Y to quit like a ", "   big loser in life.   ",
+     "  Press N to stay proud ", "    and successful!     "),
+    ("   If you press Y to    ", "  quit, I will summon   ",
+     "  Satan all over your   ", "      hard drive!       "),
+    ("  Um, Asmodeus dislikes ", " his children trying to ",
+     " quit. Press Y to return", "   to your Tinkertoys.  "),
+    ("  If you quit now, I'll ", "  throw a blanket-party ",
+     "   for you next time!   ", "                        "),
+)
 
 CELLS = [
     *(f"NUM_{d}" for d in range(10)), "NUM_MINUS",
@@ -104,6 +125,22 @@ def blit(
         atlas[start : start + width] = pixels[row * width : (row + 1) * width]
 
 
+def blit_masked(
+    atlas: bytearray,
+    pixels: bytes,
+    x: int,
+    y: int,
+    width: int,
+    height: int,
+    stride: int,
+) -> None:
+    for row in range(height):
+        for column in range(width):
+            pixel = pixels[row * width + column]
+            if pixel != 255:
+                atlas[(y + row) * stride + x + column] = pixel
+
+
 def main() -> int:
     if len(sys.argv) != 3:
         print(f"usage: {sys.argv[0]} PAK0.PAK out/", file=sys.stderr)
@@ -118,6 +155,13 @@ def main() -> int:
         if struct.unpack_from("<ii", data) != (width, height):
             raise ValueError(f"{name}: wrong dimensions")
         return data[8:]
+
+    def glyph(code: int) -> bytes:
+        return bytes(
+            255 if pixel == 0 else pixel
+            for row in range(8)
+            for pixel in chars[(code // 16 * 8 + row) * 128 + code % 16 * 8 :][:8]
+        )
 
     blit(atlas, pak_pic("gfx/inter.lmp", 160, 144), INTER_X, INTER_Y, 160, 144)
     blit(atlas, pak_pic("gfx/complete.lmp", 192, 24), COMPLETE_X, COMPLETE_Y, 192, 24)
@@ -153,12 +197,7 @@ def main() -> int:
     if len(chars) != 128 * 128:
         raise ValueError(f"CONCHARS: {len(chars)}, wanted 16384")
     for code in range(256):
-        pixels = b"".join(
-            chars[(code // 16 * 8 + row) * 128 + code % 16 * 8 :][:8]
-            for row in range(8)
-        )
-        pixels = bytes(255 if pixel == 0 else pixel for pixel in pixels)
-        blit(atlas, pixels, code % 64 * 8, CHARS_Y + code // 64 * 8, 8, 8)
+        blit(atlas, glyph(code), code % 64 * 8, CHARS_Y + code // 64 * 8, 8, 8)
 
     os.makedirs(outdir, exist_ok=True)
     path = os.path.join(outdir, "sbar.raw")
@@ -184,14 +223,35 @@ def main() -> int:
         blit(menu, pak_pic(f"gfx/menudot{frame + 1}.lmp", 16, 24),
              32 + frame * 16, 224, 16, 24, MENU_W)
     for code in range(256):
-        pixels = b"".join(
-            chars[(code // 16 * 8 + row) * 128 + code % 16 * 8 :][:8]
-            for row in range(8)
-        )
-        pixels = bytes(255 if pixel == 0 else pixel for pixel in pixels)
-        blit(menu, pixels, code % 32 * 8, MENU_CHARS_Y + code // 32 * 8, 8, 8, MENU_W)
+        blit(menu, glyph(code), code % 32 * 8, MENU_CHARS_Y + code // 32 * 8, 8, 8, MENU_W)
     for page in range(6):
         menu += pak_pic(f"gfx/help{page}.lmp", 320, 200)
+
+    box = bytearray([255]) * (QUIT_W * QUIT_H)
+    for name, x, y, width in (
+        ("gfx/box_tl.lmp", 0, 0, 8),
+        ("gfx/box_bl.lmp", 0, 40, 8),
+        ("gfx/box_tr.lmp", 200, 0, 8),
+        ("gfx/box_br.lmp", 200, 40, 8),
+    ):
+        blit(box, pak_pic(name, width, 8), x, y, width, 8, QUIT_W)
+    for y in range(8, 40, 8):
+        blit(box, pak_pic("gfx/box_ml.lmp", 8, 8), 0, y, 8, 8, QUIT_W)
+        blit(box, pak_pic("gfx/box_mr.lmp", 8, 8), 200, y, 8, 8, QUIT_W)
+    for x in range(8, 200, 16):
+        blit(box, pak_pic("gfx/box_tm.lmp", 16, 8), x, 0, 16, 8, QUIT_W)
+        blit(box, pak_pic("gfx/box_mm.lmp", 16, 8), x, 8, 16, 8, QUIT_W)
+        for y in range(16, 40, 8):
+            blit(box, pak_pic("gfx/box_mm2.lmp", 16, 8), x, y, 16, 8, QUIT_W)
+        blit(box, pak_pic("gfx/box_bm.lmp", 16, 8), x, 40, 16, 8, QUIT_W)
+    for message in QUIT_MESSAGES:
+        dialog = bytearray(box)
+        for y, line in enumerate(message, 1):
+            if len(line) != 24:
+                raise ValueError(f"quit line is {len(line)} characters, wanted 24")
+            for x, code in enumerate(line.encode("ascii"), 1):
+                blit_masked(dialog, glyph(code + 128), x * 8, y * 8, 8, 8, QUIT_W)
+        menu += dialog
     open(os.path.join(outdir, "menu.raw"), "wb").write(menu)
     print(f"  menu.raw       {len(menu):,} B, one menu surface swapped in at a time")
     return 0

@@ -1274,6 +1274,13 @@ static void near host_open_menu( Host *h, MenuPage page )
     menu_open( h->menu, &h->world.pak, page );
 }
 
+static void near host_open_quit( Host *h )
+{
+    keybind_release_all( h->keys );
+    if ( con_open( h->console ) ) con_toggle( h->console, &h->input );
+    menu_quit( h->menu, &h->world.pak );
+}
+
 static void near host_console_result( Host *h, CmdKind kind, CmdResult *result )
 {
     char name[CMD_NAME];
@@ -1289,7 +1296,7 @@ static void near host_console_result( Host *h, CmdKind kind, CmdResult *result )
     if ( kind == CMD_CMDLIST ) {
         con_print( h->console,
                    "bind clear cmdlist cvarlist echo exec help impulse load map menu_keys menu_main "
-                   "menu_options quit save set sizedown sizeup startdemos demos stopdemo "
+                   "menu_options menu_quit quit save set sizedown sizeup startdemos demos stopdemo "
                    "togglemenu unbind unbindall wait writeconfig" );
         return;
     }
@@ -1400,6 +1407,7 @@ static void near host_console_result( Host *h, CmdKind kind, CmdResult *result )
     if ( result->name[0] == '-' && keybind_command( h->keys, result->name, 0 ) ) return;
     if ( !strcmp( result->name, "toggleconsole" ) ) {
         keybind_release_all( h->keys );
+        if ( menu_is_open( h->menu ) ) menu_close( h->menu );
         con_toggle( h->console, &h->input );
         return;
     }
@@ -1424,6 +1432,10 @@ static void near host_console_result( Host *h, CmdKind kind, CmdResult *result )
         host_open_menu( h, MENU_HELP );
         return;
     }
+    if ( !strcmp( result->name, "menu_quit" ) ) {
+        host_open_quit( h );
+        return;
+    }
     if ( !strcmp( result->name, "togglemips" ) ) { h->rdr.use_mips = !h->rdr.use_mips; return; }
     if ( !strcmp( result->name, "togglewire" ) ) { h->rdr.rend_mode = h->rdr.rend_mode ? 0 : 2; return; }
     if ( !strcmp( result->name, "toggleview" ) ) { h->cam.fps_view = !h->cam.fps_view; return; }
@@ -1437,7 +1449,11 @@ static void near host_console_result( Host *h, CmdKind kind, CmdResult *result )
         if ( h->hud ) h->hud->portal_wire = !h->hud->portal_wire;
         return;
     }
-    if ( !strcmp( result->name, "quit" ) ) { h->quit = -1; return; }
+    if ( !strcmp( result->name, "quit" ) ) {
+        if ( con_open( h->console ) ) h->quit = -1;
+        else host_open_quit( h );
+        return;
+    }
     if ( !strcmp( result->name, "map" ) ) {
         char map[CMD_TEXT];
         short len;
@@ -1565,6 +1581,7 @@ static short near host_load_slot( Host *h, short slot, char *error )
 static void near host_input_events( Host *h )
 {
     short key, shift, down;
+    InputRoute route;
     CmdResult result;
     CmdKind kind;
 
@@ -1580,24 +1597,24 @@ static void near host_input_events( Host *h )
             if ( !menu_is_open( h->menu ) ) keybind_event( h->keys, h->cmd, key, 0 );
             continue;
         }
-        if ( key == KEY_TILDE || key == KEY_OEM102 ) {
+        route = in_route_key( menu_is_open( h->menu ), con_open( h->console ), key );
+        if ( route == IN_ROUTE_MENU ) {
+            host_menu_action( h, menu_key( h->menu, key, h->keys, h->cmd,
+                                          &h->world.pak ) );
+            continue;
+        }
+        if ( route == IN_ROUTE_TOGGLE_CONSOLE ) {
             keybind_release_all( h->keys );
-            if ( menu_is_open( h->menu ) ) menu_close( h->menu );
             con_toggle( h->console, &h->input );
             continue;
         }
-        if ( con_open( h->console ) ) {
+        if ( route == IN_ROUTE_CONSOLE ) {
             if ( key == KEY_ESC ) {
                 keybind_release_all( h->keys );
                 con_toggle( h->console, &h->input );
                 continue;
             }
             con_key( h->console, h->cmd, key, shift );
-            continue;
-        }
-        if ( menu_is_open( h->menu ) ) {
-            host_menu_action( h, menu_key( h->menu, key, h->keys, h->cmd,
-                                          &h->world.pak ) );
             continue;
         }
         if ( key == KEY_ESC ) {
@@ -1652,17 +1669,18 @@ static void near host_present( Host *h )
 {
     Video *v = &h->v;
     QSurf target;
-    short special, menu;
+    short special, menu, game_menu;
 #if QR_PROF
     float t0 = sys_now( &h->sysclk ), hud_t0;
 #endif
 
     special = (short) ( h->fight.state == GS_EXIT || h->fight.state == GS_FINALE );
     menu = menu_is_open( h->menu );
-    if ( h->player.water_level == 3 && !special && !menu )
+    game_menu = menu_game_backdrop( h->menu );
+    if ( h->player.water_level == 3 && !special && ( !menu || game_menu ) )
         v_present_warp( v, h->h_dst_dc, 0, -1, h->rdr.anim_time );
     else
-        v_present( v, h->h_dst_dc, 0, (short) ( !special && !menu ) );
+        v_present( v, h->h_dst_dc, 0, (short) ( !special && ( !menu || game_menu ) ) );
     target = v->h_comp_dc;
     if ( h->cmd->cvar[h->crosshair_cvar].value )
         scr_sbar_crosshair( target,
@@ -1671,7 +1689,7 @@ static void near host_present( Host *h )
             (short) ( v->view_y + v->y_res * v->view_scale / 2 +
                       h->cmd->cvar[h->crosshair_y_cvar].value ),
             v->scr_x_res, v->scr_y_res );
-    if ( menu ) {
+    if ( menu && !game_menu ) {
         menu_draw( h->menu, h->keys, h->cmd, h->rdr.anim_time,
                    target, v->scr_x_res, v->scr_y_res );
         qglDrBlit( v->h_video_dc, 0, 0, target );
@@ -1692,7 +1710,7 @@ static void near host_present( Host *h )
         if ( h->fight.state == GS_FINALE ) scr_sbar_finale( target, v->scr_x_res );
         scr_draw_center( h->hud, &h->fight, target,
                          v->scr_x_res, v->scr_y_res,
-                         (short) !con_open( h->console ) );
+                         (short) ( !con_open( h->console ) && !menu ) );
         scr_draw_msg( h->hud, &h->world, &h->fight, &h->rdr, target,
                       v->scr_x_res, v->scr_y_res );
         if ( h->fight.state != GS_FINALE )
@@ -1700,7 +1718,10 @@ static void near host_present( Host *h )
                            keybind_action( h->keys, KA_SHOWSCORES ), v->sbar_lines,
                            target, v->scr_x_res, v->scr_y_res );
     }
-    con_draw( h->console, h->hud, target, v->scr_x_res, v->scr_y_res );
+    if ( !menu ) con_draw( h->console, h->hud, target, v->scr_x_res, v->scr_y_res );
+    if ( menu )
+        menu_draw( h->menu, h->keys, h->cmd, h->rdr.anim_time,
+                   target, v->scr_x_res, v->scr_y_res );
     qglDrBlit( v->h_video_dc, 0, 0, v->h_comp_dc );
 presented:
     ;

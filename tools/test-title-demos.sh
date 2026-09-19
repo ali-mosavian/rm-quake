@@ -36,7 +36,7 @@ Path(sys.argv[3]).write_bytes(data)
 PY
 
 TIMEOUT="${TIMEOUT:-120}" "$RUN" "$OUT" \
-    "e1m3.qmp +startdemos titlea.qdc titleb.qdc;wait;wait;wait;wait;wait;wait;quit" >/dev/null 2>&1
+    "e1m3.qmp +startdemos titlea.qdc titleb.qdc;wait;wait;wait;wait;wait;wait;toggleconsole;quit" >/dev/null 2>&1
 
 demos=$(tr -d '\r' < "$LOG" | sed -n 's/^attract demo \([^ ]*\) map .*/\1/p' | head -2 | paste -sd ' ' -)
 [[ "$demos" == "titlea.qdc titleb.qdc" ]] || { echo "FAIL: demo order ${demos:-none}" >&2; exit 1; }
@@ -49,7 +49,7 @@ releases=$(grep -c '^map_release ok ' "$LOG")
 [[ "$releases" -ge 3 ]] || { echo "FAIL: $releases map releases, want at least 3" >&2; exit 1; }
 
 TIMEOUT="${TIMEOUT:-120}" "$RUN" "$OUT" \
-    "e1m3.qmp +startdemos title.qdc;wait;stopdemo;wait;quit" >/dev/null 2>&1
+    "e1m3.qmp +startdemos title.qdc;wait;stopdemo;wait;toggleconsole;quit" >/dev/null 2>&1
 [[ ! -s "$OUT/error.log" ]] || { cat "$OUT/error.log" >&2; exit 1; }
 grep -q '^restored$' "$LOG" || { echo "FAIL: stopdemo did not shut down cleanly" >&2; exit 1; }
 stop_releases=$(grep -c '^map_release ok ' "$LOG")

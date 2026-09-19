@@ -34,7 +34,7 @@ fi
 # A v5 save carries the recurring deadlines. The two live records begin at
 # the BSP origins; forcing them due proves the restored records drive ticks.
 CYCLES=max TIMEOUT="${TIMEOUT:-120}" "${RUN_SH:-$HERE/run.sh}" "$OUT" \
-    "e1m4.qmp -nostats -noai -nosound +save s8;quit" >/dev/null
+    "e1m4.qmp -nostats -noai -nosound +save s8;toggleconsole;quit" >/dev/null
 python3 - "$OUT/s8.sav" "$OUT/s7.sav" <<'PY'
 import struct
 import sys

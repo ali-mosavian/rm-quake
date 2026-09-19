@@ -11,68 +11,7 @@ E1M1="$OUT/e1m1.qmp"
 [[ -f "$START" ]] || { echo "SKIP: no start.qmp in $OUT"; exit 0; }
 
 check_pixels() {
-  python3 - "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" <<'PY'
-import struct
-import sys
-
-
-def member(qmp: bytes, wanted: bytes) -> bytes:
-    count, directory = struct.unpack_from("<Hl", qmp, 8)
-    for index in range(count):
-        name, offset, size = struct.unpack_from("<16sll", qmp, directory + index * 24)
-        if name.split(b"\0")[0] == wanted:
-            return qmp[offset : offset + size]
-    raise AssertionError(f"missing {wanted.decode()}")
-
-
-qmp = open(sys.argv[1], "rb").read()
-font = member(qmp, b"font.fnt")[4:]
-palette = member(qmp, b"pal.raw")
-bmp = open(sys.argv[2], "rb").read()
-want_width, want_height, first_y, step = map(int, sys.argv[3:7])
-mode = sys.argv[7]
-pixel_offset = struct.unpack_from("<I", bmp, 10)[0]
-width, height = struct.unpack_from("<ii", bmp, 18)
-assert (width, height) == (want_width, want_height)
-stride = (width + 3) & ~3
-
-
-def bestfit(red: int, green: int, blue: int) -> int:
-    return min(
-        range(256),
-        key=lambda index: sum(
-            (palette[index * 3 + channel] - value) ** 2
-            for channel, value in enumerate((red, green, blue))
-        ),
-    )
-
-
-def pixel(x: int, y: int) -> int:
-    return bmp[pixel_offset + (height - 1 - y) * stride + x]
-
-
-message = sys.argv[8]
-expected = set()
-for row, line in enumerate(message.split("\n")):
-    x0 = (width - len(line) * 4) // 2
-    y0 = first_y + row * step
-    for column, character in enumerate(line):
-        glyph = font[ord(character) * 8 : ord(character) * 8 + 8]
-        words = struct.unpack("<4H", glyph)
-        for gy in range(8):
-            for gx in range(8):
-                bit = gy * 8 + gx
-                if words[bit >> 4] & (1 << (15 - (bit & 15))):
-                    expected.add((x0 + column * 4 + gx, y0 + gy))
-
-colour = bestfit(240, 232, 216)
-matching = sum(pixel(x, y) == colour for x, y in expected)
-if mode == "present" and matching != len(expected):
-    raise SystemExit(f"FAIL: {len(expected) - matching} of {len(expected)} centerprint pixels are missing")
-if mode == "absent" and matching > len(expected) // 5:
-    raise SystemExit(f"FAIL: {matching} of {len(expected)} hidden centerprint pixels remain")
-print(f"ok: centerprint {mode}, {matching}/{len(expected)} matching pixels")
-PY
+  python3 "$ROOT/tools/check-centerprint.py" "$@"
 }
 
 episode='This is the second episode:
@@ -92,7 +31,7 @@ check_pixels "$START" "$OUT/SCRN0.BMP" 320 200 48 8 present "$episode"
 # not the centerprint's real-time expiry.
 rm -f "$OUT/SEED.QCR" "$OUT/ACTIVE.QCR" "$OUT/HIDE.QCR" "$OUT/EXPIRE.QCR"
 TIMEOUT="${TIMEOUT:-300}" "$ROOT/tools/run.sh" "$OUT" \
-  "e1m1.qmp -nostats -nosound -noai -at 1312 904 -392 -record SEED.QCR +wait;toggleconsole;wait;toggleconsole;wait;quit" >/dev/null
+  "e1m1.qmp -nostats -nosound -noai -at 1312 904 -392 -record SEED.QCR +wait;toggleconsole;wait;toggleconsole;wait;toggleconsole;quit" >/dev/null
 python3 - "$OUT/SEED.QCR" "$OUT" <<'PY'
 import struct
 import sys
@@ -124,6 +63,11 @@ rm -f "$OUT/SCRN0.BMP"
 TIMEOUT="${TIMEOUT:-300}" "$ROOT/tools/run.sh" "$OUT" \
   "e1m1.qmp -nostats -nosound -noai -at 1312 904 -392 -play HIDE.QCR +wait;toggleconsole;screenshot;wait" >/dev/null
 check_pixels "$E1M1" "$OUT/SCRN0.BMP" 320 200 70 8 absent "$secret"
+
+rm -f "$OUT/SCRN0.BMP"
+TIMEOUT="${TIMEOUT:-300}" "$ROOT/tools/run.sh" "$OUT" \
+  "e1m1.qmp -nostats -nosound -noai -at 1312 904 -392 -play HIDE.QCR +wait;menu_quit;screenshot;wait;toggleconsole;quit" >/dev/null
+check_pixels "$E1M1" "$OUT/SCRN0.BMP" 320 200 70 8 menu_absent "$secret"
 
 rm -f "$OUT/SCRN0.BMP"
 TIMEOUT="${TIMEOUT:-300}" "$ROOT/tools/run.sh" "$OUT" \

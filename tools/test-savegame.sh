@@ -11,7 +11,7 @@ cp "$OUT/QCPORT.EXE" "$OUT/stuff.ini" "$OUT/default.cfg" \
   "$HERE/../data/maps/e1m6/e1m6.qmp" "$work/"
 
 TIMEOUT="${TIMEOUT:-60}" "$HERE/run.sh" "$work" \
-  "e1m6.qmp -nostats -nosound -noai -ticks 100 -walk +wait;wait;wait;wait;save s0;wait;load s0;quit" >/dev/null
+  "e1m6.qmp -nostats -nosound -noai -ticks 100 -walk +wait;wait;wait;wait;save s0;wait;load s0;toggleconsole;quit" >/dev/null
 saved="$(sed -n 's/^savegame wrote .* pos //p' "$work/cstep.txt")"
 loaded="$(sed -n 's/^savegame loaded .* pos //p' "$work/cstep.txt")"
 if [[ -z "$saved" || "$saved" != "$loaded" ]]; then
@@ -67,7 +67,7 @@ if found != {6, 7}:
 open(path, "wb").write(data)
 PY
 TIMEOUT="${TIMEOUT:-60}" "$HERE/run.sh" "$work" \
-  "e1m6.qmp -nostats -nosound -noai -ticks 1 +load s0;quit" >/dev/null
+  "e1m6.qmp -nostats -nosound -noai -ticks 1 +load s0;toggleconsole;quit" >/dev/null
 grep -q '^savegame loaded ' "$work/cstep.txt" || {
   echo "version-5 monster animation state was not migrated" >&2
   exit 1

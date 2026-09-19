@@ -66,6 +66,14 @@ short in_event_overflow( Input *input )
     return -1;
 }
 
+InputRoute in_route_key( short menu_open, short console_open, short key )
+{
+    if ( menu_open ) return IN_ROUTE_MENU;
+    if ( key == KEY_TILDE || key == KEY_OEM102 ) return IN_ROUTE_TOGGLE_CONSOLE;
+    if ( console_open ) return IN_ROUTE_CONSOLE;
+    return IN_ROUTE_GAME;
+}
+
 /* F5, not S: S walks backwards. */
 void in_screenshot_key( Input *input, QSurf h_dst_dc, short w, short h )
 {

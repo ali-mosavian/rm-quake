@@ -10,7 +10,7 @@ OUT="${1:?usage: test-sprite-draw.sh <build-dir>}"
 [[ -f "$OUT/e1m1.qmp" ]] || { echo "SKIP: no e1m1.qmp in $OUT"; exit 0; }
 
 TIMEOUT="${TIMEOUT:-120}" "${RUN_SH:-$HERE/run.sh}" "$OUT" \
-    "e1m1.qmp -nostats -noai -nosound -at 600 968 -344 -yaw 270 +save s9;quit" >/dev/null
+    "e1m1.qmp -nostats -noai -nosound -at 600 968 -344 -yaw 270 +save s9;toggleconsole;quit" >/dev/null
 
 python3 - "$OUT/s9.sav" <<'PY'
 import struct

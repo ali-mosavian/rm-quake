@@ -7,10 +7,12 @@
 
 #define MENU_BYTES 98304L
 #define HELP_BYTES 64000L
+#define QUIT_BYTES 9984L
+#define QUIT_OFFSET (MENU_BYTES + 6L * HELP_BYTES)
 
 static unsigned char row[512];
-static short standard_news, help_news, frees, part_reads;
-static long last_part_offset;
+static short standard_news, help_news, dialog_news, frees, part_reads;
+static long last_help_offset;
 static short fail_new;
 
 long qglSfNew( short w, short h, short kind )
@@ -23,10 +25,15 @@ long qglSfNew( short w, short h, short kind )
 
 long qglSfNewEx( short w, short h, short stride, short kind )
 {
-    assert( w == 320 && h == 200 && stride == 512 && kind == QGL_SURF_EMS );
-    help_news++;
+    assert( kind == QGL_SURF_EMS );
     if ( fail_new ) { fail_new = 0; return 0; }
-    return 200 + help_news;
+    if ( w == 320 && h == 200 && stride == 512 ) {
+        help_news++;
+        return 200 + help_news;
+    }
+    assert( w == 208 && h == 48 && stride == 256 );
+    dialog_news++;
+    return 400 + dialog_news;
 }
 
 void qglSfFree( long surface ) { assert( surface != 0 ); frees++; }
@@ -40,15 +47,17 @@ short pak_seek( Pak *pak, char *member, long *bytes )
 {
     (void) pak;
     assert( strcmp( member, "menu.raw" ) == 0 );
-    if ( bytes ) *bytes = MENU_BYTES + 6L * HELP_BYTES;
+    if ( bytes ) *bytes = QUIT_OFFSET + 8L * QUIT_BYTES;
     return 1;
 }
 short pak_seek_part( Pak *pak, char *member, long offset, long bytes )
 {
     (void) pak;
-    assert( strcmp( member, "menu.raw" ) == 0 && bytes == HELP_BYTES );
-    assert( offset >= MENU_BYTES && offset < MENU_BYTES + 6L * HELP_BYTES );
-    last_part_offset = offset;
+    assert( strcmp( member, "menu.raw" ) == 0 );
+    assert( ( bytes == HELP_BYTES && offset >= MENU_BYTES && offset < QUIT_OFFSET ) ||
+            ( bytes == QUIT_BYTES && offset >= QUIT_OFFSET &&
+              offset < QUIT_OFFSET + 8L * QUIT_BYTES ) );
+    if ( bytes == HELP_BYTES ) last_help_offset = offset;
     part_reads++;
     return 1;
 }
@@ -85,7 +94,7 @@ void sys_error( char *message ) { (void) message; abort(); }
 static void expect_help( const Menu *menu, short page )
 {
     assert( menu->page == MENU_HELP && menu->help_page == page );
-    assert( last_part_offset == MENU_BYTES + (long) page * HELP_BYTES );
+    assert( last_help_offset == MENU_BYTES + (long) page * HELP_BYTES );
 }
 
 int main( void )
@@ -94,7 +103,8 @@ int main( void )
     Pak pak;
     KeyBindings keys;
     CmdState cmd;
-    short i;
+    short i, message, before;
+    QSurf atlas;
 
     memset( &pak, 0, sizeof(pak) );
     memset( &keys, 0, sizeof(keys) );
@@ -103,10 +113,31 @@ int main( void )
     assert( menu_open( &menu, &pak, MENU_MAIN ) );
     assert( standard_news == 1 && help_news == 0 && frees == 0 );
 
+    menu.cursor = 4;
+    assert( menu_key( &menu, KEY_ENTER, &keys, &cmd, &pak ) == MENU_ACTION_NONE );
+    assert( menu.quit_active && menu.page == MENU_MAIN && menu.cursor == 4 );
+    assert( dialog_news == 1 && standard_news == 1 && frees == 0 );
+    message = menu.quit_message;
+    assert( menu_quit( &menu, &pak ) );
+    assert( menu.quit_message == message && dialog_news == 1 );
+    assert( menu_key( &menu, KEY_ENTER, &keys, &cmd, &pak ) == MENU_ACTION_NONE );
+    assert( menu.quit_active );
+    menu_key( &menu, KEY_N, &keys, &cmd, &pak );
+    assert( !menu.quit_active && menu.page == MENU_MAIN && menu.cursor == 4 );
+    assert( frees == 1 );
+    assert( menu_quit( &menu, &pak ) );
+    menu_key( &menu, KEY_ESC, &keys, &cmd, &pak );
+    assert( !menu.quit_active && menu.page == MENU_MAIN && menu.cursor == 4 );
+    assert( menu_quit( &menu, &pak ) );
+    assert( menu_key( &menu, KEY_Y, &keys, &cmd, &pak ) == MENU_ACTION_QUIT );
+    menu_close( &menu );
+    assert( !menu_is_open( &menu ) );
+    assert( menu_open( &menu, &pak, MENU_MAIN ) );
+
     menu.cursor = 3;
     assert( menu_key( &menu, KEY_ENTER, &keys, &cmd, &pak ) == MENU_ACTION_NONE );
     expect_help( &menu, 0 );
-    assert( standard_news == 1 && help_news == 1 && frees == 1 );
+    assert( standard_news == 2 && help_news == 1 );
     for ( i = 1; i < 6; i++ ) {
         menu_key( &menu, KEY_RIGHT, &keys, &cmd, &pak );
         expect_help( &menu, i );
@@ -122,17 +153,39 @@ int main( void )
     expect_help( &menu, 4 );
     assert( part_reads == i );
 
+    menu_key( &menu, KEY_RIGHT, &keys, &cmd, &pak );
+    expect_help( &menu, 5 );
+    atlas = menu.atlas;
+    assert( menu_quit( &menu, &pak ) );
+    assert( menu.quit_active && menu.page == MENU_HELP && menu.help_page == 5 );
+    assert( menu.atlas == atlas );
+    menu_key( &menu, KEY_N, &keys, &cmd, &pak );
+    expect_help( &menu, 5 );
+    assert( menu.atlas == atlas );
+
     menu_key( &menu, KEY_ESC, &keys, &cmd, &pak );
-    assert( menu.page == MENU_MAIN && standard_news == 2 && frees == 2 );
+    assert( menu.page == MENU_MAIN );
     assert( menu_open( &menu, &pak, MENU_HELP ) );
     expect_help( &menu, 0 );
     assert( menu_open( &menu, &pak, MENU_OPTIONS ) );
-    assert( menu.page == MENU_OPTIONS && standard_news == 3 && frees == 4 );
+    assert( menu.page == MENU_OPTIONS );
+
+    menu_close( &menu );
+    assert( menu_quit( &menu, &pak ) );
+    assert( menu_game_backdrop( &menu ) && menu_is_open( &menu ) );
+    menu_key( &menu, KEY_ENTER, &keys, &cmd, &pak );
+    assert( menu.quit_active );
+    menu_key( &menu, KEY_N, &keys, &cmd, &pak );
+    assert( !menu_is_open( &menu ) && !menu_game_backdrop( &menu ) );
+    fail_new = 1;
+    assert( !menu_quit( &menu, &pak ) && !menu_is_open( &menu ) );
 
     assert( menu_open( &menu, &pak, MENU_HELP ) );
+    before = frees;
     fail_new = 1;
     assert( !menu_open( &menu, &pak, MENU_MAIN ) );
     assert( menu.page == MENU_CLOSED && menu.atlas == 0 );
+    assert( frees == before + 1 );
     menu_close( &menu );
     return 0;
 }

@@ -1,6 +1,7 @@
 /* menu.c -- id's single-player front-end menus. */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "menu.h"
@@ -14,9 +15,15 @@
 #define HELP_H        200
 #define HELP_STRIDE   512
 #define HELP_PAGES    6
+#define QUIT_W         208
+#define QUIT_H         48
+#define QUIT_STRIDE    256
+#define QUIT_MESSAGES  8
 #define MENU_BYTES    ( (long) MENU_W * MENU_H )
 #define HELP_BYTES    ( (long) HELP_W * HELP_H )
-#define MENU_FILE_BYTES ( MENU_BYTES + HELP_PAGES * HELP_BYTES )
+#define QUIT_BYTES    ( (long) QUIT_W * QUIT_H )
+#define QUIT_OFFSET   ( MENU_BYTES + HELP_PAGES * HELP_BYTES )
+#define MENU_FILE_BYTES ( QUIT_OFFSET + QUIT_MESSAGES * QUIT_BYTES )
 
 typedef struct { char *command, *label; } BindRow;
 
@@ -32,20 +39,27 @@ static BindRow bind_rows[] = {
     { "+showscores", "show scores" }
 };
 
-static void near menu_pic( Menu MENU_FAR *menu, QSurf dst,
-                           short sx, short sy, short sw, short sh,
-                           short dx, short dy )
+static void near menu_surface_pic( QSurf source, QSurf dst,
+                                   short sx, short sy, short sw, short sh,
+                                   short dx, short dy )
 {
     unsigned char row[240];
     unsigned char far *src, far *out;
     short x, y;
 
     for ( y = 0; y < sh; y++ ) {
-        src = (unsigned char far *) qglSfRdRow( menu->atlas, (short) ( sy + y ) ) + sx;
+        src = (unsigned char far *) qglSfRdRow( source, (short) ( sy + y ) ) + sx;
         qglMemCopy( (long) (void far *) row, (long) src, (long) sw );
         out = (unsigned char far *) qglSfWrRow( dst, (short) ( dy + y ) ) + dx;
         for ( x = 0; x < sw; x++ ) if ( row[x] != 255 ) out[x] = row[x];
     }
+}
+
+static void near menu_pic( Menu MENU_FAR *menu, QSurf dst,
+                           short sx, short sy, short sw, short sh,
+                           short dx, short dy )
+{
+    menu_surface_pic( menu->atlas, dst, sx, sy, sw, sh, dx, dy );
 }
 
 static void near menu_char( Menu MENU_FAR *menu, QSurf dst,
@@ -132,6 +146,9 @@ static short near menu_surface( Menu MENU_FAR *menu, Pak *pak, short help )
 
 short menu_open( Menu MENU_FAR *menu, Pak *pak, MenuPage page )
 {
+    if ( menu->quit_dialog ) qglSfFree( menu->quit_dialog );
+    menu->quit_dialog = 0;
+    menu->quit_active = 0;
     if ( !menu_surface( menu, pak, (short) ( page == MENU_HELP ) ) ) return 0;
     menu->page = page;
     menu->cursor = 0;
@@ -146,17 +163,52 @@ short menu_open( Menu MENU_FAR *menu, Pak *pak, MenuPage page )
     return -1;
 }
 
+short menu_quit( Menu MENU_FAR *menu, Pak *pak )
+{
+    short handle, y;
+    long bytes, offset;
+
+    if ( menu->quit_active ) return -1;
+    menu->quit_message = (short) ( rand() & ( QUIT_MESSAGES - 1 ) );
+    menu->quit_dialog = qglSfNewEx( QUIT_W, QUIT_H, QUIT_STRIDE, QGL_SURF_EMS );
+    if ( !menu->quit_dialog ) return 0;
+    handle = pak_seek( pak, "menu.raw", &bytes );
+    if ( bytes != MENU_FILE_BYTES ) sys_error( "menu.raw has the wrong size" );
+    offset = QUIT_OFFSET + (long) menu->quit_message * QUIT_BYTES;
+    handle = pak_seek_part( pak, "menu.raw", offset, QUIT_BYTES );
+    for ( y = 0; y < QUIT_H; y++ )
+        if ( qglFileRead( handle, qglSfWrRow( menu->quit_dialog, y ), QUIT_W ) != QUIT_W )
+            sys_error( "menu.raw quit dialog is short" );
+    menu->quit_active = -1;
+    return -1;
+}
+
+static void near menu_quit_cancel( Menu MENU_FAR *menu )
+{
+    if ( menu->quit_dialog ) qglSfFree( menu->quit_dialog );
+    menu->quit_dialog = 0;
+    menu->quit_active = 0;
+}
+
 void menu_close( Menu MENU_FAR *menu )
 {
     if ( menu->atlas ) qglSfFree( menu->atlas );
+    if ( menu->quit_dialog ) qglSfFree( menu->quit_dialog );
     menu->atlas = 0;
+    menu->quit_dialog = 0;
     menu->page = MENU_CLOSED;
     menu->bind_grab = 0;
+    menu->quit_active = 0;
 }
 
 short menu_is_open( const Menu MENU_FAR *menu )
 {
-    return (short) ( menu && menu->page != MENU_CLOSED );
+    return (short) ( menu && ( menu->page != MENU_CLOSED || menu->quit_active ) );
+}
+
+short menu_game_backdrop( const Menu MENU_FAR *menu )
+{
+    return (short) ( menu && menu->quit_active && menu->page == MENU_CLOSED );
 }
 
 static void near menu_set_cvar( CmdState far *cmd, const char *name, float value )
@@ -199,6 +251,11 @@ MenuAction menu_key( Menu MENU_FAR *menu, short key,
     short max, first, second;
     char name[16], error[CMD_TEXT];
 
+    if ( menu->quit_active ) {
+        if ( key == KEY_Y ) return MENU_ACTION_QUIT;
+        if ( key == KEY_N || key == KEY_ESC ) menu_quit_cancel( menu );
+        return MENU_ACTION_NONE;
+    }
     if ( menu->page == MENU_KEYS && menu->bind_grab ) {
         if ( key != KEY_ESC && key != KEY_TILDE && keybind_name( key, name ) )
             keybind_set( keys, name, bind_rows[menu->cursor].command, error );
@@ -253,7 +310,7 @@ MenuAction menu_key( Menu MENU_FAR *menu, short key,
         else if ( menu->cursor == 1 ) strcpy( menu->notice, "Multiplayer is not available" );
         else if ( menu->cursor == 2 ) { menu->page = MENU_OPTIONS; menu->cursor = 0; }
         else if ( menu->cursor == 3 ) menu_open( menu, pak, MENU_HELP );
-        else return MENU_ACTION_QUIT;
+        else menu_quit( menu, pak );
     } else if ( menu->page == MENU_SINGLE ) {
         if ( menu->cursor == 0 ) return MENU_ACTION_NEW;
         menu->page = menu->cursor == 1 ? MENU_LOAD : MENU_SAVE;
@@ -360,6 +417,21 @@ static void near menu_draw_slots( Menu MENU_FAR *menu, QSurf dst, float now )
     if ( menu->notice[0] ) menu_center( menu, dst, 144, menu->notice );
 }
 
+static void near menu_fade( QSurf dst, short w, short h )
+{
+    unsigned char row[320];
+    unsigned char far *src, far *out;
+    short x, y;
+
+    for ( y = 0; y < h; y++ ) {
+        src = (unsigned char far *) qglSfRdRow( dst, y );
+        qglMemCopy( (long) (void far *) row, (long) src, w );
+        out = (unsigned char far *) qglSfWrRow( dst, y );
+        for ( x = 0; x < w; x++ )
+            out[x] = ( x & 3 ) == ( ( y & 1 ) << 1 ) ? row[x] : 0;
+    }
+}
+
 void menu_draw( Menu MENU_FAR *menu, const KeyBindings KB_FAR *keys,
                 const CmdState far *cmd, float now, QSurf dst, short w, short h )
 {
@@ -368,7 +440,8 @@ void menu_draw( Menu MENU_FAR *menu, const KeyBindings KB_FAR *keys,
     QSurf view;
 
     if ( !menu_is_open( menu ) ) return;
-    qglDrFill( dst, 0, 0, (short) ( w - 1 ), (short) ( h - 1 ), 0 );
+    if ( menu->page != MENU_CLOSED )
+        qglDrFill( dst, 0, 0, (short) ( w - 1 ), (short) ( h - 1 ), 0 );
     if ( ox || oy ) {
         view = qglSfViewNew( dst, 320, 200, w );
         if ( !view ) return;
@@ -377,11 +450,14 @@ void menu_draw( Menu MENU_FAR *menu, const KeyBindings KB_FAR *keys,
             return;
         }
     } else view = dst;
-    if ( menu->page == MENU_HELP ) qglDrBlit( view, 0, 0, menu->atlas );
+    if ( menu->page == MENU_CLOSED ) menu_fade( view, 320, 200 );
+    else if ( menu->page == MENU_HELP ) qglDrBlit( view, 0, 0, menu->atlas );
     else if ( menu->page == MENU_MAIN ) menu_draw_main( menu, view, now );
     else if ( menu->page == MENU_SINGLE ) menu_draw_single( menu, view, now );
     else if ( menu->page == MENU_OPTIONS ) menu_draw_options( menu, (CmdState far *) cmd, view );
     else if ( menu->page == MENU_KEYS ) menu_draw_keys( menu, keys, view );
     else menu_draw_slots( menu, view, now );
+    if ( menu->quit_active )
+        menu_surface_pic( menu->quit_dialog, view, 0, 0, QUIT_W, QUIT_H, 56, 76 );
     if ( view != dst ) qglDelView( view );
 }

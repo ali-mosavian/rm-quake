@@ -52,7 +52,7 @@ PY
 rm -f "$OUT/s11.sav" "$OUT/s11.tmp" "$OUT/s11.old"
 trap 'rm -f "$OUT/s11.sav" "$OUT/s11.tmp" "$OUT/s11.old"' EXIT
 KEEP_CARRY=1 CYCLES=max TIMEOUT="${TIMEOUT:-200}" "${RUN_SH:-$HERE/run.sh}" "$OUT" \
-    "e1m1.qmp -nostats -noai -carry -at 88 1460 -190 -yaw 270 -fire +wait;wait;wait;wait;wait;save s11;load s11;quit" \
+    "e1m1.qmp -nostats -noai -carry -at 88 1460 -190 -yaw 270 -fire +wait;wait;wait;wait;wait;save s11;load s11;toggleconsole;quit" \
     >/dev/null 2>&1 || true
 
 reports=$(tr -d '\r' < "$OUT/cstep.txt" 2>/dev/null | grep '^gib mdl=' || true)

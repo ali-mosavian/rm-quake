@@ -1,5 +1,5 @@
 #!/bin/bash
-# Regression test: the swapped-in front end draws id's main menu and frees its EMS.
+# Regression test: the swapped-in front end draws id's menus and frees their EMS.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -10,25 +10,35 @@ PAK="${PAK:-$HOME/dos/QUAKE_SW/ID1/PAK0.PAK}"
 
 work="$(mktemp -d "$OUT/menu-test.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
-for arm in main help; do
+for arm in main help quit console; do
   mkdir "$work/$arm"
   cp "$OUT/QCPORT.EXE" "$OUT/stuff.ini" "$OUT/default.cfg" "$OUT/dm3ish.qmp" "$work/$arm/"
 done
 cp "$HERE/fixtures/help-menu.cfg" "$work/help/mhelp.cfg"
+cp "$HERE/fixtures/quit-menu.cfg" "$work/quit/mquit.cfg"
+cp "$HERE/fixtures/quit-console.cfg" "$work/console/mcon.cfg"
 
 TIMEOUT="${TIMEOUT:-60}" "$HERE/run.sh" "$work/main" \
   "dm3ish.qmp -nostats -nosound -noai -ticks 3 +wait;menu_main;wait;screenshot;wait;togglemenu;wait" >/dev/null
 TIMEOUT="${TIMEOUT:-60}" "$HERE/run.sh" "$work/help" \
   "dm3ish.qmp -nostats -nosound -noai -ticks 30 +wait;exec mhelp.cfg" >/dev/null
-for arm in main help; do
+TIMEOUT="${TIMEOUT:-60}" "$HERE/run.sh" "$work/quit" \
+  "dm3ish.qmp -nostats -nosound -noai -ticks 30 +wait;exec mquit.cfg" >/dev/null
+TIMEOUT="${TIMEOUT:-60}" "$HERE/run.sh" "$work/console" \
+  "dm3ish.qmp -nostats -nosound -noai +wait;exec mcon.cfg" >/dev/null
+for arm in main help quit console; do
   grep -q '^scr_screenshot ok$' "$work/$arm/cstep.txt"
   grep -q '^map_release ok ' "$work/$arm/cstep.txt"
   grep -q '^restored$' "$work/$arm/cstep.txt"
 done
-python3 "$HERE/check-menu.py" "$PAK" "$work/main/SCRN0.BMP" "$work/help/SCRN0.BMP"
+python3 "$HERE/check-menu.py" "$PAK" \
+  "$work/main/SCRN0.BMP" "$work/help/SCRN0.BMP" \
+  "$work/quit/SCRN0.BMP" "$work/quit/SCRN1.BMP" \
+  "$work/console/SCRN0.BMP"
 head -c 54 "$work/help/SCRN0.BMP" > "$work/help-short.bmp"
 if python3 "$HERE/check-menu.py" "$PAK" "$work/main/SCRN0.BMP" \
-     "$work/help-short.bmp" >/dev/null 2>&1; then
+     "$work/help-short.bmp" "$work/quit/SCRN0.BMP" \
+     "$work/quit/SCRN1.BMP" "$work/console/SCRN0.BMP" >/dev/null 2>&1; then
   echo "FAIL: a Help BMP with no pixel data passed" >&2
   exit 1
 fi

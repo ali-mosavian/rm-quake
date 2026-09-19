@@ -20,6 +20,13 @@ typedef struct {
     short screenie_pending;
 } Input;
 
+typedef enum {
+    IN_ROUTE_GAME,
+    IN_ROUTE_MENU,
+    IN_ROUTE_CONSOLE,
+    IN_ROUTE_TOGGLE_CONSOLE
+} InputRoute;
+
 /*
  * name: in_init
  * desc: Mouse, keyboard and the one-second timer. h_video_dc is the
@@ -30,6 +37,7 @@ void in_init( Input *input, QSurf h_video_dc );
 void in_reset( Input *input );
 short in_key_event( Input *input, short *shift, short *down );
 short in_event_overflow( Input *input );
+InputRoute in_route_key( short menu_open, short console_open, short key );
 
 /*
  * name: in_screenshot_key

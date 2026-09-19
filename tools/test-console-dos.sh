@@ -40,7 +40,7 @@ quit="$B/console-quit"
 rm -rf "$quit"; mkdir -p "$quit"
 cp "$B/QCPORT.EXE" "$B/stuff.ini" "$ROOT/data/assets/dm3ish.qmp" "$quit/"
 TIMEOUT="${TIMEOUT:-120}" "$ROOT/tools/run.sh" "$quit" \
-  "dm3ish.qmp -nosound -noai +wait;wait;wait;quit" >/dev/null
+  "dm3ish.qmp -nosound -noai +wait;wait;wait;toggleconsole;quit" >/dev/null
 grep -q '^frames=3 ' "$quit/cstep.txt" || {
     echo "FAIL: quit command advanced or rendered one old-world frame"; exit 1;
 }
@@ -59,7 +59,7 @@ precedence="$B/console-quit-precedence"
 rm -rf "$precedence"; mkdir -p "$precedence"
 cp "$B/QCPORT.EXE" "$B/stuff.ini" "$ROOT/data/assets/dm3ish.qmp" "$precedence/"
 TIMEOUT="${TIMEOUT:-120}" "$ROOT/tools/run.sh" "$precedence" \
-  "dm3ish.qmp -nosound -noai +quit +map missing" >/dev/null
+  "dm3ish.qmp -nosound -noai +toggleconsole;quit +map missing" >/dev/null
 grep -q '^frames=0 ' "$precedence/cstep.txt" || {
     echo "FAIL: command dispatch continued after quit"; exit 1;
 }
@@ -71,7 +71,7 @@ many="$B/console-many-startup"
 rm -rf "$many"; mkdir -p "$many"
 cp "$B/QCPORT.EXE" "$B/stuff.ini" "$ROOT/data/assets/dm3ish.qmp" "$many/"
 TIMEOUT="${TIMEOUT:-120}" "$ROOT/tools/run.sh" "$many" \
-  "dm3ish.qmp -nosound -noai +noclip +noclip +noclip +noclip +noclip +noclip +noclip +noclip +quit" >/dev/null
+  "dm3ish.qmp -nosound -noai +noclip +noclip +noclip +noclip +noclip +noclip +noclip +noclip +toggleconsole;quit" >/dev/null
 tr -d '\r' < "$many/ERROR.LOG" | grep -qi '^startup command queue overflow$' || {
     echo "FAIL: deferred startup overflow was silent"; exit 1;
 }

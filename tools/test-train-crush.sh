@@ -62,16 +62,16 @@ grep -q '^fight=health -50 ' "$WORK/cstep.txt" || {
 }
 
 TIMEOUT="${TIMEOUT:-120}" "$HERE/run.sh" "$WORK" \
-  "e1m3.qmp -noai -nosound -nostats -at -708 -1242 88 -ticks 1 +save s0;quit" >/dev/null
+    "e1m3.qmp -noai -nosound -nostats -at -708 -1242 88 -ticks 1 +save s0;toggleconsole;quit" >/dev/null
 train_state patch "$WORK/s0.sav" 123.5 75 9
 TIMEOUT="${TIMEOUT:-120}" "$HERE/run.sh" "$WORK" \
-  "e1m3.qmp -noai -nosound -nostats -ticks 1 +load s0;save s1;quit" >/dev/null
+    "e1m3.qmp -noai -nosound -nostats -ticks 1 +load s0;save s1;toggleconsole;quit" >/dev/null
 require_load
 train_state verify "$WORK/s1.sav" 123.5 75
 train_state patch "$WORK/s0.sav" 123.5 0 8
 rm -f "$WORK/s1.sav"
 TIMEOUT="${TIMEOUT:-120}" "$HERE/run.sh" "$WORK" \
-  "e1m3.qmp -noai -nosound -nostats -ticks 1 +load s0;save s1;quit" >/dev/null
+    "e1m3.qmp -noai -nosound -nostats -ticks 1 +load s0;save s1;toggleconsole;quit" >/dev/null
 require_load
 train_state verify "$WORK/s1.sav" 0 75
 
