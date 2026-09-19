@@ -37,9 +37,10 @@ typedef struct {
     short   key;
 } DynLight;
 
-/* One EMS page shared by frame-sized renderer state. Particles occupy the
-   first 4 KB, dynamic lights the next 4 KB, gibs the next 4 KB, then sprites
-   and beams share the last 4 KB. Each is mapped only while its pass uses it. */
+/* One EMS page shared by frame-sized renderer state. Its first 4 KB are
+   particle draw scratch, dynamic lights use the next 4 KB, gibs the next,
+   then sprites and beams share the last 4 KB. Persistent particles have
+   their own four-page surface. */
 #define RDR_PART_BYTES   4096
 #define RDR_DLIGHT_OFS   RDR_PART_BYTES
 #define RDR_GIB_OFS      8192
@@ -74,7 +75,8 @@ typedef struct {
     short polys;
     short tris;
     float anim_time;
-    QSurf frame_dc;           /* particles, dlights and gibs; one EMS page */
+    QSurf frame_dc;           /* draw scratch, dlights, gibs, sprites, beams */
+    QSurf part_dc;            /* id's 2,048 persistent particles, four EMS pages */
     short dl_tick;            /* dl_stag's clock */
     unsigned short dl_seed;   /* the flicker's LCG */
     short no_dlight;          /* -nodlight */

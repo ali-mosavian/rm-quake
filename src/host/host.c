@@ -772,6 +772,8 @@ static void near host_selftests( void )
     mark( buf );
     sprintf( buf, "snd_report_selftest %d", snd_report_selftest() );
     mark( buf );
+    sprintf( buf, "part_signed_selftest %d", part_signed_selftest() );
+    mark( buf );
 
     /* LARGEST first: a failing 48h merges the free blocks, and TOTAL
        counts each unmerged one 16 bytes short. */

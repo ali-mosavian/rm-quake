@@ -1,5 +1,5 @@
 #!/bin/sh
-# An active pool maps its EMS page once and batches framebuffer rows per frame.
+# The full id particle pool stays in EMS chunks and batches framebuffer rows.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 OUT=$(mktemp -d "${TMPDIR:-/tmp}/qcport-particles.XXXXXX")
@@ -8,4 +8,4 @@ cc -std=c89 -pedantic -Wall -Wextra -Werror -Wno-unused-parameter -Dfar= -Dpasca
   -I"$ROOT/src/render" -I"$ROOT/src/qgl" \
   "$ROOT/tools/test-particles.c" "$ROOT/src/render/part.c" -lm -o "$OUT/test-particles"
 "$OUT/test-particles"
-echo "ok: impacts, trails, teleports and lava use one EMS pool mapping and batched framebuffer rows per frame"
+echo "ok: all 2048 particle slots stay in EMS; id-sized effects render in row batches"

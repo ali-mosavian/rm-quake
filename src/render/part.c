@@ -17,10 +17,11 @@
 typedef struct {
     BspVec3 at;
     BspVec3 vel;
+    float ramp;
     unsigned char color;
     unsigned char kind;
     unsigned char live;
-    unsigned char ramp;       /* 4.4 fixed point */
+    unsigned char pad;
 } Particle;
 
 typedef struct {
@@ -31,8 +32,15 @@ typedef struct {
     unsigned char color;
 } DrawPart;
 
-typedef char ParticlePoolFitsOnePage[
-    ( ( sizeof(Particle) + sizeof(DrawPart) ) * PART_MAX <= PART_BYTES ) ? 1 : -1 ];
+typedef struct {
+    Particle far *base;
+    short row;
+} PartAccess;
+
+typedef char ParticleRowIsExact[
+    sizeof(Particle) * PART_CHUNK == PART_STATE_PAGE_BYTES ? 1 : -1 ];
+typedef char ParticleDrawScratchFits[
+    sizeof(DrawPart) * PART_CHUNK <= RDR_PART_BYTES ? 1 : -1 ];
 
 static unsigned char ramp1[8] = { 0x6f, 0x6d, 0x6b, 0x69, 0x67, 0x65, 0x63, 0x61 };
 static unsigned char ramp2[8] = { 0x6f, 0x6e, 0x6d, 0x6c, 0x6b, 0x6a, 0x68, 0x66 };
@@ -44,22 +52,69 @@ static unsigned short part_rand( Renderer *rdr )
     return rdr->part_seed;
 }
 
+/* Borland promotes unsigned short arithmetic as unsigned on real mode. */
+#define PART_RAND_MASK(rdr, mask) ((short) ( part_rand( (rdr) ) & (mask) ))
+#define PART_RAND_MOD(rdr, mod)   ((short) ( part_rand( (rdr) ) % (mod) ))
+
+short part_signed_selftest( void )
+{
+    Renderer rdr;
+    float v;
+    short i;
+
+    rdr.part_seed = 0x1234U;
+    for ( i = 0; i < 128; i++ ) {
+        v = (float) ( PART_RAND_MASK( &rdr, 31 ) - 16 );
+        if ( v < -16.0f || v > 15.0f ) return 0;
+        v = (float) ( PART_RAND_MASK( &rdr, 511 ) - 256 );
+        if ( v < -256.0f || v > 255.0f ) return 0;
+        v = (float) ( PART_RAND_MASK( &rdr, 15 ) - 8 );
+        if ( v < -8.0f || v > 7.0f ) return 0;
+        v = (float) ( PART_RAND_MOD( &rdr, 6 ) - 3 );
+        if ( v < -3.0f || v > 2.0f ) return 0;
+        v = (float) ( -16 + PART_RAND_MASK( &rdr, 3 ) );
+        if ( v < -16.0f || v > -13.0f ) return 0;
+        v = (float) ( -128 + PART_RAND_MASK( &rdr, 7 ) );
+        if ( v < -128.0f || v > -121.0f ) return 0;
+    }
+    return 1;
+}
+
 short part_init( Renderer *rdr )
 {
     unsigned char far *bytes;
-    short i;
+    short i, page;
 
     /* Four rows are exactly one 16 KB EMS page; qgl surfaces cap a row
        at 8192 pixels, so the frame store cannot be expressed as one row. */
     rdr->frame_dc = qglSfNew( RDR_PART_BYTES, RDR_FRAME_ROWS, QGL_SURF_EMS );
     if ( !rdr->frame_dc ) return 0;
-    bytes = (unsigned char far *) qglSfAccessWrEx( rdr->frame_dc, 0, PART_EMS_SLOT );
-    if ( !bytes ) {
+    rdr->part_dc = qglSfNewEx( PART_STATE_STRIDE, PART_SURF_ROWS,
+                               PART_STATE_STRIDE, QGL_SURF_EMS );
+    if ( !rdr->part_dc ) {
         qglSfFree( rdr->frame_dc );
         rdr->frame_dc = 0;
         return 0;
     }
+    bytes = (unsigned char far *) qglSfAccessWrEx( rdr->frame_dc, 0, PART_EMS_SLOT );
+    if ( !bytes ) {
+        qglSfFree( rdr->part_dc );
+        qglSfFree( rdr->frame_dc );
+        rdr->part_dc = rdr->frame_dc = 0;
+        return 0;
+    }
     for ( i = 0; i < RDR_FRAME_BYTES; i++ ) bytes[i] = 0;
+    for ( page = 0; page < PART_PAGES; page++ ) {
+        bytes = (unsigned char far *)
+            qglSfAccessWrEx( rdr->part_dc, (short) ( page * 2 ), PART_EMS_SLOT );
+        if ( !bytes ) {
+            qglSfFree( rdr->part_dc );
+            qglSfFree( rdr->frame_dc );
+            rdr->part_dc = rdr->frame_dc = 0;
+            return 0;
+        }
+        for ( i = 0; i < PART_STATE_PAGE_BYTES; i++ ) bytes[i] = 0;
+    }
     rdr->part_seed = 0x1234U;
     rdr->part_next = 0;
     rdr->part_pending_n = 0;
@@ -76,8 +131,9 @@ short part_init( Renderer *rdr )
 
 void part_shutdown( Renderer *rdr )
 {
+    if ( rdr->part_dc ) qglSfFree( rdr->part_dc );
     if ( rdr->frame_dc ) qglSfFree( rdr->frame_dc );
-    rdr->frame_dc = 0;
+    rdr->part_dc = rdr->frame_dc = 0;
     rdr->part_pending_n = 0;
     rdr->part_live = rdr->part_drawn = 0;
     rdr->sprite_live = rdr->sprite_drawn = 0;
@@ -166,56 +222,80 @@ void part_lava( Renderer *rdr, BspVec3 *origin )
     ev->kind = PART_EVENT_LAVA;
 }
 
-static Particle far *part_alloc( Renderer *rdr, Particle far *pool )
+static Particle far *part_at( Renderer *rdr, PartAccess *access, short index )
 {
-    Particle far *p = &pool[rdr->part_next];
+    short page = (short) ( index / PART_CHUNK );
 
-    rdr->part_next = (short) ( ( rdr->part_next + 1 ) % PART_MAX );
-    p->live = 1;
-    return p;
+    if ( access->row != page ) {
+        access->base = (Particle far *)
+            qglSfAccessWrEx( rdr->part_dc, (short) ( page * 2 ), PART_EMS_SLOT );
+        access->row = page;
+    }
+    return access->base ? &access->base[index & ( PART_CHUNK - 1 )] : 0;
 }
 
-static void part_emit_explosion( Renderer *rdr, Particle far *pool,
+static Particle far *part_alloc( Renderer *rdr, PartAccess *access )
+{
+    Particle far *p;
+    short index, tried;
+
+    for ( tried = 0; tried < PART_MAX; tried++ ) {
+        index = rdr->part_next;
+        rdr->part_next++;
+        if ( rdr->part_next == PART_MAX ) rdr->part_next = 0;
+        p = part_at( rdr, access, index );
+        if ( !p ) return 0;
+        if ( !p->live ) {
+            p->live = 1;
+            return p;
+        }
+    }
+    return 0;
+}
+
+static void part_emit_explosion( Renderer *rdr, PartAccess *access,
                                  BspVec3 *origin )
 {
     Particle far *p;
     short i;
 
-    for ( i = 0; i < PART_MAX; i++ ) {
-        p = part_alloc( rdr, pool );
-        p->ramp = (unsigned char) ( ( part_rand( rdr ) & 3 ) << 4 );
+    for ( i = 0; i < 1024; i++ ) {
+        p = part_alloc( rdr, access );
+        if ( !p ) return;
+        p->ramp = (float) ( part_rand( rdr ) & 3 );
         p->color = ramp1[0];
         p->kind = (unsigned char) ( ( i & 1 ) ? PART_EXPLODE : PART_EXPLODE2 );
-        p->at.x = origin->x + (float) ( ( part_rand( rdr ) & 31 ) - 16 );
-        p->at.y = origin->y + (float) ( ( part_rand( rdr ) & 31 ) - 16 );
-        p->at.z = origin->z + (float) ( ( part_rand( rdr ) & 31 ) - 16 );
-        p->vel.x = (float) ( ( part_rand( rdr ) & 511 ) - 256 );
-        p->vel.y = (float) ( ( part_rand( rdr ) & 511 ) - 256 );
-        p->vel.z = (float) ( ( part_rand( rdr ) & 511 ) - 256 );
+        p->at.x = origin->x + (float) ( PART_RAND_MASK( rdr, 31 ) - 16 );
+        p->at.y = origin->y + (float) ( PART_RAND_MASK( rdr, 31 ) - 16 );
+        p->at.z = origin->z + (float) ( PART_RAND_MASK( rdr, 31 ) - 16 );
+        p->vel.x = (float) ( PART_RAND_MASK( rdr, 511 ) - 256 );
+        p->vel.y = (float) ( PART_RAND_MASK( rdr, 511 ) - 256 );
+        p->vel.z = (float) ( PART_RAND_MASK( rdr, 511 ) - 256 );
     }
 }
 
-static void part_emit_effect( Renderer *rdr, Particle far *pool,
+static void part_emit_effect( Renderer *rdr, PartAccess *access,
                               PartEvent *ev )
 {
     Particle far *p;
     short i;
 
     for ( i = 0; i < ev->count; i++ ) {
-        p = part_alloc( rdr, pool );
-        p->ramp = (unsigned char) ( ( part_rand( rdr ) % 5 ) * 6 );
+        p = part_alloc( rdr, access );
+        if ( !p ) return;
+        p->ramp = rdr->anim_time + (float) ( part_rand( rdr ) % 5 ) * 0.1f;
         p->color = (unsigned char) ( ( ev->color & ~7 ) + ( part_rand( rdr ) & 7 ) );
         p->kind = PART_SLOWGRAV;
-        p->at.x = ev->at.x + (float) ( ( part_rand( rdr ) & 15 ) - 8 );
-        p->at.y = ev->at.y + (float) ( ( part_rand( rdr ) & 15 ) - 8 );
-        p->at.z = ev->at.z + (float) ( ( part_rand( rdr ) & 15 ) - 8 );
+        p->at.x = ev->at.x + (float) ( PART_RAND_MASK( rdr, 15 ) - 8 );
+        p->at.y = ev->at.y + (float) ( PART_RAND_MASK( rdr, 15 ) - 8 );
+        p->at.z = ev->at.z + (float) ( PART_RAND_MASK( rdr, 15 ) - 8 );
         p->vel.x = (float) ev->dx * 0.9375f;
         p->vel.y = (float) ev->dy * 0.9375f;
         p->vel.z = (float) ev->dz * 0.9375f;
     }
 }
 
-static void part_emit_trail( Renderer *rdr, Particle far *pool,
+static void part_emit_trail( Renderer *rdr, PartAccess *access,
                              PartEvent *ev )
 {
     Particle far *p;
@@ -225,44 +305,44 @@ static void part_emit_trail( Renderer *rdr, Particle far *pool,
     short i, kind = ev->color;
 
     for ( i = 0; i < ev->count; i++ ) {
-        p = part_alloc( rdr, pool );
+        p = part_alloc( rdr, access );
+        if ( !p ) return;
         p->vel.x = p->vel.y = p->vel.z = 0.0f;
         if ( kind == 0 || kind == 1 ) {
-            p->ramp = (unsigned char) ( ( ( part_rand( rdr ) & 3 ) +
-                                          ( kind == 1 ? 2 : 0 ) ) << 4 );
-            p->color = ramp3[p->ramp >> 4];
+            p->ramp = (float) ( ( part_rand( rdr ) & 3 ) +
+                                ( kind == 1 ? 2 : 0 ) );
+            p->color = ramp3[(short) p->ramp];
             p->kind = PART_FIRE;
         } else {
-            p->ramp = 128;       /* two seconds, in 1/64 s units */
+            p->ramp = rdr->anim_time + 2.0f;
             p->color = (unsigned char) ( 67 + ( part_rand( rdr ) & 3 ) );
             p->kind = PART_GRAV;
         }
-        p->at.x = ev->at.x + vx * i + (float) ( ( part_rand( rdr ) % 6 ) - 3 );
-        p->at.y = ev->at.y + vy * i + (float) ( ( part_rand( rdr ) % 6 ) - 3 );
-        p->at.z = ev->at.z + vz * i + (float) ( ( part_rand( rdr ) % 6 ) - 3 );
+        p->at.x = ev->at.x + vx * i + (float) ( PART_RAND_MOD( rdr, 6 ) - 3 );
+        p->at.y = ev->at.y + vy * i + (float) ( PART_RAND_MOD( rdr, 6 ) - 3 );
+        p->at.z = ev->at.z + vz * i + (float) ( PART_RAND_MOD( rdr, 6 ) - 3 );
     }
 }
 
-static void part_emit_teleport( Renderer *rdr, Particle far *pool,
+static void part_emit_teleport( Renderer *rdr, PartAccess *access,
                                 PartEvent *ev )
 {
     Particle far *p;
     float x, y, z, len, speed;
-    short i, j, k, n = 0;
+    short i, j, k;
 
-    /* id emits 896 points. One in eight preserves the whole 32x32x56
-       volume in this real-mode pool instead of keeping only its tail. */
     for ( i = -16; i < 16; i += 4 )
         for ( j = -16; j < 16; j += 4 )
-            for ( k = -24; k < 32; k += 4, n++ ) {
-                if ( n & 7 ) continue;
-                p = part_alloc( rdr, pool );
-                p->ramp = (unsigned char) ( 13 + ( part_rand( rdr ) & 7 ) );
+            for ( k = -24; k < 32; k += 4 ) {
+                p = part_alloc( rdr, access );
+                if ( !p ) return;
+                p->ramp = rdr->anim_time + 0.2f +
+                          (float) ( part_rand( rdr ) & 7 ) * 0.02f;
                 p->color = (unsigned char) ( 7 + ( part_rand( rdr ) & 7 ) );
                 p->kind = PART_SLOWGRAV;
-                p->at.x = ev->at.x + i + ( part_rand( rdr ) & 3 );
-                p->at.y = ev->at.y + j + ( part_rand( rdr ) & 3 );
-                p->at.z = ev->at.z + k + ( part_rand( rdr ) & 3 );
+                p->at.x = ev->at.x + i + PART_RAND_MASK( rdr, 3 );
+                p->at.y = ev->at.y + j + PART_RAND_MASK( rdr, 3 );
+                p->at.z = ev->at.z + k + PART_RAND_MASK( rdr, 3 );
                 x = (float) j * 8.0f;
                 y = (float) i * 8.0f;
                 z = (float) k * 8.0f;
@@ -277,28 +357,23 @@ static void part_emit_teleport( Renderer *rdr, Particle far *pool,
             }
 }
 
-static void part_emit_lava( Renderer *rdr, Particle far *pool,
+static void part_emit_lava( Renderer *rdr, PartAccess *access,
                             PartEvent *ev )
 {
     Particle far *p;
     float x, y, z, len, speed;
     short i, j;
-    unsigned short take = 1024 - PART_MAX;
 
-    /* R_LavaSplash fills a 32x32 grid. Spread this smaller real-mode
-       pool evenly across the whole volume instead of keeping its tail. */
     for ( i = -16; i < 16; i++ )
         for ( j = -16; j < 16; j++ ) {
-            take += PART_MAX;
-            if ( take < 1024 ) continue;
-            take -= 1024;
-            p = part_alloc( rdr, pool );
-            p->ramp = (unsigned char)
-                ( 128 + ( ( part_rand( rdr ) & 31 ) * 5 ) / 4 );
+            p = part_alloc( rdr, access );
+            if ( !p ) return;
+            p->ramp = rdr->anim_time + 2.0f +
+                      (float) ( part_rand( rdr ) & 31 ) * 0.02f;
             p->color = (unsigned char) ( 224 + ( part_rand( rdr ) & 7 ) );
             p->kind = PART_SLOWGRAV;
-            x = (float) ( j * 8 + ( part_rand( rdr ) & 7 ) );
-            y = (float) ( i * 8 + ( part_rand( rdr ) & 7 ) );
+            x = (float) ( j * 8 + PART_RAND_MASK( rdr, 7 ) );
+            y = (float) ( i * 8 + PART_RAND_MASK( rdr, 7 ) );
             z = 256.0f;
             p->at.x = ev->at.x + x;
             p->at.y = ev->at.y + y;
@@ -376,10 +451,12 @@ void part_frame( Renderer *rdr, Mat4 *mtx, float xresh, float yresh,
     Particle far *pool;
     Particle far *p;
     DrawPart far *draw;
+    PartAccess access;
     float now = rdr->anim_time;
     float dt = now - rdr->part_last;
     float grav, dvel;
-    short i, e, live = 0, drawn = 0, ymin = 32767, ymax = -1;
+    short i, e, page, live = 0, drawn = 0, total_drawn = 0;
+    short ymin, ymax;
 
     rdr->part_last = now;
     if ( dt < 0.0f ) dt = 0.0f;
@@ -388,66 +465,80 @@ void part_frame( Renderer *rdr, Mat4 *mtx, float xresh, float yresh,
         rdr->part_drawn = 0;
         return;
     }
-    pool = (Particle far *) qglSfAccessWrEx( rdr->frame_dc, 0, PART_EMS_SLOT );
-    if ( !pool ) return;
-    draw = (DrawPart far *) ( pool + PART_MAX );
+    if ( !rdr->part_dc ) return;
+    draw = (DrawPart far *)
+        qglSfAccessWrEx( rdr->frame_dc, 0, PART_DRAW_SLOT );
+    if ( !draw ) return;
+    access.base = 0;
+    access.row = -1;
     for ( e = 0; e < rdr->part_pending_n; e++ )
         if ( rdr->part_pending[e].kind == PART_EVENT_EXPLOSION )
-            part_emit_explosion( rdr, pool, &rdr->part_pending[e].at );
+            part_emit_explosion( rdr, &access, &rdr->part_pending[e].at );
         else if ( rdr->part_pending[e].kind == PART_EVENT_EFFECT )
-            part_emit_effect( rdr, pool, &rdr->part_pending[e] );
+            part_emit_effect( rdr, &access, &rdr->part_pending[e] );
         else if ( rdr->part_pending[e].kind == PART_EVENT_TRAIL )
-            part_emit_trail( rdr, pool, &rdr->part_pending[e] );
+            part_emit_trail( rdr, &access, &rdr->part_pending[e] );
         else if ( rdr->part_pending[e].kind == PART_EVENT_TELEPORT )
-            part_emit_teleport( rdr, pool, &rdr->part_pending[e] );
+            part_emit_teleport( rdr, &access, &rdr->part_pending[e] );
         else
-            part_emit_lava( rdr, pool, &rdr->part_pending[e] );
+            part_emit_lava( rdr, &access, &rdr->part_pending[e] );
     rdr->part_pending_n = 0;
 
     grav = dt * 800.0f * 0.05f;
     dvel = 4.0f * dt;
-    for ( i = 0; i < PART_MAX; i++ ) {
-        p = &pool[i];
-        if ( !p->live ) continue;
-        if ( part_project( p, &draw[drawn], (float *) mtx, xresh, yresh,
-                          z_near ) ) {
-            if ( draw[drawn].y0 < ymin ) ymin = draw[drawn].y0;
-            if ( draw[drawn].y1 > ymax ) ymax = draw[drawn].y1;
-            drawn++;
+    for ( page = 0; page < PART_PAGES; page++ ) {
+        pool = (Particle far *)
+            qglSfAccessWrEx( rdr->part_dc, (short) ( page * 2 ), PART_EMS_SLOT );
+        if ( !pool ) continue;
+        drawn = 0;
+        ymin = 32767;
+        ymax = -1;
+        for ( i = 0; i < PART_CHUNK; i++ ) {
+            p = &pool[i];
+            if ( !p->live ) continue;
+            if ( ( p->kind == PART_SLOWGRAV || p->kind == PART_GRAV ) &&
+                 p->ramp < now ) {
+                p->live = 0;
+                continue;
+            }
+            if ( part_project( p, &draw[drawn], (float *) mtx, xresh, yresh,
+                              z_near ) ) {
+                if ( draw[drawn].y0 < ymin ) ymin = draw[drawn].y0;
+                if ( draw[drawn].y1 > ymax ) ymax = draw[drawn].y1;
+                drawn++;
+            }
+            p->at.x += p->vel.x * dt;
+            p->at.y += p->vel.y * dt;
+            p->at.z += p->vel.z * dt;
+            if ( p->kind == PART_EXPLODE ) {
+                p->ramp += dt * 10.0f;
+                if ( p->ramp >= 8.0f ) { p->live = 0; continue; }
+                p->color = ramp1[(short) p->ramp];
+                p->vel.x += p->vel.x * dvel;
+                p->vel.y += p->vel.y * dvel;
+                p->vel.z += p->vel.z * dvel;
+                p->vel.z -= grav;
+            } else if ( p->kind == PART_EXPLODE2 ) {
+                p->ramp += dt * 15.0f;
+                if ( p->ramp >= 8.0f ) { p->live = 0; continue; }
+                p->color = ramp2[(short) p->ramp];
+                p->vel.x -= p->vel.x * dt;
+                p->vel.y -= p->vel.y * dt;
+                p->vel.z -= p->vel.z * dt;
+                p->vel.z -= grav;
+            } else if ( p->kind == PART_FIRE ) {
+                p->ramp += dt * 5.0f;
+                if ( p->ramp >= 6.0f ) { p->live = 0; continue; }
+                p->color = ramp3[(short) p->ramp];
+                p->vel.z += grav;
+            } else {
+                p->vel.z -= grav;
+            }
+            live++;
         }
-        p->at.x += p->vel.x * dt;
-        p->at.y += p->vel.y * dt;
-        p->at.z += p->vel.z * dt;
-        if ( p->kind == PART_EXPLODE ) {
-            p->ramp = (unsigned char) ( p->ramp + (unsigned char) ( dt * 160.0f ) );
-            if ( p->ramp >= 128 ) { p->live = 0; continue; }
-            p->color = ramp1[p->ramp >> 4];
-            p->vel.x += p->vel.x * dvel;
-            p->vel.y += p->vel.y * dvel;
-            p->vel.z += p->vel.z * dvel;
-            p->vel.z -= grav;
-        } else if ( p->kind == PART_EXPLODE2 ) {
-            p->ramp = (unsigned char) ( p->ramp + (unsigned char) ( dt * 240.0f ) );
-            if ( p->ramp >= 128 ) { p->live = 0; continue; }
-            p->color = ramp2[p->ramp >> 4];
-            p->vel.x -= p->vel.x * dt;
-            p->vel.y -= p->vel.y * dt;
-            p->vel.z -= p->vel.z * dt;
-            p->vel.z -= grav;
-        } else if ( p->kind == PART_FIRE ) {
-            p->ramp = (unsigned char) ( p->ramp + (unsigned char) ( dt * 80.0f ) );
-            if ( p->ramp >= 96 ) { p->live = 0; continue; }
-            p->color = ramp3[p->ramp >> 4];
-            p->vel.z += grav;
-        } else {
-            unsigned char step = (unsigned char) ( dt * 64.0f + 0.5f );
-            if ( p->ramp <= step ) { p->live = 0; continue; }
-            p->ramp = (unsigned char) ( p->ramp - step );
-            p->vel.z -= grav;
-        }
-        live++;
+        if ( drawn ) part_raster( draw, drawn, ymin, ymax, dst, zdc );
+        total_drawn = (short) ( total_drawn + drawn );
     }
-    if ( drawn ) part_raster( draw, drawn, ymin, ymax, dst, zdc );
     rdr->part_live = live;
-    rdr->part_drawn = drawn;
+    rdr->part_drawn = total_drawn;
 }

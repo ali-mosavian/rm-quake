@@ -43,11 +43,11 @@ PAK0 and are left out.
       id: `r_part.c` `R_ParticleExplosion`, `R_RocketTrail`,
       `R_BlobExplosion`, `R_RunParticleEffect`, `R_LavaSplash`,
       `R_TeleportSplash`, `R_ParseParticleEffect`
-      qcport (partial): one 4 KB EMS pool draws id-style explosion, blood,
-      gunshot, nail and wizard-spike particles, plus rocket, grenade and gib
-      trails and teleport splashes, with depth testing; `src/render/part.c`.
-      Chthon's death emits an evenly sampled `R_LavaSplash` volume into
-      the same one-page EMS pool.
+      qcport: id's 2,048 persistent particles in four EMS pages, batched in
+      512-particle rows through a 4 KB scratch page, with id-sized explosion,
+      blood, gunshot, trail, teleport and lava effects, depth testing and
+      absolute expiry; `src/render/part.c`. Chthon's death emits the complete
+      `R_LavaSplash` volume.
 - [x] Sprites: `s_explod.spr`, `s_bubble.spr`
       id: `r_sprite.c` `R_DrawSprite`
       qcport: stock explosion and bubble sprites, including player drowning

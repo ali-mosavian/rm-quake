@@ -3,12 +3,18 @@
 
 #include "renderer.h"
 
-#define PART_BYTES    RDR_PART_BYTES
-#define PART_MAX      112
-#define PART_EMS_SLOT 3
+#define PART_MAX             2048
+#define PART_CHUNK            512
+#define PART_PAGES              4
+#define PART_SURF_ROWS          8
+#define PART_STATE_PAGE_BYTES 16384
+#define PART_STATE_STRIDE     8192
+#define PART_EMS_SLOT            3
+#define PART_DRAW_SLOT           0
 
 short part_init( Renderer *rdr );
 void  part_shutdown( Renderer *rdr );
+short part_signed_selftest( void );
 void  part_explosion( Renderer *rdr, BspVec3 *origin );
 void  part_effect( Renderer *rdr, BspVec3 *origin, BspVec3 *direction,
                    short color, short count );
