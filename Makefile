@@ -72,10 +72,10 @@ $(if $(DUPS),$(error one name in two subsystems: $(DUPS)))
 OBJS := $(addprefix $(BUILD)/,$(addsuffix .obj,$(MODS)))
 EXE  := $(BUILD)/QCPORT.EXE
 
-.PHONY: all build title assets maps test run clean help
+.PHONY: all build game title assets maps test run clean help
 
-# ONE file per map: <map>.qmp carries every lump, both atlases, the
-# palette, the font and the colormap, and the run takes its name.
+# The converter emits one .qmp per map. The shipped run reads only
+# QUAKE.QPK, which deduplicates those maps' shared payloads.
 DATA_SRC := $(CURDIR)/data/assets
 DATA     := $(basename $(MAP)).qmp
 # stuff.ini is read by name out of the working directory -- it is the
@@ -84,20 +84,25 @@ DATA     := $(basename $(MAP)).qmp
 ROOT_DATA := stuff.ini default.cfg
 DATA_OUT := $(addprefix $(BUILD)/,$(DATA) $(ROOT_DATA))
 
-all: build                      ## build QCPORT.EXE (default)
-build: $(EXE) $(DATA_OUT)
+all: build                      ## build QCPORT.EXE and QUAKE.QPK (default)
+build: game
 
-# The no-argument id-style attract loop. The camera tracks are extracted
-# from id's protocol-15 demos in the shareware PAK.
-TITLE_MAPS := start e1m3 e1m4 e1m6
-TITLE_DEMOS := demo1.qdc demo2.qdc demo3.qdc
-TITLE_MAP_OUT := $(foreach m,$(TITLE_MAPS),$(BUILD)/$(m).qmp)
-TITLE_DEMO_OUT := $(addprefix $(BUILD)/,$(TITLE_DEMOS))
-title: build $(TITLE_MAP_OUT) $(TITLE_DEMO_OUT) ## build the no-argument title-demo setup
+# The whole playable game, including the three recorded title demos.
+GAME_MAP_QMP := $(foreach m,$(MAPS),data/maps/$(m)/$(m).qmp)
+GAME_DEMOS := $(addprefix data/demos/,demo1.qdc demo2.qdc demo3.qdc)
+GAME_PAK := $(BUILD)/QUAKE.QPK
 
-$(foreach m,$(TITLE_MAPS),$(eval $(BUILD)/$(m).qmp: data/maps/$(m)/$(m).qmp | $(BUILD); cp $$< $$@))
-$(BUILD)/demo%.qdc: $(PAK) tools/mkidcam.py tools/mdlsets.py tools/mksnd.py tools/pakget.py | $(BUILD)
+game: $(EXE) $(GAME_PAK) $(addprefix $(BUILD)/,$(ROOT_DATA)) ## build the one-file game asset
+title: game ## build the no-argument title-demo setup
+
+data/demos:
+	mkdir -p $@
+
+data/demos/demo%.qdc: $(PAK) tools/mkidcam.py tools/mdlsets.py tools/mksnd.py tools/pakget.py | data/demos
 	@python3 tools/mkidcam.py $(PAK) demo$*.dem $@
+
+$(GAME_PAK): $(GAME_MAP_QMP) $(GAME_DEMOS) tools/mkqpak.py | $(BUILD)
+	@python3 tools/mkqpak.py $@ $(GAME_MAP_QMP) --demos $(GAME_DEMOS)
 
 # Named one by one, not a `$(BUILD)/%:` pattern -- that pattern also
 # matches $(BUILD)/<anything>.obj and would compete with the compile
@@ -214,7 +219,7 @@ test:                           ## header deps, far-to-near pointers, then qgl's
 	@tools/test-bufcheck.sh
 	@$(MAKE) --no-print-directory -C src/qgl/test
 
-run: $(EXE)                     ## headless run; cport.txt/cstep.txt land in $(BUILD)
+run: game                       ## headless run; cport.txt/cstep.txt land in $(BUILD)
 	@tools/run.sh $(BUILD)
 
 clean:                          ## drop all build output

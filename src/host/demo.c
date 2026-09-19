@@ -8,6 +8,7 @@
 #include <math.h>   /* atan2 -- the recorded yaw */
 #include "dbg.h"
 #include "qgl.h"
+#include "pak.h"
 #include "ent.h"
 #include "mdl.h"
 #include "mdl_ai.h"
@@ -22,6 +23,40 @@ static char snapshot_magic[4] = { 'Q', 'D', 'S', '1' };
 
 static void near demo_short( void ) { sys_error( "short" ); }
 
+static short near demo_stream( const Demo *dm )
+{
+    return dm->rf || dm->pak_fh;
+}
+
+static long near demo_read( Demo *dm, void *p, long bytes )
+{
+    long got;
+
+    if ( dm->pak_fh ) {
+        if ( bytes < 0 || bytes > dm->pak_end - dm->pak_pos ) return 0;
+        got = qglFileRead( dm->pak_fh, (long) (void far *) p, bytes );
+        if ( got == bytes ) dm->pak_pos += bytes;
+        return got;
+    }
+    return dm->rf ? (long) fread( p, 1, (size_t) bytes, dm->rf ) : 0;
+}
+
+static short near demo_seek( Demo *dm, long pos )
+{
+    if ( dm->pak_fh ) {
+        if ( pos < 0 || pos > dm->pak_end ||
+             !qglFileSeek( dm->pak_fh, dm->pak_start + pos ) ) return 0;
+        dm->pak_pos = pos;
+        return -1;
+    }
+    return dm->rf && !fseek( dm->rf, pos, SEEK_SET );
+}
+
+static long near demo_tell( const Demo *dm )
+{
+    return dm->pak_fh ? dm->pak_pos : ftell( dm->rf );
+}
+
 static void demo_map_name( const char *name, char *map )
 {
     short n = (short) strlen( name );
@@ -34,8 +69,20 @@ static void demo_map_name( const char *name, char *map )
 short demo_map( const char *name, char *map )
 {
     char magic[4];
-    FILE *f = fopen( name, "rb" );
+    short fh;
+    long start, bytes;
+    FILE *f;
 
+    if ( pak_open_member( (char *) name, &fh, &start, &bytes ) ) {
+        if ( bytes < 13 || qglFileRead( fh, (long) (void far *) magic, sizeof(magic) ) != sizeof(magic) ||
+             ( memcmp( magic, demo_magic, sizeof(magic) ) &&
+               memcmp( magic, snapshot_magic, sizeof(magic) ) ) ||
+             qglFileRead( fh, (long) (void far *) map, 9L ) != 9L ) map[0] = 0;
+        map[8] = 0;
+        qglFileClose( fh );
+        return map[0] != 0;
+    }
+    f = fopen( name, "rb" );
     if ( !f ) return 0;
     if ( fread( magic, 1, sizeof(magic), f ) != sizeof(magic) ||
          ( memcmp( magic, demo_magic, sizeof(magic) ) &&
@@ -62,25 +109,30 @@ void demo_open( Demo *dm, const RunArgs *args )
         mark( mbuf );
     } else if ( args->play_name[0] ) {
         char magic[4];
-        dm->rf = fopen( args->play_name, "rb" );
-        if ( !dm->rf ) sys_error( "could not open -play file" );
-        if ( fread( magic, 1, sizeof(magic), dm->rf ) == sizeof(magic) &&
+        if ( !pak_open_member( args->play_name, &dm->pak_fh, &dm->pak_start,
+                               &dm->pak_end ) )
+            dm->rf = fopen( args->play_name, "rb" );
+        if ( !demo_stream( dm ) ) sys_error( "could not open -play file" );
+        if ( demo_read( dm, magic, sizeof(magic) ) == sizeof(magic) &&
              !memcmp( magic, snapshot_magic, sizeof(magic) ) ) {
             char map[9];
-            dm->camera = (short) ( fread( dm->map, 1, sizeof(dm->map), dm->rf ) ==
+            dm->camera = (short) ( demo_read( dm, dm->map, sizeof(dm->map) ) ==
                                    sizeof(dm->map) );
             dm->snapshot = -1;
             if ( !dm->camera ) demo_short();
             {
                 long first_entities;
-                if ( fread( &dm->camera_from, sizeof(dm->camera_from), 1, dm->rf ) != 1 )
+                if ( demo_read( dm, &dm->camera_from, sizeof(dm->camera_from) )
+                     != sizeof(dm->camera_from) )
                     demo_short();
-                first_entities = ftell( dm->rf );
-                fseek( dm->rf, (long) dm->camera_from.ent_count * sizeof(DemoEntity), SEEK_CUR );
-                dm->snapshot_next_pos = ftell( dm->rf );
-                if ( fread( &dm->camera_to, sizeof(dm->camera_to), 1, dm->rf ) != 1 )
+                first_entities = demo_tell( dm );
+                if ( !demo_seek( dm, first_entities +
+                                 (long) dm->camera_from.ent_count * sizeof(DemoEntity) ) ) demo_short();
+                dm->snapshot_next_pos = demo_tell( dm );
+                if ( demo_read( dm, &dm->camera_to, sizeof(dm->camera_to) )
+                     != sizeof(dm->camera_to) )
                     demo_short();
-                fseek( dm->rf, first_entities, SEEK_SET );
+                if ( !demo_seek( dm, first_entities ) ) demo_short();
             }
             dm->map[8] = 0;
             demo_map_name( args->map_name, map );
@@ -88,7 +140,7 @@ void demo_open( Demo *dm, const RunArgs *args )
             dm->camera_time = dm->camera_from.time;
         } else if ( !memcmp( magic, demo_magic, sizeof(magic) ) ) {
             char map[9];
-            dm->actions = (short) ( fread( dm->map, 1, sizeof(dm->map), dm->rf ) == sizeof(dm->map) );
+            dm->actions = (short) ( demo_read( dm, dm->map, sizeof(dm->map) ) == sizeof(dm->map) );
             if ( !dm->actions ) sys_error( "short QCR3 header" );
             dm->map[8] = 0;
             demo_map_name( args->map_name, map );
@@ -96,7 +148,7 @@ void demo_open( Demo *dm, const RunArgs *args )
         } else if ( !memcmp( magic, demo_magic2, sizeof(magic) ) ) {
             dm->actions = 1;
         } else {
-            fseek( dm->rf, 0L, SEEK_SET );
+            if ( !demo_seek( dm, 0L ) ) demo_short();
         }
     }
 }
@@ -107,8 +159,8 @@ short demo_input( Demo *dm, Input *input, float *frame_dt )
 {
     RecEntry *r = &dm->rec;
 
-    if ( dm->rf && !dm->camera ) {
-        if ( fread( r, sizeof(*r), 1, dm->rf ) != 1 ) return 0;
+    if ( demo_stream( dm ) && !dm->camera ) {
+        if ( demo_read( dm, r, sizeof(*r) ) != sizeof(*r) ) return 0;
         *frame_dt                   = r->dt;
         input->mouse.x              = r->in[0];
         input->mouse.y              = r->in[1];
@@ -214,7 +266,7 @@ static void near demo_snapshot_apply( Demo *dm, DemoFrame *frame, World *world,
     for ( i = 0; i < PL_NAILS_MAX; i++ ) fight->nail[i].alive = 0;
 
     for ( i = 0; i < frame->ent_count; i++ ) {
-        if ( fread( &e, sizeof(e), 1, dm->rf ) != 1 ) demo_short();
+        if ( demo_read( dm, &e, sizeof(e) ) != sizeof(e) ) demo_short();
         if ( e.type == DEMO_ENT_BRUSH && e.kind > 0 && e.kind < world->model_count ) {
             BrushModel far *b = &world->brush[e.kind];
             b->draw = (short) ( ENT_BRUSH_DRAW |
@@ -328,13 +380,15 @@ short demo_camera( Demo *dm, Camera *cam, Player *player, World *world,
     }
     dm->camera_time += frame_dt;
     while ( dm->camera_time > dm->camera_to.time ) {
-        fseek( dm->rf, dm->snapshot_next_pos, SEEK_SET );
-        if ( fread( &dm->camera_from, sizeof(dm->camera_from), 1, dm->rf ) != 1 )
+        if ( !demo_seek( dm, dm->snapshot_next_pos ) ) demo_short();
+        if ( demo_read( dm, &dm->camera_from, sizeof(dm->camera_from) )
+             != sizeof(dm->camera_from) )
             demo_short();
         demo_pose( (DemoCam *) &dm->camera_from, player, cam );
         demo_snapshot_apply( dm, &dm->camera_from, world, fight, rdr, ls, player, cam );
-        dm->snapshot_next_pos = ftell( dm->rf );
-        if ( fread( &dm->camera_to, sizeof(dm->camera_to), 1, dm->rf ) == 1 ) continue;
+        dm->snapshot_next_pos = demo_tell( dm );
+        if ( demo_read( dm, &dm->camera_to, sizeof(dm->camera_to) )
+             == sizeof(dm->camera_to) ) continue;
         {
             memcpy( &dm->camera_to, &dm->camera_from, sizeof(DemoCam) );
             dm->camera_time = dm->camera_from.time;
@@ -390,7 +444,7 @@ void demo_check( Demo *dm, const Camera *cam, short frame )
     char  buf[112];
     float dx, dy, dz;
 
-    if ( !dm->rf || dm->camera || dm->drift ) return;
+    if ( !demo_stream( dm ) || dm->camera || dm->drift ) return;
     dx = cam->pos.x - dm->rec.px;
     dy = cam->pos.y - dm->rec.py;
     dz = cam->pos.z - dm->rec.pz;
@@ -431,7 +485,9 @@ void demo_close( Demo *dm, const RunArgs *args )
     short i;
 
     if ( dm->rf ) fclose( dm->rf );
+    if ( dm->pak_fh ) qglFileClose( dm->pak_fh );
     dm->rf = 0;
+    dm->pak_fh = 0;
     dm->camera = dm->snapshot = dm->snapshot_applied = dm->camera_eof = 0;
     if ( dm->buf && dm->buf->count != 0 ) {
         wf = fopen( args->record_name, "wb" );

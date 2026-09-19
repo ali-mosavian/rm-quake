@@ -63,6 +63,8 @@ typedef char rec_demoentity_ok[ sizeof(DemoEntity) == REC_DEMOENTITY ? 1 : -1 ];
 typedef struct {
     RecBuf far *buf;          /* -record: the frames so far */
     FILE       *rf;           /* -play: the recording */
+    short       pak_fh;       /* archive demo: own handle, never the map's */
+    long        pak_start, pak_pos, pak_end;
     RecEntry    rec;          /* this frame's */
     short       drift;        /* -play: divergence reported, stop checking */
     short       actions;      /* file carries logical actions, not raw keys */

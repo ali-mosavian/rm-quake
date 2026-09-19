@@ -2,15 +2,13 @@
 #define __PAK_H__
 
 /*
- * pak.h -- the map container, and reading members out of it.
+ * pak.h -- QUAKE.QPK's map directories and member reader.
  *
- * A converted map is ONE file: mkassets.py's .qmp, holding every lump,
- * both texture atlases, the palette, the font and the colormap behind a
- * flat directory of (name, offset, size). Five files used to be staged
- * together -- the .bsp, assets.zip and three loose atlases -- and
- * nothing tied them to each other: e1m1's zip over dm3ish's atlases
- * drew every texture as some other one and ran perfectly happily,
- * because the offset table indexes whatever atlas is there.
+ * QUAKE.QPK holds every converted map and the title demos behind a map
+ * index. Its selected map has the old flat directory of (name, offset,
+ * size), so every loader still reads through one open DOS handle. Payloads
+ * shared by maps have one physical copy; their per-map directory entries
+ * point to that same byte range.
  *
  * The file is opened ONCE and stays open. A member is not opened at
  * all: qglFileSeek puts the one handle at the member's offset and the
@@ -26,10 +24,14 @@
  * time) clamps its last one itself.
  */
 
-/* The .qmp's own header and directory. QMAP_NAME and QMAP_ENT are
-   mkassets.py's write_qmap; the guard below is the other half. */
-#define QMAP_SIG   0x50414D51L      /* "QMAP" */
-#define QMAP_VER   11L
+/* QPAK's top-level index and its map-local member directories.
+   tools/mkqpak.py writes these exact fixed records. */
+#define QPAK_SIG   0x4B415051L      /* "QPAK" */
+#define QPAK_VER   1L
+#define QPAK_FILE  "quake.qpk"
+#define QPAK_MAP_NAME 8
+#define QPAK_MAP_ENT  16
+#define QPAK_MAX_MAPS 16
 #define QMAP_NAME  16
 #define QMAP_ENT   24
 /* Members a map may carry. 19 lumps, three atlases and the palette,
@@ -44,8 +46,16 @@ typedef struct {
     long ofs, size;
 } QmapEnt;
 
+typedef struct {
+    char  name[QPAK_MAP_NAME];
+    short n;
+    long  dirofs;
+    short pad;
+} QpakMap;
+
 #ifndef QCPORT_NATIVE_TEST
 typedef char rec_qmapent_ok[ sizeof(QmapEnt) == QMAP_ENT ? 1 : -1 ];
+typedef char rec_qpakmap_ok[ sizeof(QpakMap) == QPAK_MAP_ENT ? 1 : -1 ];
 #endif
 
 typedef struct {
@@ -54,12 +64,16 @@ typedef struct {
     QmapEnt dir[QMAP_MAX];
 } Pak;
 
-/* Opens the map container and reads its directory. Fatal if the file is
-   missing, is not a .qmp, or is a version this build does not read --
-   each said by name, because "wrong map" used to be a silent wrong
-   picture. */
-void pak_open( Pak *pak, char *qmp );
+/* Opens QUAKE.QPK and reads one map's member directory. Fatal if the
+   archive or requested map is missing, or if their format is wrong. */
+void pak_open( Pak *pak, char *map );
 void pak_close( Pak *pak );
+
+/* Opens another archive handle at a member found in any map directory.
+   Demos use it so their stream cannot move the world's shared handle.
+   Returns 0 when no map carries member; the caller closes *out_fh. */
+short pak_open_member( char *member, short *out_fh, long *out_offset,
+                       long *out_bytes );
 
 /* Puts the shared handle at member's first byte and answers the handle,
    its size through *out_bytes. Fatal if there is no such member. The

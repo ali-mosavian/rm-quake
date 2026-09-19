@@ -10,6 +10,12 @@
 #include "pak.h"
 #include "sys.h"    /* sys_error */
 
+typedef struct {
+    long  sig, ver;
+    short nmap;
+    long  mapofs, sum;
+} QpakHead;
+
 static void pak_fatal( char *flname, char *why )
 {
     char msg[128];
@@ -17,30 +23,53 @@ static void pak_fatal( char *flname, char *why )
     sys_error( msg );
 }
 
-void pak_open( Pak *pak, char *qmp )
+static short pak_head( short fh, QpakHead *head )
 {
-    /* the header, in the writer's own field order */
-    struct {
-        long  sig, ver;
-        short ndir;
-        long  dirofs, sum;
-        char  name[QMAP_NAME];
-    } head;
+    if ( qglFileRead( fh, (long) (void far *) head, (long) sizeof(*head) )
+         != (long) sizeof(*head) ) return 0;
+    return head->sig == QPAK_SIG && head->ver == QPAK_VER &&
+           head->nmap >= 1 && head->nmap <= QPAK_MAX_MAPS;
+}
 
-    if ( !( pak->fh = qglFileOpen( qmp ) ) ) pak_fatal( qmp, "would not open" );
+static short pak_map( short fh, QpakHead *head, char *map, QpakMap *out )
+{
+    char want[QPAK_MAP_NAME + 1];
+    short i, n = (short) strlen( map );
 
-    if ( qglFileRead( pak->fh, (long) (void far *) &head, (long) sizeof(head) )
-             != (long) sizeof(head) )
-        pak_fatal( qmp, "header short read" );
-    if ( head.sig != QMAP_SIG ) pak_fatal( qmp, "not a map container" );
-    if ( head.ver != QMAP_VER ) pak_fatal( qmp, "a map container this build does not read" );
-    if ( head.ndir < 1 || head.ndir > QMAP_MAX ) pak_fatal( qmp, "directory out of range" );
+    if ( n > 4 && !stricmp( map + n - 4, ".qmp" ) ) n -= 4;
+    if ( n < 1 || n > QPAK_MAP_NAME ) return 0;
+    memcpy( want, map, n );
+    want[n] = 0;
+    for ( i = 0; i < head->nmap; i++ ) {
+        if ( !qglFileSeek( fh, head->mapofs + (long) i * QPAK_MAP_ENT ) ||
+             qglFileRead( fh, (long) (void far *) out, QPAK_MAP_ENT ) != QPAK_MAP_ENT )
+            return 0;
+        if ( !strncmp( out->name, want, n ) &&
+             ( n == QPAK_MAP_NAME || out->name[n] == 0 ) ) return -1;
+    }
+    return 0;
+}
 
-    pak->n = head.ndir;
-    if ( !qglFileSeek( pak->fh, head.dirofs ) ) pak_fatal( qmp, "directory seek failed" );
-    if ( qglFileRead( pak->fh, (long) (void far *) pak->dir,
-                       (long) pak->n * QMAP_ENT ) != (long) pak->n * QMAP_ENT )
-        pak_fatal( qmp, "directory short read" );
+static short pak_directory( short fh, QpakMap *map, QmapEnt far *dir )
+{
+    if ( map->n < 1 || map->n > QMAP_MAX || map->dirofs < 64L ||
+         !qglFileSeek( fh, map->dirofs ) ) return 0;
+    return qglFileRead( fh, (long) dir, (long) map->n * QMAP_ENT )
+           == (long) map->n * QMAP_ENT;
+}
+
+void pak_open( Pak *pak, char *map )
+{
+    QpakHead head;
+    QpakMap  entry;
+
+    memset( pak, 0, sizeof(*pak) );
+    if ( !( pak->fh = qglFileOpen( QPAK_FILE ) ) ) pak_fatal( QPAK_FILE, "would not open" );
+    if ( !pak_head( pak->fh, &head ) ) pak_fatal( QPAK_FILE, "not a QPAK this build reads" );
+    if ( !pak_map( pak->fh, &head, map, &entry ) ) pak_fatal( map, "no such map in QPAK" );
+    if ( !pak_directory( pak->fh, &entry, pak->dir ) ) pak_fatal( map, "directory malformed" );
+
+    pak->n = entry.n;
 }
 
 void pak_close( Pak *pak )
@@ -48,6 +77,41 @@ void pak_close( Pak *pak )
     if ( pak->fh ) qglFileClose( pak->fh );
     pak->fh = 0;
     pak->n = 0;
+}
+
+short pak_open_member( char *member, short *out_fh, long *out_offset,
+                       long *out_bytes )
+{
+    QpakHead head;
+    QpakMap map;
+    QmapEnt entry;
+    short fh, i, j;
+
+    *out_fh = 0;
+    if ( !( fh = qglFileOpen( QPAK_FILE ) ) ) return 0;
+    if ( !pak_head( fh, &head ) ) { qglFileClose( fh ); return 0; }
+    for ( i = 0; i < head.nmap; i++ ) {
+        if ( !qglFileSeek( fh, head.mapofs + (long) i * QPAK_MAP_ENT ) ||
+             qglFileRead( fh, (long) (void far *) &map, QPAK_MAP_ENT ) != QPAK_MAP_ENT ||
+             map.n < 1 || map.n > QMAP_MAX || !qglFileSeek( fh, map.dirofs ) ) {
+            qglFileClose( fh );
+            return 0;
+        }
+        for ( j = 0; j < map.n; j++ ) {
+            if ( qglFileRead( fh, (long) (void far *) &entry, QMAP_ENT ) != QMAP_ENT ) {
+                qglFileClose( fh );
+                return 0;
+            }
+            if ( strncmp( entry.name, member, QMAP_NAME ) ) continue;
+            if ( !qglFileSeek( fh, entry.ofs ) ) { qglFileClose( fh ); return 0; }
+            *out_fh = fh;
+            if ( out_offset ) *out_offset = entry.ofs;
+            if ( out_bytes ) *out_bytes = entry.size;
+            return -1;
+        }
+    }
+    qglFileClose( fh );
+    return 0;
 }
 
 short pak_seek( Pak *pak, char *member, long *out_bytes )
