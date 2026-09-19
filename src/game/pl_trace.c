@@ -15,6 +15,7 @@
 
 #include "pl_trace.h"
 #include "item.h"
+#include "mdl_ai.h"
 
 static short near pl_box_axis( float lo, float hi, float start, float delta,
                                short axis, float *enter, float *leave,
@@ -23,7 +24,7 @@ static short near pl_box_axis( float lo, float hi, float start, float delta,
     float a, b, sign;
 
     if ( delta > -0.0001f && delta < 0.0001f )
-        return (short) ( start >= lo && start <= hi );
+        return (short) ( start >= lo && start < hi );
     a = ( lo - start ) / delta;
     b = ( hi - start ) / delta;
     sign = -1.0f;
@@ -42,68 +43,142 @@ static short near pl_box_axis( float lo, float hi, float start, float delta,
     return (short) ( *enter <= *leave );
 }
 
+/* Merge one Minkowski-expanded BBOX into a brush trace. Returning true
+   means this box owns the trace identity, including a start-inside trace. */
+static short near pl_trace_box( BspVec3 *start, BspVec3 *fin,
+                                BspVec3 *mover_mins, BspVec3 *mover_maxs,
+                                BspVec3 *target_mins, BspVec3 *target_maxs,
+                                TraceResult *tr )
+{
+    BspVec3 lo, hi, delta;
+    float enter = 0.0f, leave = 1.0f, sign = 0.0f;
+    short axis = -1;
+    short inside, end_inside;
+
+    if ( tr->all_solid ) return 0;
+
+    lo.x = target_mins->x - mover_maxs->x;
+    lo.y = target_mins->y - mover_maxs->y;
+    lo.z = target_mins->z - mover_maxs->z;
+    hi.x = target_maxs->x - mover_mins->x;
+    hi.y = target_maxs->y - mover_mins->y;
+    hi.z = target_maxs->z - mover_mins->z;
+
+    if ( ( start->x < lo.x && fin->x < lo.x ) ||
+         ( start->x >= hi.x && fin->x >= hi.x ) ||
+         ( start->y < lo.y && fin->y < lo.y ) ||
+         ( start->y >= hi.y && fin->y >= hi.y ) ||
+         ( start->z < lo.z && fin->z < lo.z ) ||
+         ( start->z >= hi.z && fin->z >= hi.z ) ) return 0;
+
+    inside = (short) ( start->x >= lo.x && start->x < hi.x &&
+                       start->y >= lo.y && start->y < hi.y &&
+                       start->z >= lo.z && start->z < hi.z );
+    end_inside = (short) ( fin->x >= lo.x && fin->x < hi.x &&
+                           fin->y >= lo.y && fin->y < hi.y &&
+                           fin->z >= lo.z && fin->z < hi.z );
+    if ( inside ) {
+        tr->start_solid = 1;
+        if ( end_inside ) {
+            tr->frac = 0.0f;
+            tr->end_pos = *start;
+            tr->norm.x = tr->norm.y = tr->norm.z = 0.0f;
+            tr->all_solid = 1;
+            tr->hit_model = -1;
+            return -1;
+        }
+        tr->frac = 1.0f;
+        tr->end_pos = *fin;
+        tr->norm.x = tr->norm.y = tr->norm.z = 0.0f;
+        tr->all_solid = 0;
+        tr->hit_model = -1;
+        return -1;
+    }
+
+    delta.x = fin->x - start->x;
+    delta.y = fin->y - start->y;
+    delta.z = fin->z - start->z;
+    if ( !pl_box_axis( lo.x, hi.x, start->x, delta.x, 0, &enter, &leave, &axis, &sign ) ||
+         !pl_box_axis( lo.y, hi.y, start->y, delta.y, 1, &enter, &leave, &axis, &sign ) ||
+         !pl_box_axis( lo.z, hi.z, start->z, delta.z, 2, &enter, &leave, &axis, &sign ) ) return 0;
+
+    if ( axis == 0 ) enter -= PL_CLIP_EPS / (float) fabs( delta.x );
+    else if ( axis == 1 ) enter -= PL_CLIP_EPS / (float) fabs( delta.y );
+    else if ( axis == 2 ) enter -= PL_CLIP_EPS / (float) fabs( delta.z );
+    if ( enter < 0.0f ) enter = 0.0f;
+    if ( axis < 0 || enter >= tr->frac ) return 0;
+
+    tr->frac = enter;
+    tr->end_pos.x = start->x + delta.x * enter;
+    tr->end_pos.y = start->y + delta.y * enter;
+    tr->end_pos.z = start->z + delta.z * enter;
+    tr->norm.x = tr->norm.y = tr->norm.z = 0.0f;
+    tr->hit_model = -1;
+    if ( axis == 0 ) tr->norm.x = sign;
+    else if ( axis == 1 ) tr->norm.y = sign;
+    else tr->norm.z = sign;
+    return -1;
+}
+
 void pl_trace_items( World *world, BspVec3 *start, BspVec3 *fin,
                      BspVec3 *mover_mins, BspVec3 *mover_maxs,
                      short ignore_item, TraceResult *tr, short *hit_item )
 {
     short i;
-    BspVec3 delta;
 
     if ( tr->all_solid ) return;
 
-    delta.x = fin->x - start->x;
-    delta.y = fin->y - start->y;
-    delta.z = fin->z - start->z;
     for ( i = 0; i < world->item_count; i++ ) {
         ItemEnt far *it = &world->item[i];
         BspVec3 lo, hi;
-        float enter = 0.0f, leave = 1.0f, sign = 0.0f;
-        short axis = -1;
 
         if ( i == ignore_item || it->gone || it->kind != ENT_ITEM_EXPLOBOX ) continue;
-        lo.x = it->pos.x - mover_maxs->x;
-        lo.y = it->pos.y - mover_maxs->y;
-        lo.z = it->pos.z - mover_maxs->z;
-        hi.x = it->pos.x + ENT_BOX_CLIP_XY - mover_mins->x;
-        hi.y = it->pos.y + ENT_BOX_CLIP_XY - mover_mins->y;
-        hi.z = it->pos.z + ENT_BOX_CLIP_Z - mover_mins->z;
-        if ( !pl_box_axis( lo.x, hi.x, start->x, delta.x, 0, &enter, &leave, &axis, &sign ) ||
-             !pl_box_axis( lo.y, hi.y, start->y, delta.y, 1, &enter, &leave, &axis, &sign ) ||
-             !pl_box_axis( lo.z, hi.z, start->z, delta.z, 2, &enter, &leave, &axis, &sign ) ) continue;
+        lo = it->pos;
+        hi.x = it->pos.x + ENT_BOX_CLIP_XY;
+        hi.y = it->pos.y + ENT_BOX_CLIP_XY;
+        hi.z = it->pos.z + ENT_BOX_CLIP_Z;
+        if ( pl_trace_box( start, fin, mover_mins, mover_maxs,
+                           &lo, &hi, tr ) && hit_item ) *hit_item = i;
+        if ( tr->all_solid ) return;
+    }
+}
 
-        if ( axis == 0 ) enter -= PL_CLIP_EPS / (float) fabs( delta.x );
-        else if ( axis == 1 ) enter -= PL_CLIP_EPS / (float) fabs( delta.y );
-        else if ( axis == 2 ) enter -= PL_CLIP_EPS / (float) fabs( delta.z );
-        if ( enter < 0.0f ) enter = 0.0f;
+void pl_trace_actors( World *world, Player *solid_player,
+                      MdlEnt far *ignore_mon,
+                      BspVec3 *start, BspVec3 *fin,
+                      BspVec3 *mover_mins, BspVec3 *mover_maxs,
+                      TraceResult *tr, short *hit_actor )
+{
+    BspVec3 lo, hi;
+    short i;
 
-        if ( start->x >= lo.x && start->x <= hi.x &&
-             start->y >= lo.y && start->y <= hi.y &&
-             start->z >= lo.z && start->z <= hi.z ) {
-            tr->start_solid = 1;
-            if ( fin->x >= lo.x && fin->x <= hi.x &&
-                 fin->y >= lo.y && fin->y <= hi.y &&
-                 fin->z >= lo.z && fin->z <= hi.z ) {
-                if ( hit_item ) *hit_item = i;
-                tr->all_solid = 1;
-                tr->frac = 0.0f;
-                tr->end_pos = *start;
-                tr->norm.x = tr->norm.y = tr->norm.z = 0.0f;
-                tr->hit_model = -1;
-                return;
-            }
-            if ( hit_item && tr->frac >= 1.0f ) *hit_item = i;
-        }
-        if ( axis < 0 || enter < 0.0f || enter >= tr->frac ) continue;
-        tr->frac = enter;
-        tr->end_pos.x = start->x + delta.x * enter;
-        tr->end_pos.y = start->y + delta.y * enter;
-        tr->end_pos.z = start->z + delta.z * enter;
-        tr->norm.x = tr->norm.y = tr->norm.z = 0.0f;
-        tr->hit_model = -1;
-        if ( axis == 0 ) tr->norm.x = sign;
-        else if ( axis == 1 ) tr->norm.y = sign;
-        else tr->norm.z = sign;
-        if ( hit_item ) *hit_item = i;
+    if ( tr->all_solid ) return;
+    if ( solid_player ) {
+        lo.x = solid_player->pos.x - PL_HALF;
+        lo.y = solid_player->pos.y - PL_HALF;
+        lo.z = solid_player->pos.z + PL_ZLO;
+        hi.x = solid_player->pos.x + PL_HALF;
+        hi.y = solid_player->pos.y + PL_HALF;
+        hi.z = solid_player->pos.z + PL_ZHI;
+        if ( pl_trace_box( start, fin, mover_mins, mover_maxs,
+                           &lo, &hi, tr ) && hit_actor )
+            *hit_actor = PL_ACTOR_PLAYER;
+    }
+    for ( i = 0; i < world->mon_count && !tr->all_solid; i++ ) {
+        MdlEnt far *ent = &world->mon[i];
+        float half;
+
+        if ( ent == ignore_mon || !MDL_BLOCKS_MOVE( ent ) ) continue;
+        half = MDL_MON_HALF( ent->kind );
+        lo.x = ent->pos.x - half;
+        lo.y = ent->pos.y - half;
+        lo.z = ent->pos.z + MDL_ZLO;
+        hi.x = ent->pos.x + half;
+        hi.y = ent->pos.y + half;
+        hi.z = ent->pos.z + MDL_MON_ZHI( ent->kind );
+        if ( pl_trace_box( start, fin, mover_mins, mover_maxs,
+                           &lo, &hi, tr ) && hit_actor )
+            *hit_actor = i;
     }
 }
 
@@ -112,11 +187,15 @@ void pl_trace_move( World *world, BspVec3 *start, BspVec3 *fin,
 {
     BspVec3 mins = { -PL_HALF, -PL_HALF, PL_ZLO };
     BspVec3 maxs = { PL_HALF, PL_HALF, PL_ZHI };
+    short hit_actor = PL_ACTOR_NONE;
 
     if ( hit_item ) *hit_item = -1;
     pl_trace( world, start, fin, tr );
     pl_trace_items( world, start, fin, &mins, &maxs,
                     ignore_item, tr, hit_item );
+    pl_trace_actors( world, (Player *) 0, (MdlEnt far *) 0,
+                     start, fin, &mins, &maxs, tr, &hit_actor );
+    if ( hit_actor != PL_ACTOR_NONE && hit_item ) *hit_item = -1;
 }
 
 static short near pl_point_contents_c( short node, BspVec3 far *p,

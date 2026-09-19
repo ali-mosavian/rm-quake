@@ -290,24 +290,35 @@ static void near mdl_idle( Think *t )
         mdl_idle_roll( t->player, &t->world->rng, &t->world->snd, t->rdr, ent, inf->run_period, inf->run_chance, inf->run_snd );
 }
 
-static void mdl_trace_move( World *world, MdlEnt far *ent,
-                            BspVec3 *start, BspVec3 *fin, TraceResult *tr )
+static void mdl_trace_move( World *world, Player *player, short clip_actors,
+                            MdlEnt far *ent,
+                            BspVec3 *start, BspVec3 *fin, TraceResult *tr,
+                            short *hit_actor )
 {
     BspVec3 mins, maxs;
     float half = MDL_MON_HALF( ent->kind );
+    short actor = PL_ACTOR_NONE;
 
+    if ( hit_actor ) *hit_actor = PL_ACTOR_NONE;
     mins.x = mins.y = -half;
     maxs.x = maxs.y = half;
     mins.z = MDL_ZLO;
     maxs.z = MDL_MON_ZHI( ent->kind );
     pl_trace( world, start, fin, tr );
     pl_trace_items( world, start, fin, &mins, &maxs, -1, tr, (short *) 0 );
+    /* mdl_spawn disables actor clipping: its droptofloor runs before every
+       monster has been spawned. Runtime movement always clips monsters;
+       player controls only whether the still-living player is included. */
+    if ( clip_actors )
+        pl_trace_actors( world, player, ent, start, fin, &mins, &maxs,
+                         tr, &actor );
+    if ( hit_actor ) *hit_actor = actor;
 }
 
 /* SV_movestep's FL_FLY case: a straight trace, held 30..40 above the
    player while hunting. */
-static short mdl_flystep( World *world, Player *player, MdlEnt far *ent,
-                           float dx, float dy )
+static short mdl_flystep( World *world, Player *player, short player_alive,
+                           MdlEnt far *ent, float dx, float dy )
 {
     BspVec3 start, fin;
     TraceResult tr;
@@ -322,7 +333,8 @@ static short mdl_flystep( World *world, Player *player, MdlEnt far *ent,
             if ( dz > WIZARD_FLY_HI ) fin.z -= WIZARD_FLY_STEP;
             if ( dz < WIZARD_FLY_LO ) fin.z += WIZARD_FLY_STEP;
         }
-        mdl_trace_move( world, ent, &start, &fin, &tr );
+        mdl_trace_move( world, player_alive ? player : (Player *) 0, -1,
+                        ent, &start, &fin, &tr, (short *) 0 );
         if ( tr.frac >= 1.0f && !tr.start_solid && !tr.all_solid ) {
             ent->pos = tr.end_pos;
             return -1;
@@ -375,14 +387,14 @@ realcheck:
 
 /* SV_movestep's vertical dance: the hull trace climbs or descends one
    step, then SV_CheckBottom refuses a result dangling over a ledge. */
-static short mdl_movestep( World *world, Player *player, MdlEnt far *ent,
-                            float dx, float dy )
+static short mdl_movestep( World *world, Player *player, short player_alive,
+                            MdlEnt far *ent, float dx, float dy )
 {
     BspVec3 start, fin;
     TraceResult tr;
 
     if ( mon_facts[ ent->kind ].flyer )
-        return mdl_flystep( world, player, ent, dx, dy );
+        return mdl_flystep( world, player, player_alive, ent, dx, dy );
 
     start.x = ent->pos.x + dx;
     start.y = ent->pos.y + dy;
@@ -390,12 +402,14 @@ static short mdl_movestep( World *world, Player *player, MdlEnt far *ent,
     fin = start;
     fin.z = ent->pos.z - MDL_STEPSIZE;
 
-    mdl_trace_move( world, ent, &start, &fin, &tr );
+    mdl_trace_move( world, player_alive ? player : (Player *) 0, -1,
+                    ent, &start, &fin, &tr, (short *) 0 );
     if ( tr.all_solid ) return 0;
 
     if ( tr.start_solid ) {
         start.z = ent->pos.z;
-        mdl_trace_move( world, ent, &start, &fin, &tr );
+        mdl_trace_move( world, player_alive ? player : (Player *) 0, -1,
+                        ent, &start, &fin, &tr, (short *) 0 );
         if ( tr.all_solid || tr.start_solid ) return 0;
     }
     if ( tr.frac > 0.999f ) return 0;
@@ -411,8 +425,8 @@ static short mdl_movestep( World *world, Player *player, MdlEnt far *ent,
  * the heading, and TRUE is still returned. That is why one turns in
  * place for a think or two before it walks.
  */
-static short mdl_step_dir( World *world, Player *player, MdlEnt far *ent,
-                            float yaw, float dist )
+static short mdl_step_dir( World *world, Player *player, short player_alive,
+                            MdlEnt far *ent, float yaw, float dist )
 {
     BspVec3 old;
     float rad, delta;
@@ -422,7 +436,7 @@ static short mdl_step_dir( World *world, Player *player, MdlEnt far *ent,
 
     rad = yaw * DEG2RAD;
     old = ent->pos;
-    if ( !mdl_movestep( world, player, ent,
+    if ( !mdl_movestep( world, player, player_alive, ent,
                          (float) cos( rad ) * dist, (float) sin( rad ) * dist ) )
         return 0;
 
@@ -434,8 +448,8 @@ static short mdl_step_dir( World *world, Player *player, MdlEnt far *ent,
 /* SV_NewChaseDir: the diagonal, the two cardinals (order coin-flipped
    as id's own (rand()&3)&1 does), the old heading, a randomised sweep
    of all eight, then reverse. */
-static void mdl_new_chase_dir( World *world, Player *player, MdlEnt far *ent,
-                                BspVec3 *goal, float dist )
+static void mdl_new_chase_dir( World *world, Player *player, short player_alive,
+                                MdlEnt far *ent, BspVec3 *goal, float dist )
 {
     float deltax, deltay, d1, d2, tdir, tmp, olddir, turnaround;
 
@@ -457,44 +471,47 @@ static void mdl_new_chase_dir( World *world, Player *player, MdlEnt far *ent,
         if ( d1 == 0.0f ) tdir = ( d2 == 90.0f ) ? 45.0f : 315.0f;
         else              tdir = ( d2 == 90.0f ) ? 135.0f : 215.0f;
         if ( tdir != turnaround &&
-             mdl_step_dir( world, player, ent, tdir, dist ) ) return;
+             mdl_step_dir( world, player, player_alive, ent, tdir, dist ) ) return;
     }
 
     if ( ( (long) ( rng_float( &world->rng ) * 4.0f ) & 1 ) || fabs( deltay ) > fabs( deltax ) ) {
         tmp = d1; d1 = d2; d2 = tmp;
     }
     if ( d1 != -1.0f && d1 != turnaround &&
-         mdl_step_dir( world, player, ent, d1, dist ) ) return;
+         mdl_step_dir( world, player, player_alive, ent, d1, dist ) ) return;
     if ( d2 != -1.0f && d2 != turnaround &&
-         mdl_step_dir( world, player, ent, d2, dist ) ) return;
+         mdl_step_dir( world, player, player_alive, ent, d2, dist ) ) return;
 
-    if ( olddir != -1.0f && mdl_step_dir( world, player, ent, olddir, dist ) ) return;
+    if ( olddir != -1.0f &&
+         mdl_step_dir( world, player, player_alive, ent, olddir, dist ) ) return;
 
     if ( (long) ( rng_float( &world->rng ) * 2.0f ) ) {
         for ( tdir = 0.0f; tdir <= 315.0f; tdir += 45.0f )
             if ( tdir != turnaround &&
-                 mdl_step_dir( world, player, ent, tdir, dist ) ) return;
+                 mdl_step_dir( world, player, player_alive, ent, tdir, dist ) ) return;
     } else {
         for ( tdir = 315.0f; tdir >= 0.0f; tdir -= 45.0f )
             if ( tdir != turnaround &&
-                 mdl_step_dir( world, player, ent, tdir, dist ) ) return;
+                 mdl_step_dir( world, player, player_alive, ent, tdir, dist ) ) return;
     }
 
-    if ( mdl_step_dir( world, player, ent, turnaround, dist ) ) return;
+    if ( mdl_step_dir( world, player, player_alive, ent, turnaround, dist ) ) return;
 
     ent->ideal_yaw = olddir;    /* can't move */
 }
 
 /* SV_MoveToGoal: a 1-in-4 chance to skip the direct step. */
-static void mdl_move_to_goal( World *world, Player *player, MdlEnt far *ent,
-                               BspVec3 *goal, float dist )
+static void mdl_move_to_goal( World *world, Player *player, short player_alive,
+                               MdlEnt far *ent, BspVec3 *goal, float dist )
 {
     short skip = (short) ( (long) ( rng_float( &world->rng ) * 4.0f ) == 1 );
     short stepped = 0;
 
-    if ( !skip ) stepped = mdl_step_dir( world, player, ent, ent->ideal_yaw, dist );
+    if ( !skip )
+        stepped = mdl_step_dir( world, player, player_alive, ent,
+                                ent->ideal_yaw, dist );
     if ( skip || !stepped )
-        mdl_new_chase_dir( world, player, ent, goal, dist );
+        mdl_new_chase_dir( world, player, player_alive, ent, goal, dist );
 }
 
 static short mdl_visible( World *world, BspVec3 *eye, BspVec3 *peye )
@@ -725,7 +742,8 @@ void mdl_spawn( World *world, MdlEnt far *ent )
     start = ent->pos;
     fin = ent->pos;
     fin.z -= 256.0f;
-    mdl_trace_move( world, ent, &start, &fin, &tr );
+    mdl_trace_move( world, (Player *) 0, 0, ent,
+                    &start, &fin, &tr, (short *) 0 );
     /* flymonster_start_go: a flyer stays where the map put it */
     if ( !ent->cruc && !mon_facts[ ent->kind ].flyer && tr.frac < 1.0f && !tr.all_solid )
         ent->pos = tr.end_pos;
@@ -762,13 +780,14 @@ static short near mdl_zombie_can_stand( World *world, Player *player,
          ent->pos.z + MDL_ZLO < player->pos.z + PL_ZHI ) return 0;
     for ( i = 0; i < mon_count; i++ ) {
         MdlEnt far *other = &mon[i];
-        if ( other == ent || !MDL_IS_SOLID( other ) ) continue;
+        if ( other == ent || !MDL_BLOCKS_MOVE( other ) ) continue;
         if ( fabs( ent->pos.x - other->pos.x ) < MDL_HALF + MDL_MON_HALF( other->kind ) &&
              fabs( ent->pos.y - other->pos.y ) < MDL_HALF + MDL_MON_HALF( other->kind ) &&
              ent->pos.z + MDL_ZHI > other->pos.z + MDL_ZLO &&
              ent->pos.z + MDL_ZLO < other->pos.z + MDL_MON_ZHI( other->kind ) ) return 0;
     }
-    return trace_world ? mdl_movestep( world, player, ent, 0.0f, 0.0f ) : -1;
+    return trace_world ? mdl_movestep( world, player, player_alive,
+                                       ent, 0.0f, 0.0f ) : -1;
 }
 
 static short near mdl_pain_dist( const MdlEnt far *ent )
@@ -875,7 +894,7 @@ static void near ai_pain( Think *t )
     dist = mdl_pain_dist( ent );
     if ( dist ) {
         float yaw = mdl_pain_heading( ent, dist ) * DEG2RAD;
-        mdl_movestep( t->world, t->player, ent,
+        mdl_movestep( t->world, t->player, t->fight->health > 0, ent,
                       (float) cos( yaw ) * dist, (float) sin( yaw ) * dist );
     }
     if ( lies && ent->anim_frame == 9 )
@@ -938,11 +957,11 @@ static void near mdl_attack_step( Think *t )
     if ( ent->kind == MDL_KIND_KNIGHT && ent->anim_set == MDL_SET_ATK2 &&
          ent->anim_frame >= 1 && ent->anim_frame <= 9 ) {
         float heading = mdl_side_heading( ent, player ) * DEG2RAD;
-        mdl_movestep( t->world, player, ent,
+        mdl_movestep( t->world, player, t->fight->health > 0, ent,
                       (float) cos( heading ) * 20.0f,
                       (float) sin( heading ) * 20.0f );
     } else if ( dist )
-        mdl_movestep( t->world, player, ent,
+        mdl_movestep( t->world, player, t->fight->health > 0, ent,
                       (float) cos( ent->yaw * DEG2RAD ) * dist,
                       (float) sin( ent->yaw * DEG2RAD ) * dist );
     if ( inf->attack_frame ) inf->attack_frame( t );
@@ -1129,6 +1148,29 @@ static void near mdl_leap_advance( MdlEnt far *ent, const MdlState *m,
     }
 }
 
+static short near mdl_leap_floor_contact( const MdlEnt far *ent,
+                                           const TraceResult *tr )
+{
+    return (short) ( !tr->all_solid && tr->frac < 1.0f &&
+                     ent->vel.z <= 0.0f && tr->norm.z > PL_GROUND_NRM );
+}
+
+static void near mdl_leap_retry( MdlEnt far *ent )
+{
+    ent->vel.x = ent->vel.y = ent->vel.z = 0.0f;
+    ent->leap_touch = 0;
+    mdl_anim_start( ent, MDL_ST_LEAP, MDL_SET_LEAP );
+}
+
+static short near mdl_leap_can_retry( const MdlEnt far *ent )
+{
+    return (short) ( ( ent->kind == MDL_KIND_DOG ||
+                       ent->kind == MDL_KIND_DEMON ) &&
+                     ent->anim_set == MDL_SET_LEAP &&
+                     ent->leap_touch != MDL_THROWN &&
+                     ent->leap_touch != MDL_THROWN_DONE );
+}
+
 /* In the air: gravity on the velocity, a trace along it, and
    Dog_JumpTouch. A stop while falling is the ground; one while
    rising is a wall, and the leaper drops down it. */
@@ -1139,9 +1181,9 @@ static void near ai_leap( Think *t )
     MdlEnt far *ent = t->ent;
     BspVec3 goal, fin;
     TraceResult tr;
-    float dx, dy, dz, thr;
+    float thr;
     float fwd, up;
-    short launched = 0;
+    short launched = 0, hit_actor;
     const MonsterInfo far *inf = &mon_info[ ent->kind ];
 
     if ( ent->kind == MDL_KIND_DEMON && ent->anim_frame >= 10 &&
@@ -1150,7 +1192,7 @@ static void near ai_leap( Think *t )
         else mdl_anim_start( ent, MDL_ST_RUN, MDL_SET_RUN );
         return;
     }
-    if ( ent->leap_touch != MDL_THROWN &&
+    if ( mdl_leap_can_retry( ent ) &&
          ent->vel.x == 0.0f && ent->vel.y == 0.0f && ent->vel.z == 0.0f ) {
         ent->ideal_yaw = mdl_vectoyaw( player->pos.x - ent->pos.x,
                                        player->pos.y - ent->pos.y );
@@ -1170,30 +1212,40 @@ static void near ai_leap( Think *t )
     fin.y = ent->pos.y + ent->vel.y * 0.1f;
     fin.z = ent->pos.z + ent->vel.z * 0.1f;
     goal = ent->pos;
-    mdl_trace_move( world, ent, &goal, &fin, &tr );
+    mdl_trace_move( world, t->fight->health > 0 ? player : (Player *) 0, -1,
+                    ent, &goal, &fin, &tr, &hit_actor );
     ent->pos = tr.end_pos;
-    /* a trigger_monsterjump throw counts once it rises; -1 keeps the bite off */
+    /* A trigger_monsterjump throw counts once it rises. Keep its own
+       sentinel so a partial landing cannot turn it into an attack leap. */
     if ( ent->leap_touch == MDL_THROWN && ent->pos.z > goal.z ) {
         world->mon_jumps++;
-        ent->leap_touch = -1;
+        ent->leap_touch = MDL_THROWN_DONE;
     }
-    if ( !ent->leap_touch ) {
-        dx = player->pos.x - ent->pos.x;
-        dy = player->pos.y - ent->pos.y;
-        dz = player->pos.z - ent->pos.z;
-        if ( fabs( dx ) < MDL_HALF + PL_HALF && fabs( dy ) < MDL_HALF + PL_HALF &&
-             fabs( dz ) < MDL_ZHI - PL_ZLO ) {
-            thr = inf->leap_touch;
-            if ( ent->vel.x * ent->vel.x + ent->vel.y * ent->vel.y +
-                 ent->vel.z * ent->vel.z > thr * thr ) {
-                combat_damage_player( player, world, t->fight, t->rdr,
-                    inf->leap_dmg + rng_float( &world->rng ) * inf->leap_scale );
-                ent->leap_touch = -1;
-            }
+    if ( !ent->leap_touch && !tr.all_solid && tr.frac < 1.0f &&
+         ( hit_actor == PL_ACTOR_PLAYER ||
+           ( hit_actor >= 0 && hit_actor < world->mon_count &&
+             MDL_IS_SOLID( &world->mon[hit_actor] ) &&
+             !world->mon[hit_actor].cruc ) ) ) {
+        float dmg;
+        thr = inf->leap_touch;
+        if ( ent->vel.x * ent->vel.x + ent->vel.y * ent->vel.y +
+             ent->vel.z * ent->vel.z > thr * thr ) {
+            dmg = inf->leap_dmg + rng_float( &world->rng ) * inf->leap_scale;
+            if ( hit_actor == PL_ACTOR_PLAYER )
+                combat_damage_player( player, world, t->fight, t->rdr, dmg );
+            else
+                combat_damage_monster( world, player, t->fight, t->rdr,
+                                       &world->mon[hit_actor], dmg );
+            ent->leap_touch = -1;
         }
     }
     if ( tr.frac < 1.0f ) {
-        if ( ent->vel.z <= 0.0f ) {
+        if ( mdl_leap_floor_contact( ent, &tr ) ) {
+            if ( !mdl_check_bottom( world, &ent->pos, ent->kind ) &&
+                 mdl_leap_can_retry( ent ) ) {
+                mdl_leap_retry( ent );
+                return;
+            }
             if ( ent->kind == MDL_KIND_DEMON && ent->anim_set == MDL_SET_LEAP ) {
                 ent->vel.x = ent->vel.y = ent->vel.z = 0.0f;
                 ent->leap_touch = -1;
@@ -1574,7 +1626,8 @@ static void near ai_run( Think *t )
         goal = ent->goal;
     }
 
-    mdl_move_to_goal( t->world, t->player, ent, &goal, dist );
+    mdl_move_to_goal( t->world, t->player, t->fight->health > 0,
+                      ent, &goal, dist );
     ent->anim_frame = (short) ( ( ent->anim_frame + 1 ) % mdl_set_count( t->m, ent->anim_set ) );
 
     if ( !ent->hunting && ent->corner >= 0 ) {
@@ -1678,13 +1731,79 @@ short mdl_bottom_selftest( World *world, Player *player )
     ent.pos.z = 56.03125f;
     old = ent.pos;
 
-    if ( !mdl_movestep( world, player, &ent, 0.0f, 1.0f ) ||
+    if ( !mdl_movestep( world, player, 0, &ent, 0.0f, 1.0f ) ||
          ent.pos.x != old.x || ent.pos.y != old.y + 1.0f || ent.pos.z != old.z ) return 0;
 
     edge = ent;
     edge.pos = old;
-    if ( mdl_movestep( world, player, &edge, 0.0f, 16.0f ) ) return 0;
+    if ( mdl_movestep( world, player, 0, &edge, 0.0f, 16.0f ) ) return 0;
     return (short) ( edge.pos.x == old.x && edge.pos.y == old.y && edge.pos.z == old.z );
+}
+
+short mdl_leap_landing_selftest( World *world, Player *player )
+{
+    MdlEnt ent;
+    Fight fight;
+    Renderer rdr;
+    Think t;
+    TraceResult tr;
+    BspVec3 start, fin, landing;
+    short y, found = 0, result = 0;
+    short saved_count = world->mon_count;
+
+    memset( &ent, 0, sizeof(ent) );
+    memset( &fight, 0, sizeof(fight) );
+    memset( &rdr, 0, sizeof(rdr) );
+    ent.kind = MDL_KIND_DOG;
+    world->mon_count = 0;
+
+    /* This is the e1m1 ledge used by mdl_bottom_selftest. Find the first
+       dog-sized placement whose centre lands but whose corners do not. */
+    for ( y = 2529; y <= 2657; y++ ) {
+        start.x = fin.x = -559.0f;
+        start.y = fin.y = (float) y;
+        start.z = 74.03125f;
+        fin.z = 20.03125f;
+        mdl_trace_move( world, (Player *) 0, 0, &ent,
+                        &start, &fin, &tr, (short *) 0 );
+        if ( tr.frac < 1.0f && !tr.start_solid && !tr.all_solid &&
+             tr.norm.z > PL_GROUND_NRM &&
+             !mdl_check_bottom( world, &tr.end_pos, ent.kind ) ) {
+            landing = tr.end_pos;
+            found = -1;
+            break;
+        }
+    }
+    if ( !found ) goto done;
+
+    ent.pos = landing;
+    ent.state = MDL_ST_LEAP;
+    ent.anim_set = MDL_SET_LEAP;
+    ent.anim_frame = 5;
+    ent.vel.z = -10.0f;
+    fight.gravity = 800.0f;
+    t.world = world; t.player = player; t.fight = &fight; t.rdr = &rdr;
+    t.ent = &ent; t.m = &world->mdl[MDL_KIND_DOG]; t.can_chase = 0;
+    ai_leap( &t );
+    if ( ent.state != MDL_ST_LEAP || ent.anim_set != MDL_SET_LEAP ||
+         ent.anim_frame != 0 || ent.leap_touch ||
+         ent.vel.x != 0.0f || ent.vel.y != 0.0f || ent.vel.z != 0.0f ) goto done;
+
+    memset( &ent, 0, sizeof(ent) );
+    ent.kind = MDL_KIND_OGRE;
+    ent.pos = landing;
+    ent.state = MDL_ST_LEAP;
+    ent.anim_set = MDL_SET_RUN;
+    ent.leap_touch = MDL_THROWN_DONE;
+    ent.vel.z = -10.0f;
+    t.ent = &ent; t.m = &world->mdl[MDL_KIND_OGRE];
+    ai_leap( &t );
+    result = (short) ( ent.state == MDL_ST_RUN &&
+                       ent.anim_set == MDL_SET_RUN &&
+                       ent.anim_frame == 0 && ent.leap_touch == 0 );
+done:
+    world->mon_count = saved_count;
+    return result;
 }
 
 short mdl_nightmare_selftest( World *world, Player *player, Fight *fight,
@@ -1864,6 +1983,7 @@ short mdl_anim_selftest( void )
     MdlEnt ent, mons[2];
     MdlState model;
     Player player;
+    TraceResult tr;
     unsigned char counts[MDL_NSETS];
     short i, launched;
     float heading;
@@ -1897,6 +2017,29 @@ short mdl_anim_selftest( void )
     launched = mdl_leap_phase( &ent );
     mdl_leap_advance( &ent, &model, launched );
     if ( !launched || ent.anim_frame != 3 ) return 0;
+
+    memset( &tr, 0, sizeof(tr) );
+    tr.frac = 0.5f;
+    tr.norm.x = 1.0f;
+    ent.vel.z = -100.0f;
+    if ( mdl_leap_floor_contact( &ent, &tr ) ) return 0;
+    tr.norm.x = 0.0f; tr.norm.z = 1.0f;
+    if ( !mdl_leap_floor_contact( &ent, &tr ) ) return 0;
+    tr.all_solid = 1;
+    if ( mdl_leap_floor_contact( &ent, &tr ) ) return 0;
+    ent.state = MDL_ST_RUN;
+    ent.anim_set = MDL_SET_RUN;
+    ent.anim_frame = 7;
+    ent.leap_touch = -1;
+    ent.vel.x = 20.0f; ent.vel.y = 30.0f; ent.vel.z = -100.0f;
+    mdl_leap_retry( &ent );
+    if ( ent.state != MDL_ST_LEAP || ent.anim_set != MDL_SET_LEAP ||
+         ent.anim_frame != 0 || ent.leap_touch ||
+         ent.vel.x != 0.0f || ent.vel.y != 0.0f || ent.vel.z != 0.0f ) return 0;
+    ent.kind = MDL_KIND_OGRE;
+    ent.anim_set = MDL_SET_RUN;
+    ent.leap_touch = MDL_THROWN_DONE;
+    if ( mdl_leap_can_retry( &ent ) ) return 0;
 
     ent.kind = MDL_KIND_KNIGHT; ent.yaw = 0.0f;
     player.pos.x = 100.0f;

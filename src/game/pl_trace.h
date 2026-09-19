@@ -20,7 +20,18 @@ void pl_trace_items( World *world, BspVec3 *start, BspVec3 *fin,
                      BspVec3 *mover_mins, BspVec3 *mover_maxs,
                      short ignore_item, TraceResult *tr, short *hit_item );
 
-/* Hull-1 movement against brushes and live exploding boxes. */
+#define PL_ACTOR_NONE   (-1)
+#define PL_ACTOR_PLAYER (-2)
+
+/* Merge the solid player and monster BBOXes into an existing trace.
+   hit_actor is PL_ACTOR_PLAYER or the monster index. */
+void pl_trace_actors( World *world, Player *solid_player,
+                      MdlEnt far *ignore_mon,
+                      BspVec3 *start, BspVec3 *fin,
+                      BspVec3 *mover_mins, BspVec3 *mover_maxs,
+                      TraceResult *tr, short *hit_actor );
+
+/* Player hull movement against brushes, live exploding boxes and actors. */
 void pl_trace_move( World *world, BspVec3 *start, BspVec3 *fin,
                     short ignore_item, TraceResult *tr, short *hit_item );
 

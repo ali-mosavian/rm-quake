@@ -32,6 +32,14 @@
                          ( ( (e)->anim_frame >= 9 && (e)->anim_frame <= 10 ) || \
                            ( (e)->anim_frame == 11 && (e)->ai_count == MDL_ZOMBIE_RETRY ) ) )
 #define MDL_IS_SOLID(e) ( !MDL_IS_DEAD(e) && !MDL_IS_DOWN(e) )
+/* QuakeC turns movement solidity off during the death animation: at
+   dog_die1, the ordinary monsters' die3, and demon_die6. Damage eligibility
+   remains MDL_IS_SOLID -- dying bodies must not be killed twice. */
+#define MDL_BLOCKS_MOVE(e) \
+    ( !MDL_IS_DOWN(e) && (e)->state != MDL_ST_GIBBED && \
+      ( (e)->state != MDL_ST_DEAD || \
+        ( (e)->kind != MDL_KIND_DOG && \
+          ( (e)->kind == MDL_KIND_DEMON ? (e)->anim_frame < 5 : (e)->anim_frame < 2 ) ) ) )
 
 #define MDL_HEALTH      30    /* monster_army's */
 #define MDL_PELLETS     4     /* army_fire: FireBullets(4, '0.1 0.1 0') */
@@ -46,6 +54,7 @@
 #define MDL_MON_HALF(k) ( (k) == MDL_KIND_OGRE || (k) == MDL_KIND_DEMON || \
                           (k) == MDL_KIND_SHAMBLER || (k) == MDL_KIND_DOG ? 32.0f : MDL_HALF )
 #define MDL_THROWN      (-2)  /* leap_touch: a trigger_monsterjump throw, no bite */
+#define MDL_THROWN_DONE (-3)  /* the same throw after its one jump count */
 #define MDL_ZLO         (-24.0f)
 #define MDL_ZHI         40.0f
 #define MDL_MON_ZHI(k)  ( (k) == MDL_KIND_OGRE || (k) == MDL_KIND_DEMON || \
@@ -195,6 +204,7 @@ void mdl_ai_stats( World *world, short *hunting, short *moved );
 short mdl_anim_selftest( void );
 short mdl_ai_visible_selftest( World *world, Player *player );
 short mdl_bottom_selftest( World *world, Player *player );
+short mdl_leap_landing_selftest( World *world, Player *player );
 short mdl_nightmare_selftest( World *world, Player *player, Fight *fight,
                               Renderer *rdr );
 short mdl_nightmare_pain_selftest( World *world, Player *player, Fight *fight,

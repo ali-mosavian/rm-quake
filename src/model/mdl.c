@@ -601,6 +601,7 @@ void mdl_load_monsters( World *world, unsigned char far *buf, long *ofs, short c
     world->mon_count = count;
     world->mon = (MdlEnt far *) qglMemAlloc( (long) ( count ? count : 1 ) * sizeof(MdlEnt) );
     if ( !world->mon ) sys_error( "ents: out of memory for monsters" );
+    _fmemset( world->mon, 0, (unsigned) ( count ? count : 1 ) * sizeof(MdlEnt) );
 
     for ( i = 0; i < count; i++ ) {
         EntsMon mr;
