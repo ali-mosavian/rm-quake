@@ -1166,6 +1166,10 @@ def sp_teleport(e: Ents, kv: dict[str, str]) -> bool:
     e.trigs.append((kv.get('target', ''), m, ent_name_id(e, kv.get('targetname', '')),
                     int(kv.get('spawnflags', '0')) & 1))
     e.hides.append(m)
+    if not int(kv.get('spawnflags', '0')) & 2:
+        box = e.boxes[m]
+        center = tuple((box[i] + box[i + 3]) * 0.5 for i in range(3))
+        e.ambs.append((mksnd.SOUNDS.index('ambience/hum1'), 127, center))
     return True
 
 

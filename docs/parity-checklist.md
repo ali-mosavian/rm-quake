@@ -238,6 +238,10 @@ PAK0 and are left out.
       id: `snd_dma.c` `SND_Spatialize`
       qcport: id's distance and left/right dot-product attenuation into an
       interleaved 8-bit SB16 ring; `tools/test-stereo.sh`
+- [x] Teleporter ambient hum
+      id: `triggers.qc` `trigger_teleport`
+      qcport: every non-silent teleporter contributes `ambience/hum1` at its
+      brush center to the shared static-voice mixer; `tools/test-sndfx.sh`
 - [x] Train pushing and blocked damage
       id: `sv_phys.c` `SV_PushMove`; `plats.qc` `train_blocked`
       qcport: swept player displacement, trapped-player rollback, map `dmg`,

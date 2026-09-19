@@ -104,6 +104,7 @@ SOUNDS = [
     "weapons/ax1", "player/axhit1", "player/axhit2",                              # 173..175 axe: swing, flesh, world
     "boss1/throw",                                                                  # 176 Chthon's lava ball
     "weapons/lstart", "weapons/lhit",                                             # 177, 178 Thunderbolt
+    "ambience/hum1",                                                              # 179 trigger_teleport
 ]
 
 

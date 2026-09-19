@@ -3,10 +3,10 @@
 # mixer, read from the exit line `snd seen=<id bitmap> live=<ids> wraps=N
 # water=V sky=V`.
 #
-#   1. e1m1's torches and fluoros loop: snd_loops is the map's ambient
-#      count (5 before: comp_hum and the drone only), and a leaf with
-#      water and sky nibbles fades its two ambients in.
-#   2. e1m4's 71 statics all register past the old 32 channels, and its
+#   1. e1m1's torches, fluoros and teleporter hum loop: snd_loops is the
+#      map's ambient count, and a leaf with water and sky nibbles fades
+#      its two ambients in.
+#   2. e1m4's 72 statics all register past the old 32 channels, and its
 #      trains start no plat sound: sharing the plat array, they started
 #      ids 100/101 twice a tick, 60 starts in 30 ticks standing still.
 #   3. A door's move loop ends at its stop: after the double door and
@@ -39,6 +39,27 @@ for m in e1m1 e1m4 e1m6 e1m7 start; do
 done
 cp "$ROOT/data/stuff.ini" "$OUT/" 2>/dev/null
 
+python3 - "$HERE" "$OUT/e1m1.qmp" <<'PY' || exit 1
+import struct
+import sys
+
+sys.path.insert(0, sys.argv[1])
+import qmapread
+
+data = qmapread.read(sys.argv[2], "ents0.bin")
+head = struct.unpack_from("<4f3fff13hfhhh3ffh", data)
+ntele, nplat, nhide, nitem, ndoor, ntrig, nmon, namb, ngate = (
+    head[10], head[11], head[12], head[13], head[14], head[15], head[16], head[17], head[30]
+)
+offset = 90 + nmon * 24 + ntele * 22 + nplat * 12 + nhide * 2 + ngate * 6
+offset += nitem * 22 + ndoor * 52 + ntrig * 54
+ambients = [struct.unpack_from("<hh3f", data, offset + i * 16) for i in range(namb)]
+want = (179, 127, 1312.0, 1088.0, -368.0)
+if want not in ambients:
+    raise SystemExit(f"FAIL: e1m1 has no packed trigger_teleport hum {want}")
+print("ok: e1m1 packs ambience/hum1 at its non-silent teleporter")
+PY
+
 run() { TIMEOUT="${TIMEOUT:-600}" "$RUN" "$OUT" "$* -nostats -bench 4000" >/dev/null 2>&1; }
 line() { tr -d '\r' < "$log" 2>/dev/null | grep -m1 "^$1"; }
 field() { line "$1" | sed -n "s/.* $2=\([^ ]*\).*/\1/p"; }
@@ -55,8 +76,9 @@ bad() { echo "FAIL: $*" >&2; fail=1; }
 
 if [[ " $ARMS " == *" 1 "* ]]; then
     run "e1m1.qmp -noai -at 88 1420 -190 -yaw 270 -ticks 120"
-    # counted from the bsp on easy: 4 comp_hum, a drone, 6 fluoros, 2 sparks
-    want=13; loops=$(field "snd started=" loops)
+    # counted from the bsp on easy: 4 comp_hum, a drone, 6 fluoros, 2 sparks,
+    # and trigger_teleport's ambience/hum1 at the water slipgate.
+    want=14; loops=$(field "snd started=" loops)
     [[ "${loops:-x}" == "$want" ]] || bad "e1m1 loops=${loops:-none}, the map has $want ambients"
     w=$(field "snd seen=" water); s=$(field "snd seen=" sky)
     [[ "${w:-0}" -gt 0 && "${s:-0}" -gt 0 ]] || bad "leaf ambients water=${w:-none} sky=${s:-none} in a water+sky leaf"
@@ -64,8 +86,8 @@ fi
 
 if [[ " $ARMS " == *" 2 "* ]]; then
     run "e1m4.qmp -noai -ticks 30"
-    # 29 drips, 2 swamps, 40 torches and flames
-    want=71; loops=$(field "snd started=" loops)
+    # 29 drips, 2 swamps, 40 torches and flames, one audible teleporter
+    want=72; loops=$(field "snd started=" loops)
     [[ "${loops:-x}" == "$want" ]] || bad "e1m4 loops=${loops:-none}, the map has $want ambients"
     for id in 100 101 102 103 104 105; do
         if seen $id || [[ -z "$(line 'snd seen=')" ]]; then bad "e1m4 at rest started plat id $id (started=$(field 'snd started=' started))"; break; fi

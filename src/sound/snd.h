@@ -121,6 +121,7 @@
 #define SND_BOSS_THROW  176
 #define SND_LSTART      177
 #define SND_LHIT        178
+#define SND_TELE_HUM    179
 
 /* sound()'s attenuations and entity channels, id's numbers */
 #define ATTN_NONE   0

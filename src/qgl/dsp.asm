@@ -54,8 +54,8 @@ PIC_MASK        equ     21h
 PIC_EOI         equ     20h
 
 DSP_RING        equ     8192
-DSP_SCRATCH     equ     4528                    ;; the mixer's, after the ring: cport's snd_mix.c
-                                                ;; two paint buffers, 179 records and 18 channels.
+DSP_SCRATCH     equ     4544                    ;; the mixer's, after the ring: cport's snd_mix.c
+                                                ;; two paint buffers, 180 records and 18 channels.
                                                 ;; refuses a layout longer than this rather than
                                                 ;; running off the block, which it once did by
                                                 ;; 304 bytes and hung in the heap compactor.
