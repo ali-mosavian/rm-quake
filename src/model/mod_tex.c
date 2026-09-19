@@ -41,19 +41,16 @@ static void modtex_fatal( char *what )
  *       mkassets.py that mkassets.py does not make.
  *
  *       So the frame order is written down instead of assumed:
- *       world->anim_tab holds each chain's texture indices back to
- *       back, anim_base indexes INTO THAT, and anim_count is its
- *       length. d_draw_faces reads anim_tab[base + frame % count].
- *
- *       +a..+j are Quake's alternate animation, switched by an entity
- *       state this renderer has no notion of. They are skipped rather
- *       than folded into the main chain, which is what made
- *       +abasebtn a fourth "frame" of basebtn.
+ *       world->anim_tab holds each normal and alternate chain's texture
+ *       indices back to back. anim_base indexes that table, anim_count
+ *       is this chain's length, and anim_alt names the opposite chain's
+ *       first texture. A brush in frame 1 follows that link exactly as
+ *       R_TextureAnimation does.
  */
 static void mod_link_anims( World *world, DiskMipTex far *t_mip_inf, long texture_count )
 {
     long i, j, k;
-    short frame[10], nf, d, best, bi;
+    short frame[10], alt[10], nf, na;
     char far *suffix;
     short used = 0;
 
@@ -66,8 +63,7 @@ static void mod_link_anims( World *world, DiskMipTex far *t_mip_inf, long textur
     {
         long want = 0;
         for ( i = 0; i < texture_count; i++ )
-            if ( t_mip_inf[i].name[0] == '+' &&
-                 t_mip_inf[i].name[1] >= '0' && t_mip_inf[i].name[1] <= '9' )
+            if ( t_mip_inf[i].name[0] == '+' )
                 want++;
         if ( want < 2 ) return;
         world->anim_tab = (short far *) qglMemAlloc( want * (long) sizeof(short) );
@@ -75,40 +71,56 @@ static void mod_link_anims( World *world, DiskMipTex far *t_mip_inf, long textur
     }
 
     for ( i = 0; i < texture_count; i++ ) {
+        short c;
+
         if ( t_mip_inf[i].name[0] != '+' ) continue;
-        if ( world->miptex[i].anim_count > 1 ) continue;   /* already claimed */
-        if ( t_mip_inf[i].name[1] < '0' || t_mip_inf[i].name[1] > '9' ) continue;
+        if ( world->miptex[i].anim_count > 1 || world->miptex[i].anim_alt >= 0 ) continue;
+        c = (short) t_mip_inf[i].name[1];
+        if ( !( c >= '0' && c <= '9' ) && !( ( c | 32 ) >= 'a' && ( c | 32 ) <= 'j' ) ) continue;
 
         suffix = t_mip_inf[i].name + 2;
-        nf = 0;
+        nf = na = 0;
+        for ( k = 0; k < 10; k++ ) frame[k] = alt[k] = -1;
 
-        for ( j = i; j < texture_count && nf < 10; j++ ) {
+        for ( j = 0; j < texture_count; j++ ) {
             if ( t_mip_inf[j].name[0] != '+' ) continue;
-            if ( t_mip_inf[j].name[1] < '0' || t_mip_inf[j].name[1] > '9' ) continue;
             if ( _fstrncmp( t_mip_inf[j].name + 2, suffix, 14 ) != 0 ) continue;
-            frame[nf++] = (short) j;
-        }
-
-        if ( nf < 2 ) continue;
-
-        /* By the digit, not by lump order: nothing says +1 is stored
-           after +0, and on e1m1 several chains are interleaved. */
-        for ( k = 0; k < nf - 1; k++ ) {
-            bi = (short) k;
-            best = (short)( t_mip_inf[ frame[k] ].name[1] );
-            for ( j = k + 1; j < nf; j++ ) {
-                d = (short)( t_mip_inf[ frame[j] ].name[1] );
-                if ( d < best ) { best = d; bi = (short) j; }
+            c = (short) t_mip_inf[j].name[1];
+            if ( c >= '0' && c <= '9' ) {
+                c -= '0'; frame[c] = (short) j;
+                if ( c + 1 > nf ) nf = (short) ( c + 1 );
+            } else {
+                c |= 32;
+                if ( c >= 'a' && c <= 'j' ) {
+                    c -= 'a'; alt[c] = (short) j;
+                    if ( c + 1 > na ) na = (short) ( c + 1 );
+                }
             }
-            if ( bi != k ) { d = frame[k]; frame[k] = frame[bi]; frame[bi] = d; }
         }
 
-        for ( k = 0; k < nf; k++ ) {
-            world->anim_tab[ used + k ] = frame[k];
-            world->miptex[ frame[k] ].anim_base  = used;
-            world->miptex[ frame[k] ].anim_count = nf;
+        for ( k = 0; k < nf; k++ )
+            if ( frame[k] < 0 ) modtex_fatal( "bad anim" );
+        for ( k = 0; k < na; k++ )
+            if ( alt[k] < 0 ) modtex_fatal( "bad anim" );
+
+        if ( nf ) {
+            short base = used;
+            for ( k = 0; k < nf; k++ ) world->anim_tab[used++] = frame[k];
+            for ( k = 0; k < nf; k++ ) {
+                world->miptex[ frame[k] ].anim_base  = base;
+                world->miptex[ frame[k] ].anim_count = nf;
+                world->miptex[ frame[k] ].anim_alt   = na ? alt[0] : -1;
+            }
         }
-        used = (short)( used + nf );
+        if ( na ) {
+            short base = used;
+            for ( k = 0; k < na; k++ ) world->anim_tab[used++] = alt[k];
+            for ( k = 0; k < na; k++ ) {
+                world->miptex[ alt[k] ].anim_base  = base;
+                world->miptex[ alt[k] ].anim_count = na;
+                world->miptex[ alt[k] ].anim_alt   = nf ? frame[0] : -1;
+            }
+        }
     }
 }
 
@@ -142,10 +154,9 @@ PalRgb far * mod_load_textures( World *world, MapCounts *counts )
         world->miptex[i].wdth = 1.0f / (float) hdr.wdth;
         world->miptex[i].hght = 1.0f / (float) hdr.hght;
 
-        /* Quake encodes what a texture does in its name: a leading
-           '*' is a liquid, which flows; a leading '+N' is one frame
-           of an animation, the rest of whose frames share the name
-           after the digit. */
+        /* Quake encodes liquids and both +0 and +a animation chains in
+           the texture name. mod_link_anims connects the chains. */
+        world->miptex[i].anim_alt   = -1;
         world->miptex[i].liquid     = 0;
         world->miptex[i].anim_base  = (short) i;
         world->miptex[i].anim_count = 1;

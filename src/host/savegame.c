@@ -90,6 +90,18 @@ static void near savegame_train_damage_v8( World *world, short far *damage )
     }
 }
 
+static void near savegame_brush_alt( World *world )
+{
+    short i;
+
+    for ( i = 0; i < world->trig_count; i++ ) {
+        TrigEnt far *t = &world->trig[i];
+        if ( t->kind != ENT_TRIG_BUTTON && t->kind != ENT_TRIG_SHOOT_BUTTON ) continue;
+        world->brush[t->model].draw &= (short) ~ENT_BRUSH_ALT;
+        if ( t->state == ENT_TRIG_HELD ) world->brush[t->model].draw |= ENT_BRUSH_ALT;
+    }
+}
+
 static void near savegame_exit_static( TrigEnt *saved, TrigEnt far *asset )
 {
     if ( saved->kind != ENT_TRIG_EXIT || asset->kind != ENT_TRIG_EXIT ) return;
@@ -664,6 +676,9 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
         if ( ok ) savegame_train_damage_v8( world, train_damage );
         qglMemFree( (long) train_damage );
     }
+    /* Brush frame is derived from button state, so old saves and current
+       saves have one source of truth even though draw is stored raw. */
+    if ( ok ) savegame_brush_alt( world );
     if ( ok ) ok = savegame_read_items( file, world->item,
                                         head.item_count, head.version );
     if ( ok ) ok = savegame_read_block( file, (long) world->mon,

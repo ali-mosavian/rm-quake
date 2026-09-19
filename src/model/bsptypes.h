@@ -105,7 +105,7 @@ typedef struct {
 typedef struct {
     float wdth;
     float hght;
-    short lnext;
+    short anim_alt;     /* first texture in the opposite +0/+a chain, or -1 */
     short liquid;
     short anim_base;
     short anim_count;
@@ -117,13 +117,17 @@ typedef struct {
    ofs zero. The offset is all three axes because a door slides along
    whichever one its movedir names; a plat uses ofs.z alone. */
 typedef struct {
-    short draw;
+    short draw;         /* ENT_BRUSH_DRAW plus ENT_BRUSH_ALT; kept one word
+                           so old raw save records remain layout-compatible */
     short solid;
     BspVec3 ofs;
     short node;      /* ent_find_node's answer: where this submodel
                          belongs in the world's back-to-front order, or
                          ENT_NODE_DIRTY once the brush has moved */
 } BrushModel;
+
+#define ENT_BRUSH_DRAW 1
+#define ENT_BRUSH_ALT  2
 
 /* A brush that moved since it was placed. Leaf 32767, which no map has
    -- -1 would be leaf 0, the answer for a box in solid. */

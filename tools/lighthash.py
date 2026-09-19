@@ -122,7 +122,11 @@ def face_animation_counts(data: bytes) -> tuple[int, ...]:
     counts = [1] * texture_count
     groups: dict[str, list[int]] = {}
     for index, name in enumerate(names):
-        if len(name) >= 2 and name[0] == "+" and name[1].isdigit():
+        if (
+            len(name) >= 2
+            and name[0] == "+"
+            and (name[1].isdigit() or "a" <= name[1].lower() <= "j")
+        ):
             groups.setdefault(name[2:], []).append(index)
     for indices in groups.values():
         if len(indices) > 1:

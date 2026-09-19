@@ -521,7 +521,7 @@ def entity_records(state: DemoState, frame_maps: dict[str, dict[int, int]]) -> l
         model = state.models[entity.model]
         stem = Path(model).stem.lower()
         if model.startswith("*"):
-            records.append((number, ENT_BRUSH, int(model[1:]), 0, 0, *entity.origin, entity.angles[1]))
+            records.append((number, ENT_BRUSH, int(model[1:]), 0, entity.frame, *entity.origin, entity.angles[1]))
         elif stem in MONSTERS:
             kind, _spec = MONSTERS[stem]
             records.append((number, ENT_MONSTER, kind, 6,

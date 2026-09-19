@@ -278,12 +278,34 @@ static short ent_shot_button( TrigEnt far *t )
     return -1;
 }
 
+static void near ent_button_frame( BrushModel far *b, short pressed )
+{
+    if ( pressed ) b->draw |= ENT_BRUSH_ALT;
+    else           b->draw &= (short) ~ENT_BRUSH_ALT;
+}
+
+static void near ent_button_return( TrigEnt far *t, BrushModel far *b )
+{
+    t->state = ENT_TRIG_BACK;
+    ent_button_frame( b, 0 );
+}
+
 short ent_trig_selftest( void )
 {
     TrigEnt t;
+    BrushModel b;
+
+    memset( &t, 0, sizeof(t) );
+    memset( &b, 0, sizeof(b) );
     t.kind = ENT_TRIG_SHOOT_BUTTON;
     t.state = ENT_TRIG_READY;
-    return (short) ( ent_shot_button( &t ) && t.state == ENT_TRIG_GOING );
+    t.wait = 1.0f;
+    b.draw = ENT_BRUSH_DRAW;
+    if ( !ent_shot_button( &t ) || t.state != ENT_TRIG_GOING ) return 0;
+    ent_button_frame( &b, -1 );
+    if ( !( b.draw & ENT_BRUSH_ALT ) ) return 0;
+    ent_button_return( &t, &b );
+    return (short) ( t.state == ENT_TRIG_BACK && b.draw == ENT_BRUSH_DRAW );
 }
 
 void ent_trig_shot( World *world, Player *player, Fight *fight,
@@ -383,12 +405,15 @@ void ent_move_trigs( World *world, Player *player, Camera *cam, Fight *fight,
                     snd_play( &world->snd, player, (short) ( SND_BUTTON + t->snd ), &at );
                     ent_say( fight, rdr, ent_msg( world, t->msg ) );
                     ent_use_targets( world, player, fight, rdr, t->target );
+                    ent_button_frame( b, -1 );
                 }
                 break;
             case ENT_TRIG_HELD:
                 if ( t->wait >= 0.0f ) {
                     t->wait_left -= dt;
-                    if ( t->wait_left <= 0.0f ) t->state = ENT_TRIG_BACK;
+                    if ( t->wait_left <= 0.0f ) {
+                        ent_button_return( t, b );
+                    }
                 }
                 break;
             case ENT_TRIG_BACK:

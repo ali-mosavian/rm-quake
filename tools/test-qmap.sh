@@ -74,4 +74,27 @@ else
     echo "ok: a file that is not a container is refused -- $said"
 fi
 
+# 3. QMAP 10 predates alternate brush phases in lface.bld. Accepting one
+# silently aliases live and pressed button surfaces in the cache.
+tmp="$OUT/oldhash.qmp"
+python3 - "$OUT/$MAP.qmp" "$tmp" <<'PY'
+import struct
+import sys
+
+data = bytearray(open(sys.argv[1], "rb").read())
+struct.pack_into("<l", data, 4, 10)
+open(sys.argv[2], "wb").write(data)
+PY
+rm -f "$OUT/error.log"
+TIMEOUT="${TIMEOUT:-120}" "${RUN_SH:-$HERE/run.sh}" "$OUT" "oldhash.qmp -nostats -ticks 2" >/dev/null 2>&1
+said=""
+[[ -f "$OUT/error.log" ]] && said=$(tr -d '\r' < "$OUT/error.log" | head -1)
+rm -f "$tmp"
+if [[ "$said" != *"a map container this build does not read"* ]]; then
+    echo "FAIL: QMAP 10 with incomplete cache keys was accepted" >&2
+    fail=1
+else
+    echo "ok: QMAP 10 with incomplete cache keys is refused"
+fi
+
 exit $fail

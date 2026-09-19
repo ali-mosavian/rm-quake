@@ -148,7 +148,8 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
     short mi, m_node, ti, i, j, v0, gn, vcnt, cnt;
     short all_in;
     float zn, zf;
-    short tex, tex_id, anim_count, anim_step, draw_mip, mip_level, liquid, sky, sky_made = 0;
+    short tex, src_tex, tex_id, anim_count, anim_step, anim_total, anim_phase;
+    short draw_mip, mip_level, liquid, sky, sky_made = 0;
     short z_want, z_have = -1, lm_use, lm_on;
     short lm_tms, lm_tmt, lm_extw, lm_exth;
     long  lm_stag;
@@ -234,10 +235,21 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
 
             vcnt   = gv[0];
             tex    = FACE_TEXINFO_ID( &tri[i] );
-            tex_id = texinf[tex].mip_tex;
+            src_tex = texinf[tex].mip_tex;
+            tex_id = src_tex;
+            if ( fmdl && ( brush[fmdl].draw & ENT_BRUSH_ALT ) &&
+                 mipinf[tex_id].anim_alt >= 0 )
+                tex_id = mipinf[tex_id].anim_alt;
             anim_count = mipinf[tex_id].anim_count;
             anim_step = anim_count > 1
                       ? (short) ( ifloor( dp->anim_time * 5.0f ) % anim_count ) : 0;
+            anim_total = anim_count;
+            anim_phase = anim_step;
+            if ( mipinf[tex_id].anim_alt >= 0 ) {
+                anim_total = (short) ( anim_total + mipinf[ mipinf[tex_id].anim_alt ].anim_count );
+                if ( tex_id != src_tex )
+                    anim_phase = (short) ( anim_phase + mipinf[src_tex].anim_count );
+            }
             liquid = mipinf[tex_id].liquid;
             sky    = mipinf[tex_id].sky && world->sky_dc;
             ofs3[0] = brush[fmdl].ofs.x;
@@ -297,7 +309,7 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
                     {
                         short s01 = gv[GEOM_LMOFS + 6], s23 = gv[GEOM_LMOFS + 7];
                         unsigned short hp = (unsigned short) gv[GEOM_LMOFS + 8];
-                        lm_stag = LS_FACE_KEY( ls, s01, s23 ) * anim_count + anim_step;
+                        lm_stag = LS_FACE_KEY( ls, s01, s23 ) * anim_total + anim_phase;
                         if ( hp & 255 )
                             lm_state = (short) ( ( ( lm_stag * ( hp & 255 ) ) ^
                                                   ( (unsigned long) lm_stag >> ( hp >> 8 ) ) ) & 511 );

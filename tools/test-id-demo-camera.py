@@ -66,6 +66,11 @@ def main() -> None:
             assert {1, 2, 3, 4, 5, 6, 7, 8, 9} <= types, (
                 f"{demo}: missing world, event, or projectile records: {types}"
             )
+            assert any(
+                entity[1] == 1 and entity[4] == 1
+                for _frame, entities in records
+                for entity in entities
+            ), f"{demo}: pressed brush texture frames disappeared"
             assert any(entity[0] < 0 and entity[1] == 5 for _frame, entities in records for entity in entities), (
                 f"{demo}: temporary effects were attached to the player sound channel"
             )

@@ -296,7 +296,7 @@ SKILLS     = 4   # easy, normal, hard, nightmare: an ents<N>.bin each
 ENTS_HEAD  = '<4f3fff13hfhhh3ffh'  # ent.h's EntsHead; the monsters follow it
 ENTS_MON   = '<hh3ffhh'          # ent.h's EntsMon
 
-QMAP_VER   = 10
+QMAP_VER   = 11
 QMAP_HEAD  = 64
 QMAP_NAME  = 16
 QMAP_ENT   = 24

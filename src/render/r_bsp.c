@@ -352,7 +352,8 @@ void r_emit_entities( World *world, Renderer *rdr, DiskPlane far *frustum,
     if ( ign || rdr->ents_last || rdr->no_ents ) return;
 
     for ( m = 1; m < world->model_count; m++ ) {
-        if ( world->brush[m].draw && world->brush[m].node == nodenr ) {
+        if ( ( world->brush[m].draw & ENT_BRUSH_DRAW ) &&
+             world->brush[m].node == nodenr ) {
             rdr->ent_left--;
             r_draw_brush_model( world, rdr, frustum, m, campos );
         }
@@ -408,7 +409,7 @@ void r_draw_world( World *world, Renderer *rdr, DiskPlane far *frustum,
        zero the per-node test in r_walk.c costs a compare, not a call. */
     rdr->ent_left = 0;
     for ( i = 1; i < world->model_count && !rdr->ents_last; i++ )
-        if ( world->brush[i].draw ) rdr->ent_left++;
+        if ( world->brush[i].draw & ENT_BRUSH_DRAW ) rdr->ent_left++;
 
     /* Where the entities are, and what the walk may prune.
      *
@@ -432,7 +433,7 @@ void r_draw_world( World *world, Renderer *rdr, DiskPlane far *frustum,
 
         if ( rdr->ent_left && !rdr->no_ents ) {
             for ( i = 1; i < world->model_count; i++ ) {
-                if ( !world->brush[i].draw ) continue;
+                if ( !( world->brush[i].draw & ENT_BRUSH_DRAW ) ) continue;
                 n = world->brush[i].node;
                 if ( n == ENT_NODE_DIRTY ) continue;   /* ent_place_models has not run */
                 if ( n & 0x8000 ) {
@@ -461,7 +462,7 @@ void r_draw_world( World *world, Renderer *rdr, DiskPlane far *frustum,
        insertion for the A/B; -noz has no depth, so insertion is all. */
     if ( rdr->ents_last && !rdr->no_ents ) {
         for ( i = 1; i < world->model_count; i++ ) {
-            if ( world->brush[i].draw )
+            if ( world->brush[i].draw & ENT_BRUSH_DRAW )
                 r_draw_brush_model( world, rdr, frustum, i, campos );
         }
     }

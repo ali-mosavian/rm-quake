@@ -35,10 +35,9 @@ typedef char rec_flameent_ok[ sizeof(FlameEnt) == 14 ? 1 : -1 ];
  * World -- the loaded map. Grows a field at a time as the module that
  * owns it gets ported; this is ent.bas's, pl_move.bas's and r_bsp.bas's
  * slice (models/nodes/planes/clip/leaves/lfc/PVS store, plus the entity
- * arrays ent.bas owns), plus faces/texinfo/miptex -- sb_build.c (d_surf.bas)
- * needs them, even though model.bas's own loader that would fill them
- * isn't ported yet. The surface cache itself is not here: SurfCache is
- * its own context struct (sc.h), not part of the map.
+ * arrays ent.bas owns), plus faces/texinfo/miptex for sb_build.c. The
+ * surface cache itself is not here: SurfCache is its own context struct
+ * (sc.h), not part of the map.
  *
  * Arrays are far pointers + counts rather than fixed-size members:
  * every one of these is sized at map-load time (REDIM in the old
@@ -80,11 +79,9 @@ typedef struct {
     Face        far *faces;
     TexInfo     far *texinfo;    /* indexed by faces[f].tex_info_id */
     MipTex      far *miptex;     /* indexed by texinfo[t].mip_tex */
-    short       far *anim_tab;   /* every animation chain's texture ids,
-                                     back to back; MipTex.anim_base is an
-                                     offset into THIS, not a texture id --
-                                     chains are not contiguous in the
-                                     miptex lump (see mod_link_anims) */
+    short       far *anim_tab;   /* every +0 and +a animation chain's texture
+                                     ids, back to back; MipTex.anim_base is
+                                     an offset into THIS, not a texture id */
 
     short       far *pt_idx;     /* portal adjacency, mkportals.py's own
                                      output: one entry per leaf plus one

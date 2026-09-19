@@ -46,9 +46,8 @@ short ent_plat_touched( Player *player, World *world, short p )
  * name: ent_move_plats
  * desc: Drives every func_plat, and carries whoever is riding one.
  *
- *       A plat rises while the player is on it and returns when they
- *       leave, which is Quake's behaviour without the delay and the
- *       sounds.
+ *       A plat rises while the player is on it, waits at the top and
+ *       returns after they leave, with Quake's move and stop sounds.
  *
  *       The rider is moved by the same delta the plat moved. Quake
  *       does this properly in SV_PushMove, which re-traces everything

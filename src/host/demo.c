@@ -217,7 +217,8 @@ static void near demo_snapshot_apply( Demo *dm, DemoFrame *frame, World *world,
         if ( fread( &e, sizeof(e), 1, dm->rf ) != 1 ) demo_short();
         if ( e.type == DEMO_ENT_BRUSH && e.kind > 0 && e.kind < world->model_count ) {
             BrushModel far *b = &world->brush[e.kind];
-            b->draw = -1;
+            b->draw = (short) ( ENT_BRUSH_DRAW |
+                      ( e.frame ? ENT_BRUSH_ALT : 0 ) );
             b->ofs.x = e.x; b->ofs.y = e.y; b->ofs.z = e.z;
             b->node = ENT_NODE_DIRTY;
             brush++;

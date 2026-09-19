@@ -53,6 +53,10 @@ def main() -> int:
     if not maps:
         print("FAIL: no BSP maps", file=sys.stderr)
         return 1
+    e1m2_counts = lighthash.face_animation_counts((root / "data/e1m2.bsp").read_bytes())
+    if 5 not in e1m2_counts:
+        print("FAIL: +a button texture is absent from e1m2 cache states", file=sys.stderr)
+        return 1
 
     worst = (0, "", ())
     for path in maps:

@@ -4,31 +4,10 @@
  * BASIC-linked build's own src/sb_build.c (BASARRAY descriptors and
  * "g as Game" -> World-/Renderer-/LightStyles-/SurfCache-taking).
  *
- * mod_lm_map/mod_cm_map (model.bas, not yet ported into cport/) are
- * declared here with the signature they SHOULD have once they exist --
- * a genuine `unsigned char far *` to the mapped EMS window, not
- * BASIC's packed long + DEF SEG/PEEK. That's what lets this file use
- * ordinary pointer arithmetic throughout instead of sb_seg's segment
- * reconstruction, which the old BASIC needed and this doesn't.
- *
- * KNOWN BUG, NOT YET FIXED HERE: srow is computed ONCE from
- * mod_lm_map(world, lmy) and then walked across lmh rows by
- * `srow += sb_pot(lmw)`, exactly as the original did. That's the same
- * shape as the qglSbBuild destination-pointer bug already fixed in
- * mgl (src/ugl/uglsurf.asm, commit b0abc01): an EMS page window mapped
- * once and read across multiple rows is only valid until the NEXT
- * acquire evicts it, and nothing here holds a lock across the loop.
- * An earlier session attempted the obvious fix -- call mod_lm_map
- * again per row instead of walking the pointer -- against the
- * BASIC-linked build and hit a confirmed crash (INT6, invalid opcode)
- * whose root cause was never isolated; the fix was reverted rather
- * than landed unverified. It is not re-attempted here for the same
- * reason: mod_lm_map doesn't exist yet in cport/ to test against, and
- * the crash needs a working build to diagnose, not a guess. Fix this
- * once model.bas's own mod_lm_map is real, with a churn test
- * (tools/check.sh --churn's own method: same camera, two runs, diff
- * the picture) as the gate -- exactly how the qglSbBuild fix was
- * verified.
+ * mod_lm_map returns one mapped 8,192-byte atlas row. mkassets keeps
+ * every face's padded lightmap rectangle wholly inside that row, so
+ * its rows are reached by adding the face stride without remapping.
+ * No call inside either copy loop can evict PAGE_SLOT.
  */
 
 #include <mem.h>
@@ -40,8 +19,6 @@
 #define GEOM_LMOFS 1
 #define LS_NEUTRAL 120
 
-/* model.bas, not yet ported -- see this file's own header for the
-   signature these should have once they exist. */
 extern unsigned char far *mod_lm_map( World *world, short row );
 extern unsigned char far *mod_cm_map( World *world );
 
@@ -158,8 +135,7 @@ short sb_build( SurfCache far *sc, World *world, Renderer *rdr, LightStyles *ls,
                 lrow = ls_scratch_c;
                 for ( li = 0; li < lmh; li++ ) {
                     _fmemcpy( lrow, srow, (size_t) lmw );
-                    srow += sb_pot( lmw );   /* see this file's own header:
-                                                 the known, not-yet-fixed bug */
+                    srow += sb_pot( lmw );
                     lrow += lmw;
                 }
                 if ( sval != LS_NEUTRAL )

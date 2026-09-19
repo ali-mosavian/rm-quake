@@ -130,7 +130,9 @@ PAK0 and are left out.
       `CheckPowerups`; `ai.qc` `FindTarget`; `player.qc` `player_pain`;
       `r_main.c` `R_DrawViewModel`
       qcport: `ENT_ITEM_INVIS`; `tools/test-items.sh` on e1m3. The recurring
-      whisper uses id's 127/255 source volume. Not ported: the eyes model
+      whisper uses id's 127/255 source volume. `eyes.mdl` is the remote-player
+      model: WinQuake skips the local view entity, so it belongs to excluded
+      multiplayer/chase-view rendering rather than single-player first person
 - [x] T_RadiusDamage as id runs it
       id: `combat.qc` `T_RadiusDamage`, `CanDamage`; `pr_cmds.c` `PF_findradius`
       qcport: source-edict order, damage + 40 cutoff, hull-0 `CanDamage`,
@@ -253,6 +255,12 @@ PAK0 and are left out.
       qcport: swept player displacement, trapped-player rollback, map `dmg`,
       outward kick and half-second cadence; `tools/test-plats.sh`,
       `tools/test-train-crush.sh`
+- [x] Alternate brush textures
+      id: `buttons.qc` `button_wait`/`button_return`; `r_surf.c`
+      `R_TextureAnimation`
+      qcport: recorded and live brush frame state selects the `+a` chain;
+      normal and alternate phases have distinct lightmap-cache keys and save
+      loads reconstruct the derived frame; `tools/test-alt-textures.sh`
 - [ ] CD music
       id: `cd_audio.c` `CDAudio_Play`
       qcport: none

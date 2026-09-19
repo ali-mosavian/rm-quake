@@ -570,7 +570,7 @@ static void near ent_load_brushes( World *world )
     short i, j, k;
 
     for ( i = 0; i < world->model_count; i++ ) {
-        world->brush[i].draw  = 1;
+        world->brush[i].draw  = ENT_BRUSH_DRAW;
         world->brush[i].solid = 1;
         world->brush[i].ofs.x = 0.0f;
         world->brush[i].ofs.y = 0.0f;
@@ -926,6 +926,7 @@ void ent_reset( World *world, Fight *fight )
         if ( world->trig[k].kind == ENT_TRIG_FIREBALL ) ent_fireball_spawn( world, &world->trig[k] );
         if ( world->trig[k].kind == ENT_TRIG_BUTTON ||
              world->trig[k].kind == ENT_TRIG_SHOOT_BUTTON ) {
+            world->brush[ world->trig[k].model ].draw &= (short) ~ENT_BRUSH_ALT;
             world->brush[ world->trig[k].model ].ofs.x = 0.0f;
             world->brush[ world->trig[k].model ].ofs.y = 0.0f;
             world->brush[ world->trig[k].model ].ofs.z = 0.0f;

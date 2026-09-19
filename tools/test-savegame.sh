@@ -11,7 +11,7 @@ cp "$OUT/QCPORT.EXE" "$OUT/stuff.ini" "$OUT/default.cfg" \
   "$HERE/../data/maps/e1m6/e1m6.qmp" "$work/"
 
 TIMEOUT="${TIMEOUT:-60}" "$HERE/run.sh" "$work" \
-  "e1m6.qmp -nostats -nosound -noai -ticks 100 -walk +wait;wait;wait;wait;save s0;wait;load s0;toggleconsole;quit" >/dev/null
+  "e1m6.qmp -nostats -nosound -noai -ticks 100 -walk +wait;wait;wait;save s0;wait;load s0;toggleconsole;quit" >/dev/null
 saved="$(sed -n 's/^savegame wrote .* pos //p' "$work/cstep.txt")"
 loaded="$(sed -n 's/^savegame loaded .* pos //p' "$work/cstep.txt")"
 if [[ -z "$saved" || "$saved" != "$loaded" ]]; then
@@ -23,7 +23,7 @@ if [[ "$(grep -c '^map_release ok ' "$work/cstep.txt")" -ne 2 ]]; then
   exit 1
 fi
 grep -Eq '^stack_untouched [1-9][0-9]* of ' "$work/cstep.txt" || {
-  echo "save/load exhausted the stack probe" >&2
+  echo "save/load entered the unpainted 1024-byte stack/heap guard" >&2
   exit 1
 }
 if [[ ! -s "$work/s0.sav" ]]; then
