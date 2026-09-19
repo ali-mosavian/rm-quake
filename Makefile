@@ -189,6 +189,7 @@ test:                           ## header deps, far-to-near pointers, then qgl's
 	@tools/test-assetdeps.sh
 	@tools/test-console.sh
 	@tools/test-keybind.sh
+	@tools/test-menu-state.sh
 	@tools/test-centerprint.sh
 	@tools/test-video.sh
 	@tools/test-viewfx.sh

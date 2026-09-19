@@ -1267,6 +1267,13 @@ static short near host_write_config( Host *h, const char *name )
     return keybind_write_config( h->keys, h->cmd, name );
 }
 
+static void near host_open_menu( Host *h, MenuPage page )
+{
+    keybind_release_all( h->keys );
+    if ( con_open( h->console ) ) con_toggle( h->console, &h->input );
+    menu_open( h->menu, &h->world.pak, page );
+}
+
 static void near host_console_result( Host *h, CmdKind kind, CmdResult *result )
 {
     char name[CMD_NAME];
@@ -1281,7 +1288,7 @@ static void near host_console_result( Host *h, CmdKind kind, CmdResult *result )
     if ( kind == CMD_CLEAR ) { con_clear( h->console ); return; }
     if ( kind == CMD_CMDLIST ) {
         con_print( h->console,
-                   "bind clear cmdlist cvarlist echo exec impulse load map menu_keys menu_main "
+                   "bind clear cmdlist cvarlist echo exec help impulse load map menu_keys menu_main "
                    "menu_options quit save set sizedown sizeup startdemos demos stopdemo "
                    "togglemenu unbind unbindall wait writeconfig" );
         return;
@@ -1398,19 +1405,23 @@ static void near host_console_result( Host *h, CmdKind kind, CmdResult *result )
     }
     if ( !strcmp( result->name, "togglemenu" ) ) {
         if ( menu_is_open( h->menu ) ) menu_close( h->menu );
-        else menu_open( h->menu, &h->world.pak, MENU_MAIN );
+        else host_open_menu( h, MENU_MAIN );
         return;
     }
     if ( !strcmp( result->name, "menu_main" ) ) {
-        menu_open( h->menu, &h->world.pak, MENU_MAIN );
+        host_open_menu( h, MENU_MAIN );
         return;
     }
     if ( !strcmp( result->name, "menu_options" ) ) {
-        menu_open( h->menu, &h->world.pak, MENU_OPTIONS );
+        host_open_menu( h, MENU_OPTIONS );
         return;
     }
     if ( !strcmp( result->name, "menu_keys" ) ) {
-        menu_open( h->menu, &h->world.pak, MENU_KEYS );
+        host_open_menu( h, MENU_KEYS );
+        return;
+    }
+    if ( !strcmp( result->name, "help" ) ) {
+        host_open_menu( h, MENU_HELP );
         return;
     }
     if ( !strcmp( result->name, "togglemips" ) ) { h->rdr.use_mips = !h->rdr.use_mips; return; }
@@ -1585,7 +1596,8 @@ static void near host_input_events( Host *h )
             continue;
         }
         if ( menu_is_open( h->menu ) ) {
-            host_menu_action( h, menu_key( h->menu, key, h->keys, h->cmd ) );
+            host_menu_action( h, menu_key( h->menu, key, h->keys, h->cmd,
+                                          &h->world.pak ) );
             continue;
         }
         if ( key == KEY_ESC ) {

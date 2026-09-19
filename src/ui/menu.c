@@ -10,6 +10,13 @@
 #define MENU_W       256
 #define MENU_H       384
 #define MENU_CHARS_Y 320
+#define HELP_W        320
+#define HELP_H        200
+#define HELP_STRIDE   512
+#define HELP_PAGES    6
+#define MENU_BYTES    ( (long) MENU_W * MENU_H )
+#define HELP_BYTES    ( (long) HELP_W * HELP_H )
+#define MENU_FILE_BYTES ( MENU_BYTES + HELP_PAGES * HELP_BYTES )
 
 typedef struct { char *command, *label; } BindRow;
 
@@ -88,23 +95,52 @@ void menu_init( Menu MENU_FAR *menu )
     _fmemset( menu, 0, sizeof(*menu) );
 }
 
-short menu_open( Menu MENU_FAR *menu, Pak *pak, MenuPage page )
+static void near menu_load_help_page( Menu MENU_FAR *menu, Pak *pak )
 {
     short handle, y;
+
+    handle = pak_seek_part( pak, "menu.raw",
+                            MENU_BYTES + (long) menu->help_page * HELP_BYTES,
+                            HELP_BYTES );
+    for ( y = 0; y < HELP_H; y++ )
+        if ( qglFileRead( handle, qglSfWrRow( menu->atlas, y ), HELP_W ) != HELP_W )
+            sys_error( "menu.raw help page is short" );
+}
+
+static short near menu_surface( Menu MENU_FAR *menu, Pak *pak, short help )
+{
+    short handle, y, had_help = (short) ( menu->page == MENU_HELP );
     long bytes;
 
+    if ( menu->atlas && had_help == help ) return -1;
+    if ( menu->atlas ) qglSfFree( menu->atlas );
+    menu->atlas = help
+        ? qglSfNewEx( HELP_W, HELP_H, HELP_STRIDE, QGL_SURF_EMS )
+        : qglSfNew( MENU_W, MENU_H, QGL_SURF_EMS );
     if ( !menu->atlas ) {
-        menu->atlas = qglSfNew( MENU_W, MENU_H, QGL_SURF_EMS );
-        if ( !menu->atlas ) return 0;
-        handle = pak_seek( pak, "menu.raw", &bytes );
-        if ( bytes != (long) MENU_W * MENU_H ) sys_error( "menu.raw has the wrong size" );
-        for ( y = 0; y < MENU_H; y++ )
-            qglFileRead( handle, qglSfWrRow( menu->atlas, y ), MENU_W );
+        menu->page = MENU_CLOSED;
+        return 0;
     }
+    handle = pak_seek( pak, "menu.raw", &bytes );
+    if ( bytes != MENU_FILE_BYTES ) sys_error( "menu.raw has the wrong size" );
+    if ( help ) return -1;
+    for ( y = 0; y < MENU_H; y++ )
+        if ( qglFileRead( handle, qglSfWrRow( menu->atlas, y ), MENU_W ) != MENU_W )
+            sys_error( "menu.raw atlas is short" );
+    return -1;
+}
+
+short menu_open( Menu MENU_FAR *menu, Pak *pak, MenuPage page )
+{
+    if ( !menu_surface( menu, pak, (short) ( page == MENU_HELP ) ) ) return 0;
     menu->page = page;
     menu->cursor = 0;
     menu->bind_grab = 0;
     menu->notice[0] = 0;
+    if ( page == MENU_HELP ) {
+        menu->help_page = 0;
+        menu_load_help_page( menu, pak );
+    }
     if ( page == MENU_LOAD || page == MENU_SAVE )
         savegame_scan( menu->slots, menu->loadable );
     return -1;
@@ -158,7 +194,7 @@ static void near menu_adjust( Menu MENU_FAR *menu, CmdState far *cmd, short dire
 }
 
 MenuAction menu_key( Menu MENU_FAR *menu, short key,
-                     KeyBindings KB_FAR *keys, CmdState far *cmd )
+                     KeyBindings KB_FAR *keys, CmdState far *cmd, Pak *pak )
 {
     short max, first, second;
     char name[16], error[CMD_TEXT];
@@ -167,6 +203,18 @@ MenuAction menu_key( Menu MENU_FAR *menu, short key,
         if ( key != KEY_ESC && key != KEY_TILDE && keybind_name( key, name ) )
             keybind_set( keys, name, bind_rows[menu->cursor].command, error );
         menu->bind_grab = 0;
+        return MENU_ACTION_NONE;
+    }
+    if ( menu->page == MENU_HELP ) {
+        if ( key == KEY_ESC ) menu_open( menu, pak, MENU_MAIN );
+        else if ( key == KEY_UP || key == KEY_RIGHT ) {
+            menu->help_page = (short) ( ( menu->help_page + 1 ) % HELP_PAGES );
+            menu_load_help_page( menu, pak );
+        } else if ( key == KEY_DOWN || key == KEY_LEFT ) {
+            menu->help_page = (short) ( menu->help_page ? menu->help_page - 1
+                                                       : HELP_PAGES - 1 );
+            menu_load_help_page( menu, pak );
+        }
         return MENU_ACTION_NONE;
     }
     if ( key == KEY_ESC ) {
@@ -204,7 +252,7 @@ MenuAction menu_key( Menu MENU_FAR *menu, short key,
         if ( menu->cursor == 0 ) { menu->page = MENU_SINGLE; menu->cursor = 0; }
         else if ( menu->cursor == 1 ) strcpy( menu->notice, "Multiplayer is not available" );
         else if ( menu->cursor == 2 ) { menu->page = MENU_OPTIONS; menu->cursor = 0; }
-        else if ( menu->cursor == 3 ) strcpy( menu->notice, "Use the console for command help" );
+        else if ( menu->cursor == 3 ) menu_open( menu, pak, MENU_HELP );
         else return MENU_ACTION_QUIT;
     } else if ( menu->page == MENU_SINGLE ) {
         if ( menu->cursor == 0 ) return MENU_ACTION_NEW;
@@ -329,7 +377,8 @@ void menu_draw( Menu MENU_FAR *menu, const KeyBindings KB_FAR *keys,
             return;
         }
     } else view = dst;
-    if ( menu->page == MENU_MAIN ) menu_draw_main( menu, view, now );
+    if ( menu->page == MENU_HELP ) qglDrBlit( view, 0, 0, menu->atlas );
+    else if ( menu->page == MENU_MAIN ) menu_draw_main( menu, view, now );
     else if ( menu->page == MENU_SINGLE ) menu_draw_single( menu, view, now );
     else if ( menu->page == MENU_OPTIONS ) menu_draw_options( menu, (CmdState far *) cmd, view );
     else if ( menu->page == MENU_KEYS ) menu_draw_keys( menu, keys, view );

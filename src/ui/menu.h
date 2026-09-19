@@ -20,7 +20,8 @@ typedef enum {
     MENU_OPTIONS,
     MENU_KEYS,
     MENU_LOAD,
-    MENU_SAVE
+    MENU_SAVE,
+    MENU_HELP
 } MenuPage;
 
 typedef enum {
@@ -35,7 +36,7 @@ typedef enum {
 
 typedef struct {
     QSurf atlas;
-    short page, cursor, bind_grab;
+    short page, cursor, bind_grab, help_page;
     char notice[40];
     char slots[SG_SLOTS][SG_COMMENT];
     unsigned char loadable[SG_SLOTS];
@@ -46,7 +47,7 @@ short menu_open( Menu MENU_FAR *menu, Pak *pak, MenuPage page );
 void menu_close( Menu MENU_FAR *menu );
 short menu_is_open( const Menu MENU_FAR *menu );
 MenuAction menu_key( Menu MENU_FAR *menu, short key,
-                     KeyBindings KB_FAR *keys, CmdState far *cmd );
+                     KeyBindings KB_FAR *keys, CmdState far *cmd, Pak *pak );
 void menu_draw( Menu MENU_FAR *menu, const KeyBindings KB_FAR *keys,
                 const CmdState far *cmd, float now, QSurf dst, short w, short h );
 

@@ -190,8 +190,10 @@ def main() -> int:
         )
         pixels = bytes(255 if pixel == 0 else pixel for pixel in pixels)
         blit(menu, pixels, code % 32 * 8, MENU_CHARS_Y + code // 32 * 8, 8, 8, MENU_W)
+    for page in range(6):
+        menu += pak_pic(f"gfx/help{page}.lmp", 320, 200)
     open(os.path.join(outdir, "menu.raw"), "wb").write(menu)
-    print(f"  menu.raw       {len(menu):,} B, swapped in only while a menu is open")
+    print(f"  menu.raw       {len(menu):,} B, one menu surface swapped in at a time")
     return 0
 
 

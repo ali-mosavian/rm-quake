@@ -21,11 +21,14 @@ def bmp_pixels(path: str) -> bytes:
     if (width, height) != (320, 200):
         raise AssertionError(f"{path}: expected 320x200, got {width}x{height}")
     stride = (width + 3) & ~3
-    return bytes(
+    pixels = bytes(
         pixel
         for y in range(height)
         for pixel in data[offset + (height - 1 - y) * stride :][:width]
     )
+    if len(pixels) != width * height:
+        raise AssertionError(f"{path}: short pixel data ({len(pixels)} bytes)")
+    return pixels
 
 
 def place(screen: bytearray, data: bytes, x: int, y: int) -> None:
@@ -38,8 +41,8 @@ def place(screen: bytearray, data: bytes, x: int, y: int) -> None:
 
 
 def main() -> int:
-    if len(sys.argv) != 3:
-        print(f"usage: {sys.argv[0]} PAK0.PAK SCREEN.BMP", file=sys.stderr)
+    if len(sys.argv) != 4:
+        print(f"usage: {sys.argv[0]} PAK0.PAK MAIN.BMP HELP.BMP", file=sys.stderr)
         return 2
     pak, entries = mdlview.read_pak(sys.argv[1])
     expected = bytearray(320 * 200)
@@ -60,7 +63,18 @@ def main() -> int:
     )
     if changed:
         raise AssertionError(f"main menu differs from id art at {changed} pixels")
-    print("ok: main menu matches id art and clears the playfield")
+    help_width, help_height, help_pixels = qpic(
+        mdlview.pak_read(pak, entries, "gfx/help0.lmp")
+    )
+    if (help_width, help_height) != (320, 200):
+        raise AssertionError(f"help0 is {help_width}x{help_height}, wanted 320x200")
+    if len(help_pixels) != 320 * 200:
+        raise AssertionError(f"help0 has {len(help_pixels)} pixels, wanted 64000")
+    help_actual = bmp_pixels(sys.argv[3])
+    help_changed = sum(a != b for a, b in zip(help_actual, help_pixels))
+    if help_changed:
+        raise AssertionError(f"help menu differs from id art at {help_changed} pixels")
+    print("ok: main and help menus match id art and clear the playfield")
     return 0
 
 

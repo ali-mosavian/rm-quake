@@ -170,7 +170,7 @@ static void con_history( Console CMD_FAR *con, short direction )
 static void con_complete( Console CMD_FAR *con, CmdState CMD_FAR *cmd )
 {
     static char *builtins[] = {
-        "bind", "clear", "cmdlist", "cvarlist", "echo", "exec", "impulse", "map", "quit",
+        "bind", "clear", "cmdlist", "cvarlist", "echo", "exec", "help", "impulse", "map", "quit",
         "set", "toggleconsole", "unbind", "unbindall", "wait", "writeconfig"
     };
     char input[CON_LINE], name[CMD_NAME], value[CMD_VALUE];
