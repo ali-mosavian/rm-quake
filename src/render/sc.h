@@ -9,9 +9,10 @@
  * already combined, wait to be drawn. C port of d_surf.bas's sc_*
  * slice (see sc.c's own header for the pool's shape and why).
  *
- * SurfCache is heap-sized, not stack/DGROUP-sized: sc_create reserves the
- * struct and its 14,400-byte block tables after transient texture ingestion.
- * The EMS surface bytes remain lazy. Every
+ * SurfCache is heap-sized, not stack/DGROUP-sized: sc_create reserves an
+ * 9,520-byte hot table block, then its 1,360-byte link block and small
+ * header, so e1m4's map-shaped free heap can hold it. The EMS surface bytes
+ * remain lazy. Every
  * function takes SurfCache far*, because medium model's DGROUP is 64 KB
  * shared with the stack and every other near global.
  */
@@ -20,9 +21,9 @@
 #define SC_MAXSH  8    /* 256 on one axis, if the other stays small */
 #define SC_MAXSUM 14   /* 2^a * 2^b <= 16384: one EMS page, all a single
                            rdAccess brings in */
-#define SC_NBLK   1800  /* block records, free buddy halves included. A measured
-                           three-demo run peaked at 1,148; 384 made e1m1 rebuild
-                           flickering surfaces every frame. */
+#define SC_NBLK   1360  /* records: the three-demo peak is 1,148. The 212 spare
+                           fit e1m4 as 9,520-byte hot tables, a 1,360-byte
+                           link block, and the small header. */
 #define SC_GRAN   256    /* smallest class, 16x16: the offset unit */
 
 #define SC_VARIANTS 4   /* surfaces one face may hold at each mip, one per
@@ -42,7 +43,7 @@
 #define SC_NULL_HANDLE 0x07FF
 #define SC_NEXT_BYTES SC_NBLK
 #define SC_STATE_BYTES SC_NBLK
-#define SC_META_BYTES ((long) SC_NBLK * 3L * sizeof(unsigned short) + SC_STATE_BYTES + SC_NEXT_BYTES)
+#define SC_HOT_BYTES ((long) SC_NBLK * 3L * sizeof(unsigned short) + SC_STATE_BYTES)
 
 /* bspfile.bi's CacheStats -- sc_stats' own snapshot, one crossing
    instead of nine separate counter reads. */
@@ -82,7 +83,7 @@ typedef struct {
        per face. Offsets are kept in SC_GRAN granules so they fit a
        short: SC_GRAN is the smallest class, so every block is a whole
        number of them, and SC_STORE/SC_GRAN is 16,384, inside int16. */
-    unsigned char far *meta;  /* all tables follow the struct in its allocation */
+    unsigned char far *meta;  /* the separately allocated hot table block */
     unsigned short far *bsib; /* low 11: face sibling; bits 11..12: list link;
                                  bit 13: free */
     unsigned short far *bgrn; /* low 14: granule; bit 14: dynamic; bit 15: state */
@@ -110,8 +111,8 @@ typedef struct {
 
 /*
  * name: sc_create/sc_delete
- * desc: Own the struct and compact block tables in one far-heap allocation.
- *       sc_init binds the loaded map's faces and clears their packed heads.
+ * desc: Own the compact table blocks. Allocate hot tables, links and header
+ *       in that order so map fragmentation cannot strand them; sc_init binds faces.
  *       The store DC itself is claimed lazily on first use.
  */
 SurfCache far *sc_create( void );

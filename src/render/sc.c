@@ -371,7 +371,7 @@ static void sc_reset_lists( SurfCache far *sc )
 static short sc_why  = 0;   /* the allocation sc_create stopped on */
 static long  sc_want = 0;   /* and the bytes it asked that one for */
 
-#define SC_HEAD_BYTES ((long) sizeof(SurfCache) + SC_META_BYTES)
+#define SC_HEAD_BYTES ((long) sizeof(SurfCache))
 
 void sc_fail( short *step, long *want )
 {
@@ -382,18 +382,36 @@ void sc_fail( short *step, long *want )
 SurfCache far *sc_create( void )
 {
     SurfCache far *sc;
+    unsigned char far *hot;
+    unsigned char far *next;
 
     sc_why = 1;
+    sc_want = SC_HOT_BYTES;
+    hot = (unsigned char far *) qglMemAlloc( SC_HOT_BYTES );
+    if ( !hot ) return 0;
+    sc_why = 2;
+    sc_want = SC_NEXT_BYTES;
+    next = (unsigned char far *) qglMemAlloc( SC_NEXT_BYTES );
+    if ( !next ) {
+        qglMemFree( (long) (void far *) hot );
+        return 0;
+    }
+    sc_why = 3;
     sc_want = SC_HEAD_BYTES;
     sc = (SurfCache far *) qglMemAlloc( SC_HEAD_BYTES );
-    if ( !sc ) return 0;
+    if ( !sc ) {
+        qglMemFree( (long) (void far *) next );
+        qglMemFree( (long) (void far *) hot );
+        return 0;
+    }
     _fmemset( sc, 0, (size_t) SC_HEAD_BYTES );
-    sc->meta = (unsigned char far *) sc + sizeof(SurfCache);
-    sc->bgrn = (unsigned short far *) sc->meta;
+    _fmemset( hot, 0, (size_t) SC_HOT_BYTES );
+    sc->meta = hot;
+    sc->bgrn = (unsigned short far *) hot;
     sc->bown = sc->bgrn + SC_NBLK;
     sc->bsib = sc->bown + SC_NBLK;
     sc->bstate = (unsigned char far *) ( sc->bsib + SC_NBLK );
-    sc->bnext = sc->bstate + SC_STATE_BYTES;
+    sc->bnext = next;
     sc_why = 0;
     return sc;
 }
@@ -485,6 +503,8 @@ void sc_delete( SurfCache far *sc )
     sc->next = 0;
     sc->ok   = 0;
 
+    if ( sc->bnext ) qglMemFree( (long) (void far *) sc->bnext );
+    if ( sc->meta ) qglMemFree( (long) (void far *) sc->meta );
     qglMemFree( (long) (void far *) sc );
 }
 
@@ -1038,24 +1058,26 @@ static short sc_selftest_short( void )
 
     qglMemAvail( QGL_MEM_LARGEST );
     before = qglMemAvail( QGL_MEM_TOTAL );
-    while ( n < 256 && ( hog[n] = qglMemAlloc( SC_HEAD_BYTES / 2 ) ) != 0 ) n++;
-    if ( n < 4 ) {
+    while ( n < 256 && ( hog[n] = qglMemAlloc( SC_HOT_BYTES / 2 ) ) != 0 ) n++;
+    if ( n < 6 ) {
         for ( k = 0; k < n; k++ ) qglMemFree( hog[k] );
         return -90;
     }
     qglMemFree( hog[0] );
     qglMemFree( hog[2] );
+    qglMemFree( hog[4] );
 
     largest = qglMemAvail( QGL_MEM_LARGEST );
     total = qglMemAvail( QGL_MEM_TOTAL );
-    shape_ok = (short) ( largest < SC_HEAD_BYTES && total >= SC_HEAD_BYTES );
+    shape_ok = (short) ( largest < SC_HOT_BYTES &&
+                         total >= SC_HOT_BYTES + SC_NEXT_BYTES + SC_HEAD_BYTES );
     sc = shape_ok ? sc_create() : 0;
     if ( shape_ok ) sc_fail( &step, &want );
     if ( sc ) sc_delete( sc );
 
-    for ( k = 1; k < n; k++ ) if ( k != 2 ) qglMemFree( hog[k] );
+    for ( k = 1; k < n; k++ ) if ( k != 2 && k != 4 ) qglMemFree( hog[k] );
     if ( !shape_ok || sc ) return -91;
-    if ( step != 1 || want != SC_HEAD_BYTES ) return -92;
+    if ( step != 1 || want != SC_HOT_BYTES ) return -92;
     qglMemAvail( QGL_MEM_LARGEST );
     if ( qglMemAvail( QGL_MEM_TOTAL ) != before ) return -93;
     return 1;
