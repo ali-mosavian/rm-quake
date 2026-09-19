@@ -11,7 +11,7 @@ static short z_maps;
 
 long pascal far qglSfNew( short w, short h, short where )
 {
-    assert( w == RDR_FRAME_BYTES && h == 1 && where == QGL_SURF_EMS );
+    assert( w == RDR_PART_BYTES && h == RDR_FRAME_ROWS && where == QGL_SURF_EMS );
     return 1;
 }
 
