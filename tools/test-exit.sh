@@ -95,18 +95,74 @@ fi
 
 # 4: each changelevel's own map. mkassets kept one a file, the last read, so
 #    all five of start's slipgates led to "end" and e1m4's main exit to e1m8.
+#    start's exits carry NO_INTERMISSION: entering one must load its map
+#    without a button press or a tally screen.
 if [[ -f "$OUT/start.qmp" ]]; then
     for gate in "-64 1628 176 e1m1" "-548 2368 208 e2m1"; do
         read -r gx gy gz want <<< "$gate"
         TIMEOUT="${TIMEOUT:-300}" "$RUN" "$OUT" "start.qmp -nostats -noai -at $gx $gy $gz -ticks 30" >/dev/null 2>&1
         next=$(tr -d '\r' < "$log" 2>/dev/null | grep -m1 '^gs_state ' | sed -n 's/.* next \([^ ]*\) .*/\1/p')
         [[ "$next" == "$want" ]] || { echo "FAIL: start's slipgate at $gx,$gy leads to ${next:-nothing}, not $want" >&2; fail=1; }
+        if [[ "$want" == "e1m1" && -f "$OUT/e1m1.qmp" ]]; then
+            map2=$(tr -d '\r' < "$log" | grep '^asset_map ok ' | tail -1 | awk '{print $3}')
+            [[ "$map2" == "e1m1.qmp" ]] || {
+                echo "FAIL: start's NO_INTERMISSION gate stopped at the tally instead of loading e1m1" >&2
+                fail=1
+            }
+        fi
     done
 else
     echo "SKIP arm 4: no start.qmp in $OUT"
 fi
 
-# 5: -carry with no CARRY.BIN (run.sh deletes it) loaded nothing, and the log still
+# 5: e1m7's exit fires t18. Its relay opens the five pairs of named
+# monster teleporters over the intermission; without SUB_UseTargets no
+# monster reaches the finale camera.
+if [[ -f "$OUT/e1m7.qmp" ]]; then
+    TIMEOUT="${TIMEOUT:-600}" "$RUN" "$OUT" \
+        "e1m7.qmp -nostats -noai -nosound -at 1016 52 -1000 -ticks 450" >/dev/null 2>&1
+    teles=$(tr -d '\r' < "$log" 2>/dev/null | sed -n 's/^ai .* teles=\([0-9-]*\) .*/\1/p')
+    [[ "${teles:-0}" -gt 0 ]] || {
+        echo "FAIL: e1m7's changelevel did not fire its monster-teleport target chain" >&2
+        fail=1
+    }
+else
+    echo "SKIP arm 5: no e1m7.qmp in $OUT"
+fi
+
+# 6: saves made before exit metadata shipped contain zero in the static
+# NO_INTERMISSION slot. Loading one must rebind that field from the map,
+# not restore the old intermission bug over the rebuilt entity data.
+if [[ -f "$OUT/start.qmp" && -f "$OUT/e1m1.qmp" ]]; then
+    savework=$(mktemp -d "$OUT/exit-save-test.XXXXXX")
+    cp "$OUT/QCPORT.EXE" "$OUT/stuff.ini" "$OUT/default.cfg" \
+       "$OUT/start.qmp" "$OUT/e1m1.qmp" "$savework/"
+    TIMEOUT="${TIMEOUT:-300}" "$RUN" "$savework" \
+        "start.qmp -nostats -noai -nosound -at -64 1628 176 -ticks 1 +save s0;quit" >/dev/null 2>&1
+    python3 - "$savework/s0.sav" <<'PY'
+import struct
+import sys
+
+path = sys.argv[1]
+data = bytearray(open(path, "rb").read())
+needle = struct.pack("<6h", 12, 4, 0, 0, 0, 0)
+matches = [i for i in range(len(data)) if data.startswith(needle, i)]
+if len(matches) != 1:
+    raise SystemExit(f"start save has {len(matches)} candidates for exit model 12")
+struct.pack_into("<h", data, matches[0] + 40, 0)
+open(path, "wb").write(data)
+PY
+    TIMEOUT="${TIMEOUT:-300}" "$RUN" "$savework" \
+        "start.qmp -nostats -noai -nosound -ticks 30 +load s0" >/dev/null 2>&1
+    map2=$(tr -d '\r' < "$savework/cstep.txt" | grep '^asset_map ok ' | tail -1 | awk '{print $3}')
+    [[ "$map2" == "e1m1.qmp" ]] || {
+        echo "FAIL: old save restored stale exit metadata and stopped before e1m1" >&2
+        fail=1
+    }
+    rm -rf "$savework"
+fi
+
+# 7: -carry with no CARRY.BIN (run.sh deletes it) loaded nothing, and the log still
 #    printed the default kit as "carry health 100 ...". A short file is untested: every
 #    -carry run used to follow the save that wrote it.
 TIMEOUT="${TIMEOUT:-300}" "$RUN" "$OUT" "e1m1.qmp -nostats -noai -carry -ticks 2" >/dev/null 2>&1

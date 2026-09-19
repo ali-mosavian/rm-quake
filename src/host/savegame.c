@@ -85,6 +85,15 @@ static void near savegame_train_damage_v8( World *world, short far *damage )
     }
 }
 
+static void near savegame_exit_static( TrigEnt *saved, TrigEnt far *asset )
+{
+    if ( saved->kind != ENT_TRIG_EXIT || asset->kind != ENT_TRIG_EXIT ) return;
+    saved->target = asset->target;
+    saved->kill = asset->kill;
+    saved->snd = asset->snd;
+    saved->delay = asset->delay;
+}
+
 short savegame_selftest( World *world )
 {
     MdlEnt ent;
@@ -95,6 +104,7 @@ short savegame_selftest( World *world )
     short saved_plat_count = world->plat_count;
     short damage = 75;
     short ok;
+    TrigEnt saved_trig, asset_trig;
 
     memset( &ent, 0, sizeof(ent) );
     ent.kind = MDL_KIND_ZOMBIE;
@@ -128,6 +138,20 @@ done:
     }
     world->plat = saved_plat;
     world->plat_count = saved_plat_count;
+    if ( ok ) {
+        memset( &saved_trig, 0, sizeof(saved_trig) );
+        memset( &asset_trig, 0, sizeof(asset_trig) );
+        saved_trig.kind = asset_trig.kind = ENT_TRIG_EXIT;
+        saved_trig.state = ENT_TRIG_DONE;
+        asset_trig.target = 7;
+        asset_trig.kill = 8;
+        asset_trig.snd = ENT_EXIT_NO_INTERMISSION;
+        asset_trig.delay = 1.5f;
+        savegame_exit_static( &saved_trig, &asset_trig );
+        ok = (short) ( saved_trig.state == ENT_TRIG_DONE && saved_trig.target == 7 &&
+                       saved_trig.kill == 8 && saved_trig.snd == ENT_EXIT_NO_INTERMISSION &&
+                       saved_trig.delay == 1.5f );
+    }
     return ok;
 }
 
@@ -447,6 +471,21 @@ static short near savegame_monsters( World *world, short version )
     return -1;
 }
 
+static short near savegame_read_triggers( short file, World *world )
+{
+    TrigEnt saved;
+    short i;
+
+    for ( i = 0; i < world->trig_count; i++ ) {
+        if ( !savegame_read_block( file, (long) (void far *) &saved, sizeof(saved) ) ) return 0;
+        /* Targets and spawnflags come from the map, not mutable state.
+           Old saves predate those exit fields and stored zeroes. */
+        savegame_exit_static( &saved, &world->trig[i] );
+        _fmemcpy( &world->trig[i], &saved, sizeof(saved) );
+    }
+    return -1;
+}
+
 static float near savegame_warn_v1( float until, float warned, float now )
 {
     if ( until <= now ) return 0.0f;
@@ -519,8 +558,7 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
                                       (long) world->plat_count * sizeof(PlatEnt) ) &&
                    savegame_read_block( file, (long) world->door,
                                       (long) world->door_count * sizeof(DoorEnt) ) &&
-                   savegame_read_block( file, (long) world->trig,
-                                      (long) world->trig_count * sizeof(TrigEnt) ) &&
+                   savegame_read_triggers( file, world ) &&
                    savegame_read_block( file, (long) world->light,
                                       (long) world->light_count * sizeof(LightEnt) ) );
     if ( train_damage ) {

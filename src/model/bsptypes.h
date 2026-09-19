@@ -281,6 +281,7 @@ typedef struct {
 #define ENT_TRIG_MJUMP    12    /* trigger_monsterjump: ofs_out is the throw */
 #define ENT_TRIG_SKILL    13    /* trigger_setskill: count is the skill */
 #define ENT_TRIG_SHOOT_BUTTON 14 /* func_button with health: shot, not touched */
+#define ENT_EXIT_NO_INTERMISSION 1 /* trigger_changelevel spawnflag */
 #define ENT_TRIG_READY 0
 #define ENT_TRIG_GOING 1        /* a button on its way in */
 #define ENT_TRIG_HELD  2        /* pressed, or waiting to re-arm */

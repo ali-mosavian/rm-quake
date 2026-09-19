@@ -330,7 +330,9 @@ static void near host_state( Host *h, short fire, short advance )
            the player does, then a held button goes on. A changelevel
            naming no map, as dm3ish's, plays this level again; nothing
            checks that a named one is shipped. */
-        if ( advance && rdr->anim_time >= fight->exit_time + PL_INTER_HOLD ) {
+        if ( fight->exit_time < 0.0f ) {
+            host_next_level( h );
+        } else if ( advance && rdr->anim_time >= fight->exit_time + PL_INTER_HOLD ) {
             if ( !stricmp( h->args.map_name, "e1m7.qmp" ) ) {
                 fight->state = GS_FINALE;
                 fight->state_until = rdr->anim_time + 1.0f;

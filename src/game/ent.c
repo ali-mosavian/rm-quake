@@ -248,6 +248,8 @@ void ent_monster_teleport( World *world, Renderer *rdr, float now, MdlEnt far *e
     short i;
     BspVec3 from;
 
+    if ( e->health <= 0 || !MDL_IS_SOLID( e ) ) return;
+
     for ( i = 0; i < world->tele_count; i++ ) {
         Teleporter far *t = &world->tele[i];
 

@@ -102,15 +102,13 @@ PAK0 and are left out.
       qcport: Quake's 4096 bit, 64-unit hull-0 trace from `origin + 16`,
       20 damage, view model and original swing/flesh/world sounds;
       `src/game/weapons.c`, `tools/test-guns.sh`
-- [ ] Lightning gun and cells: `weapon_lightning` (1, start),
+- [x] Lightning gun and cells: `weapon_lightning` (1, start),
       `item_cells` (3, start), all deathmatch-only
       id: `weapons.qc` `W_FireLightning`, `LightningDamage`; `items.qc`
       `weapon_lightning`, `item_cells`
-      qcport (partial): cells are taken, 6 or 12 to 100, from `b_batt`
-      crates, on dm3ish in `tools/test-items.sh`. Untested, since no
-      shareware map loads a cell box and no run starts with 100 cells:
-      the carry in `CARRY.BIN`, and `item_take_cells` refusing only at
-      200 (`ammo_touch`). No lightning gun
+      qcport: cells, the pickup and view model, sustained and underwater
+      fire, three-ray damage, beams, sounds and Chthon/shambler lightning;
+      `src/game/weapons.c`, `src/render/d_beam.c`, `tools/test-lightning.sh`
 - [x] Pentagram still drains armor
       id: `combat.qc` `T_Damage` takes the armor save before the
       `invincible_finished` return
@@ -182,8 +180,9 @@ PAK0 and are left out.
       `tools/test-finale.sh`
 - [x] **Bug:** every slipgate on start leads to the last one parsed
       id: `client.qc` `changelevel_touch` reads its own trigger's `map`
-      qcport: each changelevel's map is a message, copied on touch;
-      `tools/test-exit.sh` arm 4. Not ported: NO_INTERMISSION, its targets
+      qcport: each changelevel retains its map and targets; start's flagged
+      slipgates skip the tally, while e1m7 fires its staged finale teleports;
+      `tools/test-exit.sh`
 
 ## Front end and engine
 

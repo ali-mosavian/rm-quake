@@ -161,7 +161,7 @@ static void ent_lightning( World *world, Player *player, Renderer *rdr, short k 
 void ent_use_targets( World *world, Player *player, Fight *fight,
                        Renderer *rdr, short id )
 {
-    short k;
+    short k, tele_used = 0;
     BspVec3 org;
 
     if ( !id ) return;
@@ -179,7 +179,16 @@ void ent_use_targets( World *world, Player *player, Fight *fight,
     ent_lights_use( world->light, world->light_count, &world->light_clock, id );
 
     for ( k = 0; k < world->tele_count; k++ )
-        if ( world->tele[k].name == id ) world->tele[k].until = rdr->anim_time + ENT_FOG_DELAY;
+        if ( world->tele[k].name == id ) {
+            world->tele[k].until = rdr->anim_time + ENT_FOG_DELAY;
+            tele_used = -1;
+        }
+
+    /* A named teleporter becomes live under an entity already touching
+       it. This matters during e1m7's intermission, when AI is stopped. */
+    if ( tele_used )
+        for ( k = 0; k < world->mon_count; k++ )
+            ent_monster_teleport( world, rdr, rdr->anim_time, &world->mon[k] );
 
     for ( k = 0; k < world->trig_count; k++ ) {
         if ( world->trig[k].name != id ) continue;
@@ -401,10 +410,20 @@ void ent_move_trigs( World *world, Player *player, Camera *cam, Fight *fight,
                 ent_say( fight, rdr, ent_msg( world, t->msg ) );
                 /* changelevel_touch: nextmap = self.map */
                 if ( ent_msg( world, t->count ) ) ent_copy_map( fight->next_map, ent_msg( world, t->count ) );
+                if ( t->delay > 0.0f ) {
+                    t->delay_left = t->delay;
+                } else {
+                    ent_kill_targets( world, t->kill );
+                    ent_use_targets( world, player, fight, rdr, t->target );
+                }
                 fight->msg_time = 3600.0f;
                 fight->state      = GS_EXIT;
-                fight->exit_time  = rdr->anim_time;
-                pl_intermission( player, cam, fight, scr_x_res, scr_y_res );
+                if ( t->snd & ENT_EXIT_NO_INTERMISSION ) {
+                    fight->exit_time = -1.0f;
+                } else {
+                    fight->exit_time = rdr->anim_time;
+                    pl_intermission( player, cam, fight, scr_x_res, scr_y_res );
+                }
                 t->state = ENT_TRIG_DONE;
             }
             break;

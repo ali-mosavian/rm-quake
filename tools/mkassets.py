@@ -1190,8 +1190,13 @@ def sp_changelevel(e: Ents, kv: dict[str, str]) -> bool:
     e.hides.append(m)
     # count carries the trigger's own map, a message id once packed: one next_map a
     # file kept the last read, and e1m4's main exit led to e1m8
-    e.uses.append((m, TRIG_EXIT, 0, 0, 0, kv.get('map', '')[:8].encode('latin1'), -1.0, 0.0,
-                   (0.0, 0.0, 0.0), 0, message_bytes(e.title)))
+    # snd carries NO_INTERMISSION; exits have no sound field of their own.
+    # Keep the names as strings until pack_entities: allocating their ids
+    # here would renumber every later target in old saves.
+    e.uses.append((m, TRIG_EXIT, kv.get('target', ''), 0,
+                   kv.get('killtarget', ''), kv.get('map', '')[:8].encode('latin1'),
+                   -1.0, 0.0, (0.0, 0.0, 0.0), int(kv.get('spawnflags', '0')) & 1,
+                   message_bytes(e.title), (0.0, 0.0, 0.0), float(kv.get('delay', '0'))))
     return True
 
 
@@ -1437,6 +1442,8 @@ def pack_entities(e: Ents, nmodels: int, gravity: float, crates: CrateSet) -> by
     spawn, angle, inter, worldtype = e.spawn, e.angle, e.inter, e.worldtype
     trigs, dests, hides, bolt_doors, plats, doors = e.trigs, e.dests, e.hides, e.bolt_doors, e.plats, e.doors
     items, uses, mons, ambs, corners, trains, lights = e.items, e.uses, e.mons, e.ambs, e.corners, e.trains, e.lights
+    uses = [(*u[:2], ent_name_id(e, u[2]), u[3], ent_name_id(e, u[4]), *u[5:])
+            if u[1] == TRIG_EXIT else u for u in uses]
 
     # a teleporter with no destination still hides its brush
     teles = [(m, *dests[t], name, only) for t, m, name, only in trigs if t in dests]
