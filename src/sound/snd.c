@@ -281,6 +281,7 @@ void snd_report( const Sound *snd, char *buf )
              (int) snd_mix_wraps( &snd->mix ), (int) snd_mix_leaf_vol( &snd->mix, 0 ),
              (int) snd_mix_leaf_vol( &snd->mix, 1 ),
              (int) snd_mix_voices( &snd->mix ) );
+    sprintf( buf + strlen( buf ), " stack=%d", (int) qglDspStackFree() );
     invvol = snd_mix_live_volume( &snd->mix, SND_INV_IDLE );
     if ( invvol >= 0 )
         sprintf( buf + strlen( buf ), " invvol=%d", (int) invvol );

@@ -37,6 +37,7 @@ declare function qglDspLock ( ) as integer
 declare function qglDspPos ( ) as integer
 declare function qglDspScratch ( ) as long
 declare function qglDspScratchBytes ( ) as integer
+declare function qglDspStackFree ( ) as integer
 declare sub qglDspShutdown ( )
 declare sub qglDspUnlock ( byval state as integer )
 declare function qglFaceAll () as integer

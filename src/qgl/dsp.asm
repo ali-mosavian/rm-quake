@@ -10,6 +10,10 @@
 ;;       half the ring a block. IRQ 7 calls a registered far cdecl callback
 ;;       with the completed half and its byte count, then acknowledges the
 ;;       DSP and PIC -- the same contract as mgl's sbdrv/modplayer.
+;;       The callback runs on a 512-byte stack in that DOS block, not whatever
+;;       renderer or driver stack IRQ 7 interrupted. DS remains DGROUP, so
+;;       a callback may use medium-model near data but must not pass one of
+;;       its stack locals where a near pointer is expected.
 ;;
 ;; obs.: - the DMA count is the whole ring less one, the DSP's block half
 ;;         the ring less one; both are n-1 and they are not the same n.
@@ -55,22 +59,39 @@ DSP_SCRATCH     equ     4528                    ;; the mixer's, after the ring: 
                                                 ;; refuses a layout longer than this rather than
                                                 ;; running off the block, which it once did by
                                                 ;; 304 bytes and hung in the heap compactor.
-DSP_ALLOC       equ     DSP_RING*2 + DSP_SCRATCH
+DSP_ISR_STACK   equ     512
+DSP_ALLOC       equ     DSP_RING*2 + DSP_SCRATCH + DSP_ISR_STACK
 
 .code
 
 qgl$dsp_on      dw      0
 qgl$dsp_block   dd      0                       ;; what qglMemAlloc gave
 qgl$dsp_ring    dw      0                       ;; its 8192-aligned segment
+qgl$dsp_stack   dw      0                       ;; callback stack segment
 qgl$dsp_old     dd      0
 qgl$dsp_callback dd     0                       ;; cdecl far (dst, byte count)
 qgl$dsp_half    dw      0                       ;; half completing at the next IRQ
 qgl$dsp_picmask db      0                       ;; IRQ 7's mask before init
+qgl$dsp_irqss   dw      0
+qgl$dsp_irqsp   dw      0
+qgl$dsp_irqax   dw      0
 
 ;;::::::::::::::
 ;; the IRQ 7 handler: refill the completed half, then ack the DSP and PIC
 ;;::::::::::::::
 qgl$DspIsr      proc    far private
+                ;; A C mixer is much deeper than an interrupt stub. Keep it
+                ;; off the interrupted renderer stack; the interrupt gate
+                ;; already cleared IF, so these single-instance saves cannot
+                ;; be re-entered by another maskable IRQ.
+                mov     cs:qgl$dsp_irqax, ax
+                mov     cs:qgl$dsp_irqss, ss
+                mov     cs:qgl$dsp_irqsp, sp
+                mov     ax, cs:qgl$dsp_stack
+                mov     ss, ax
+                mov     sp, DSP_ISR_STACK
+                mov     ax, cs:qgl$dsp_irqax
+
                 push    ds
                 push    es
                 push    fs
@@ -89,6 +110,7 @@ qgl$DspIsr      proc    far private
                 mov     ds, ax
                 call    dword ptr cs:qgl$dsp_callback
                 add     sp, 6
+                cli                             ;; callback code does not own our re-entry policy
 
 @@flip:         xor     cs:qgl$dsp_half, 1
                 mov     dx, DSP_RSTAT
@@ -100,6 +122,11 @@ qgl$DspIsr      proc    far private
                 pop     fs
                 pop     es
                 pop     ds
+                mov     cs:qgl$dsp_irqax, ax
+                mov     ax, cs:qgl$dsp_irqss
+                mov     ss, ax
+                mov     sp, cs:qgl$dsp_irqsp
+                mov     ax, cs:qgl$dsp_irqax
                 iret
 qgl$DspIsr      endp
 
@@ -192,6 +219,9 @@ qglDspInit      proc    public uses bx cx dx si di es,\
                 add     dx, 01FFh
                 and     dx, 0FE00h
                 mov     cs:qgl$dsp_ring, dx
+                mov     ax, dx
+                add     ax, (DSP_RING + DSP_SCRATCH) / 16
+                mov     cs:qgl$dsp_stack, ax
                 mov     cs:qgl$dsp_half, 0
                 mov     dword ptr cs:qgl$dsp_callback, 0
 
@@ -199,7 +229,7 @@ qglDspInit      proc    public uses bx cx dx si di es,\
                 mov     es, dx
                 xor     di, di
                 mov     al, 80h
-                mov     cx, DSP_RING + DSP_SCRATCH
+                mov     cx, DSP_RING + DSP_SCRATCH + DSP_ISR_STACK
                 cld
                 rep     stosb
 
@@ -385,6 +415,31 @@ qglDspScratchBytes proc public
                 ret
 qglDspScratchBytes endp
 
+;; qglDspStackFree () -> ax = untouched bytes below the callback stack's
+;; deepest observed use.  Reading it masks IRQ 7 through IF so the scan and
+;; an active callback cannot race.
+qglDspStackFree proc public uses cx dx di es
+                pushf
+                cli
+                xor     ax, ax
+                mov     dx, cs:qgl$dsp_stack
+                test    dx, dx
+                jz      @@done
+                mov     es, dx
+                xor     di, di
+                mov     cx, DSP_ISR_STACK
+                mov     al, 80h
+                cld
+                repe    scasb
+                jne     @@used
+                mov     ax, DSP_ISR_STACK
+                jmp     short @@done
+@@used:        mov     ax, di
+                dec     ax
+@@done:        popf
+                ret
+qglDspStackFree endp
+
 
 ;;::::::::::::::
 ;; qglDspShutdown ()
@@ -424,6 +479,7 @@ qglDspShutdown  proc    public uses eax dx ds
 
                 mov     eax, cs:qgl$dsp_block
                 invoke  qglMemFree, eax
+                mov     cs:qgl$dsp_stack, 0
 @@done:         ret
 qglDspShutdown  endp
 

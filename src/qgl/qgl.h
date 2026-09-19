@@ -75,6 +75,7 @@ short pascal far qglDspPos( void );
 long pascal far qglDspScratch( void );
 short pascal far qglDspScratchBytes( void );
 void pascal far qglDspShutdown( void );
+short pascal far qglDspStackFree( void );
 void pascal far qglDspUnlock( short state );
 void pascal far qglFileClose( short h );
 short pascal far qglFileDrivers( void );
