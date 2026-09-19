@@ -16,6 +16,7 @@
 #include "triggers.h"
 #include "ent.h"
 #include "mathlib.h"
+#include "mover.h"
 #include "snd.h"
 #include "qgl.h"
 
@@ -132,40 +133,77 @@ static void ent_door_key( World *world, Player *player, Fight *fight,
     ent_door_fire( world, player, fight, rdr, d->link );
 }
 
-void ent_move_doors( World *world, Player *player, Fight *fight,
-                      Renderer *rdr, float dt )
+void ent_doors_touch( World *world, Player *player, Fight *fight,
+                      Renderer *rdr, PlayerTouches far *touches )
 {
-    short k;
+    short i, k;
+
+    for ( i = 0; fight->health > 0 && i < touches->count; i++ ) {
+        for ( k = 0; k < world->door_count; k++ ) {
+            DoorEnt far *d = &world->door[k];
+
+            if ( d->model != touches->model[i] ) continue;
+            if ( d->key ) {
+                ent_door_key( world, player, fight, rdr, k );
+            } else if ( ( d->targeted || d->secret ) &&
+                        rdr->anim_time >= d->say_at ) {
+                d->say_at = rdr->anim_time + 2.0f;
+                if ( d->msg )
+                    ent_talk( player, &world->snd, fight, rdr,
+                              ent_msg( world, d->msg ) );
+            }
+            break;
+        }
+    }
+    touches->count = 0;
+}
+
+void ent_move_doors( World *world, Player *player, Fight *fight,
+                      Renderer *rdr, PlayerTouches far *touches,
+                      float dt, short rider_kind )
+{
+    short k, arrived, moving, riding, head;
     DoorEnt far *d;
     BrushModel far *b;
+    Submodel far *model;
     BspVec3 was;
 
-    /* Every touch first, then every step -- opening a door changes
-       state, and the BASIC's two sweeps ran in that order. */
+    /* Impacts happen in trace order. Automatic doors have a separate
+       linked trigger volume, matching door_trigger_touch. */
+    ent_doors_touch( world, player, fight, rdr, touches );
     for ( k = 0; fight->health > 0 && k < world->door_count; k++ ) {
         d = &world->door[k];
-        if ( !ent_box_touched( player, &d->mins, &d->maxs, 0.0f ) ) continue;
-
-        if ( d->key )
-            ent_door_key( world, player, fight, rdr, k );
-        else if ( !d->targeted && !d->secret )
-            ent_door_fire( world, player, fight, rdr, d->link );
-        else
-            ent_talk( player, &world->snd, fight, rdr, ent_msg( world, d->msg ) );
+        if ( !d->targeted && !d->secret && !d->key &&
+             ent_box_touched( player, &d->mins, &d->maxs, 0.0f ) ) {
+            DoorEnt far *master = &world->door[d->link];
+            if ( rdr->anim_time >= master->wait.touch_at ) {
+                master->wait.touch_at = rdr->anim_time + 1.0f;
+                ent_door_fire( world, player, fight, rdr, d->link );
+            }
+        }
     }
 
     for ( k = 0; k < world->door_count; k++ ) {
+        short kind;
+
         d = &world->door[k];
         b = &world->brush[ d->model ];
+        model = &world->models[ d->model ];
         was = b->ofs;
+        kind = rider_kind;
+        if ( kind == ENT_RIDER_LIVE && fight->health <= 0 ) kind = ENT_RIDER_DEAD;
+        head = (short) ( kind == ENT_RIDER_HEAD );
+        moving = (short) ( d->state == ENT_DOOR_OPENING ||
+                           d->state == ENT_DOOR_CLOSING ||
+                           d->state == ENT_DOOR_OUT1 ||
+                           d->state == ENT_DOOR_BACK2 );
+        riding = moving ? ent_mover_supported( player, &model->mins,
+                                               &model->maxs, b, head ) : 0;
+        arrived = 0;
 
         switch ( d->state ) {
         case ENT_DOOR_OPENING:
-            if ( ent_step_to( &b->ofs, &d->ofs_open, d->speed * dt ) ) {
-                d->state = ENT_DOOR_OPEN;
-                d->hold_left = d->hold;
-                ent_door_sound( player, world, d, 0 );
-            }
+            arrived = ent_step_to( &b->ofs, &d->ofs_open, d->speed * dt );
             break;
 
         case ENT_DOOR_OPEN:
@@ -179,51 +217,89 @@ void ent_move_doors( World *world, Player *player, Fight *fight,
             break;
 
         case ENT_DOOR_CLOSING:
-            if ( d->secret ) {
-                if ( ent_step_to( &b->ofs, &d->ofs_mid, d->speed * dt ) ) {
-                    d->state = ENT_DOOR_PAUSE_BACK;
-                    d->pause_left = ENT_DOOR_PAUSE;
-                    ent_door_sound( player, world, d, 0 );   /* fd_secret_move5 */
-                }
-            } else if ( ent_step_to( &b->ofs, &d->ofs_shut, d->speed * dt ) ) {
-                d->state = ENT_DOOR_SHUT;
-                ent_door_sound( player, world, d, 0 );
-            }
+            arrived = ent_step_to( &b->ofs,
+                                   d->secret ? &d->ofs_mid : &d->ofs_shut,
+                                   d->speed * dt );
             break;
 
         case ENT_DOOR_OUT1:
-            if ( ent_step_to( &b->ofs, &d->ofs_mid, d->speed * dt ) ) {
-                d->state = ENT_DOOR_PAUSE_OUT;
-                d->pause_left = ENT_DOOR_PAUSE;
-                ent_door_sound( player, world, d, 0 );       /* fd_secret_move1 */
-            }
+            arrived = ent_step_to( &b->ofs, &d->ofs_mid, d->speed * dt );
             break;
 
         case ENT_DOOR_PAUSE_OUT:
-            d->pause_left -= dt;
-            if ( d->pause_left <= 0.0f ) {
+            d->wait.pause_left -= dt;
+            if ( d->wait.pause_left <= 0.0f ) {
                 d->state = ENT_DOOR_OPENING;
                 ent_door_sound( player, world, d, 1 );
             }
             break;
 
         case ENT_DOOR_PAUSE_BACK:
-            d->pause_left -= dt;
-            if ( d->pause_left <= 0.0f ) {
+            d->wait.pause_left -= dt;
+            if ( d->wait.pause_left <= 0.0f ) {
                 d->state = ENT_DOOR_BACK2;
                 ent_door_sound( player, world, d, 1 );
             }
             break;
 
         case ENT_DOOR_BACK2:
-            if ( ent_step_to( &b->ofs, &d->ofs_shut, d->speed * dt ) ) {
-                d->state = ENT_DOOR_SHUT;
-                ent_door_sound( player, world, d, 0 );
-            }
+            arrived = ent_step_to( &b->ofs, &d->ofs_shut, d->speed * dt );
             break;
         }
 
-        if ( b->ofs.x != was.x || b->ofs.y != was.y || b->ofs.z != was.z )
+        if ( !moving ) continue;
+        if ( b->ofs.x != was.x || b->ofs.y != was.y || b->ofs.z != was.z ) {
+            short pushed = ent_mover_push( world, player, &model->mins,
+                                           &model->maxs, b, &was, riding,
+                                           kind, touches );
+            ent_doors_touch( world, player, fight, rdr, touches );
+            if ( !pushed ) {
+                b->ofs = was;
+                if ( kind == ENT_RIDER_LIVE ) {
+                    if ( d->secret ) {
+                        if ( rdr->anim_time >= d->say_at ) {
+                            d->say_at = rdr->anim_time + 0.5f;
+                            ent_mover_damage( world, player, fight, rdr,
+                                              &model->mins, &model->maxs,
+                                              b, d->dmg );
+                        }
+                    } else {
+                        ent_mover_damage( world, player, fight, rdr,
+                                          &model->mins, &model->maxs,
+                                          b, d->dmg );
+                        if ( d->hold >= 0.0f ) {
+                            d->state = d->state == ENT_DOOR_CLOSING
+                                     ? ENT_DOOR_OPENING : ENT_DOOR_CLOSING;
+                            ent_door_sound( player, world, d, 1 );
+                        }
+                    }
+                }
+                continue;
+            }
             b->node = ENT_NODE_DIRTY;
+        }
+        if ( !arrived ) continue;
+
+        switch ( d->state ) {
+        case ENT_DOOR_OPENING:
+            d->state = ENT_DOOR_OPEN;
+            d->hold_left = d->hold;
+            ent_door_sound( player, world, d, 0 );
+            break;
+        case ENT_DOOR_CLOSING:
+            d->state = d->secret ? ENT_DOOR_PAUSE_BACK : ENT_DOOR_SHUT;
+            if ( d->secret ) d->wait.pause_left = ENT_DOOR_PAUSE;
+            ent_door_sound( player, world, d, 0 );
+            break;
+        case ENT_DOOR_OUT1:
+            d->state = ENT_DOOR_PAUSE_OUT;
+            d->wait.pause_left = ENT_DOOR_PAUSE;
+            ent_door_sound( player, world, d, 0 );
+            break;
+        case ENT_DOOR_BACK2:
+            d->state = ENT_DOOR_SHUT;
+            ent_door_sound( player, world, d, 0 );
+            break;
+        }
     }
 }

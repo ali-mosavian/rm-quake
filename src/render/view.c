@@ -11,8 +11,9 @@
 #define PI 3.14159f
 
 void v_update_camera( Camera *cam, Player *player, World *world, Input *input,
-                       const KeyBindings KB_FAR *keys, Fight *fight, Renderer *rdr,
-                       float dt, short x_res, short y_res,
+                       const KeyBindings KB_FAR *keys, Fight *fight,
+                       Renderer *rdr, PlayerTouches far *touches, float dt,
+                       short x_res, short y_res,
                        float forward_speed, short invert_mouse )
 {
     int   tmx, tmy;
@@ -20,6 +21,8 @@ void v_update_camera( Camera *cam, Player *player, World *world, Input *input,
     float fwd, strafe;
     float dir_x, dir_y, dir_l;
     short jump;
+
+    touches->count = 0;
 
     /* Screen coordinates throughout: the mouse spans the MODE, not
        the view, so a smaller view must not shrink the look range. */
@@ -94,7 +97,8 @@ void v_update_camera( Camera *cam, Player *player, World *world, Input *input,
         jump = 0;
         if ( keybind_action( keys, KA_JUMP ) ) jump = -1;
 
-        pl_move( world, player, cam, fight, rdr, fwd, strafe, dir_x, dir_y, jump, dt );
+        pl_move( world, player, cam, fight, rdr, touches, fwd, strafe,
+                 dir_x, dir_y, jump, dt );
     }
 
     cam->look_at.x += cam->pos.x;

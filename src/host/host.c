@@ -69,6 +69,7 @@ static void far host_item_notice( void far *ctx, const char *text )
 static short near host_save_slot( Host *h, short slot, char *error );
 static short near host_load_slot( Host *h, short slot, char *error );
 static short near host_attract_next( Host *h );
+static PlayerTouches far host_touches;
 
 #if QR_DEBUG_CAPTURE
 static void near host_debug_capture( Host *h )
@@ -404,6 +405,7 @@ static void near host_tick( Host *h, float dt )
     }
 
     v_update_camera( cam, player, world, input, h->keys, fight, rdr,
+                     &host_touches,
                      dt, scr_x_res, scr_y_res, h->forward_speed, h->invert_mouse );
     /* Water, lava and landing damage happen during player movement. */
     live = (short) ( fight->health > 0 );
@@ -418,9 +420,11 @@ static void near host_tick( Host *h, float dt )
     /* Doors before triggers: a button's target is a door, and a door
        fired this tick should start moving on it. */
     ent_move_plats( world, player, dt, rider_kind );
-    ent_move_doors( world, player, fight, rdr, dt );
+    ent_move_doors( world, player, fight, rdr, &host_touches, dt, rider_kind );
+    live = (short) ( fight->health > 0 );
     ent_move_trigs( world, player, cam, fight, rdr, dt, scr_x_res, scr_y_res, live );
-    ent_move_trains( world, player, fight, rdr, dt, rider_kind );
+    ent_move_trains( world, player, fight, rdr, &host_touches,
+                     dt, rider_kind );
 
     /* after the movers: a plat can carry an item's floor out from under
        the player */

@@ -49,6 +49,8 @@ void pl_trace_items( World *world, BspVec3 *start, BspVec3 *fin,
     short i;
     BspVec3 delta;
 
+    if ( tr->all_solid ) return;
+
     delta.x = fin->x - start->x;
     delta.y = fin->y - start->y;
     delta.z = fin->z - start->z;
@@ -86,6 +88,7 @@ void pl_trace_items( World *world, BspVec3 *start, BspVec3 *fin,
                 tr->frac = 0.0f;
                 tr->end_pos = *start;
                 tr->norm.x = tr->norm.y = tr->norm.z = 0.0f;
+                tr->hit_model = -1;
                 return;
             }
             if ( hit_item && tr->frac >= 1.0f ) *hit_item = i;
@@ -96,6 +99,7 @@ void pl_trace_items( World *world, BspVec3 *start, BspVec3 *fin,
         tr->end_pos.y = start->y + delta.y * enter;
         tr->end_pos.z = start->z + delta.z * enter;
         tr->norm.x = tr->norm.y = tr->norm.z = 0.0f;
+        tr->hit_model = -1;
         if ( axis == 0 ) tr->norm.x = sign;
         else if ( axis == 1 ) tr->norm.y = sign;
         else tr->norm.z = sign;
@@ -224,6 +228,7 @@ static short near pl_hull_check_c(
     for ( ; ; ) {
         if ( node < 0 ) {
             tr->all_solid = ( node == CONTENTS_SOLID ) ? 1 : 0;
+            if ( node == CONTENTS_SOLID ) tr->start_solid = 1;
             return 1;
         }
         if ( ++descent > 256 ) return 0;
@@ -302,7 +307,7 @@ static short near pl_hull_check_c(
  */
 void pl_trace( World *world, BspVec3 *start, BspVec3 *fin, TraceResult *tr )
 {
-    short i, any_solid;
+    short i;
     BspVec3 s2, f2;
 
     tr->frac        = 1.0f;
@@ -316,10 +321,13 @@ void pl_trace( World *world, BspVec3 *start, BspVec3 *fin, TraceResult *tr )
 
     tr->all_solid = 1;
     pl_hull_check_c( (short) world->models[0].head_node1, 0.0f, 1.0f, start, fin, tr, world->clip, world->planes );
-    any_solid = tr->all_solid;
+    if ( tr->frac < 1.0f || tr->start_solid ) tr->hit_model = 0;
 
-    for ( i = 1; i < world->model_count; i++ ) {
+    for ( i = 1; i < world->model_count && !tr->all_solid; i++ ) {
         if ( world->brush[i].solid ) {
+            TraceResult br;
+            short old_start_solid;
+
             s2 = *start;
             f2 = *fin;
             s2.x -= world->brush[i].ofs.x;
@@ -329,19 +337,32 @@ void pl_trace( World *world, BspVec3 *start, BspVec3 *fin, TraceResult *tr )
             f2.y -= world->brush[i].ofs.y;
             f2.z -= world->brush[i].ofs.z;
 
-            tr->all_solid = 1;
-            pl_hull_check_c( (short) world->models[i].head_node1, 0.0f, 1.0f, &s2, &f2, tr, world->clip, world->planes );
-            if ( tr->all_solid ) any_solid = 1;
+            br.frac = 1.0f;
+            br.end_pos = f2;
+            br.norm.x = br.norm.y = br.norm.z = 0.0f;
+            br.start_solid = 0;
+            br.in_open = br.in_water = 0;
+            br.hit_model = -1;
+            br.all_solid = 1;
+            pl_hull_check_c( (short) world->models[i].head_node1,
+                             0.0f, 1.0f, &s2, &f2, &br,
+                             world->clip, world->planes );
+            if ( br.all_solid || br.start_solid || br.frac < tr->frac ) {
+                old_start_solid = tr->start_solid;
+                tr->frac = br.frac;
+                tr->norm = br.norm;
+                tr->all_solid = br.all_solid;
+                tr->start_solid = (short) ( old_start_solid || br.start_solid );
+                tr->in_open = br.in_open;
+                tr->in_water = br.in_water;
+                tr->hit_model = i;
+            }
         }
     }
 
-    tr->all_solid = any_solid;
-
-    if ( tr->frac < 1.0f ) {
-        tr->end_pos.x = start->x + (fin->x - start->x) * tr->frac;
-        tr->end_pos.y = start->y + (fin->y - start->y) * tr->frac;
-        tr->end_pos.z = start->z + (fin->z - start->z) * tr->frac;
-    }
+    tr->end_pos.x = start->x + (fin->x - start->x) * tr->frac;
+    tr->end_pos.y = start->y + (fin->y - start->y) * tr->frac;
+    tr->end_pos.z = start->z + (fin->z - start->z) * tr->frac;
 }
 
 void pl_trace_point( World *world, BspVec3 *start, BspVec3 *fin, TraceResult *tr )

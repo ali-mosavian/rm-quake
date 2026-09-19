@@ -5,6 +5,22 @@
 #include "pl_trace.h"
 #include "plats.h"
 
+void pl_touches_add( PlayerTouches *touches, short model )
+{
+    short i;
+    if ( model <= 0 ) return;
+    for ( i = 0; i < touches->count; i++ )
+        if ( touches->model[i] == model ) return;
+    if ( touches->count < PL_TOUCH_MAX )
+        touches->model[touches->count++] = model;
+}
+
+void ent_doors_touch( World *world, Player *player, Fight *fight,
+                      Renderer *rdr, PlayerTouches *touches )
+{
+    (void) world; (void) player; (void) fight; (void) rdr;
+    touches->count = 0;
+}
 static short trace_solid;
 static short trace_seq[8];
 static short trace_len, trace_pos;
@@ -96,9 +112,11 @@ int main( void )
     PathCorner train_corner[2];
     Fight fight;
     Renderer rdr;
+    PlayerTouches touches;
 
     memset( &fight, 0, sizeof(fight) );
     memset( &rdr, 0, sizeof(rdr) );
+    memset( &touches, 0, sizeof(touches) );
 
     /* dm3ish's lift: id's trigger is inset 25 units from the brush.
        At x=-17 the player only touches the solid side and must get time
@@ -186,7 +204,8 @@ int main( void )
     corner.org.z = plat.mins.z;
     player.pos.z = 0.0f;
     trace_solid = 0;
-    ent_move_trains( &world, &player, &fight, &rdr, 1.0f, ENT_RIDER_DEAD );
+    ent_move_trains( &world, &player, &fight, &rdr, &touches,
+                     1.0f, ENT_RIDER_DEAD );
     assert( player.pos.x == 0.0f );
 
     fixture( &world, &player, &plat, brush, &corner );
@@ -199,7 +218,8 @@ int main( void )
     player.pos.z = 0.0f;
     trace_len = 3; trace_pos = 0;
     trace_seq[0] = 1; trace_seq[1] = 0; trace_seq[2] = 0;
-    ent_move_trains( &world, &player, &fight, &rdr, 1.0f, ENT_RIDER_HEAD );
+    ent_move_trains( &world, &player, &fight, &rdr, &touches,
+                     1.0f, ENT_RIDER_HEAD );
     assert( player.pos.x == 16.0f && trace_z == PL_FEET );
 
     fixture( &world, &player, &plat, brush, &corner );
@@ -215,7 +235,8 @@ int main( void )
     damage_calls = 0;
     fight.health = 100;
     rdr.anim_time = 1.0f;
-    ent_move_trains( &world, &player, &fight, &rdr, 1.0f, ENT_RIDER_LIVE );
+    ent_move_trains( &world, &player, &fight, &rdr, &touches,
+                     1.0f, ENT_RIDER_LIVE );
     assert( move_calls == 2 );
     assert( damage_calls == 1 && damage_value == 75.0f );
     assert( brush[1].ofs.x == 0.0f && player.pos.x == 0.0f );
@@ -223,11 +244,13 @@ int main( void )
 
     trace_pos = 0;
     rdr.anim_time = 1.1f;
-    ent_move_trains( &world, &player, &fight, &rdr, 1.0f, ENT_RIDER_LIVE );
+    ent_move_trains( &world, &player, &fight, &rdr, &touches,
+                     1.0f, ENT_RIDER_LIVE );
     assert( damage_calls == 1 );
     trace_pos = 0;
     rdr.anim_time = 1.5f;
-    ent_move_trains( &world, &player, &fight, &rdr, 1.0f, ENT_RIDER_LIVE );
+    ent_move_trains( &world, &player, &fight, &rdr, &touches,
+                     1.0f, ENT_RIDER_LIVE );
     assert( damage_calls == 2 );
 
     fixture( &world, &player, &plat, brush, &corner );
@@ -241,7 +264,8 @@ int main( void )
     player.on_ground = 1;
     fight.health = 100;
     trace_clip = 1;
-    ent_move_trains( &world, &player, &fight, &rdr, 1.0f, ENT_RIDER_LIVE );
+    ent_move_trains( &world, &player, &fight, &rdr, &touches,
+                     1.0f, ENT_RIDER_LIVE );
     assert( player.pos.x == 8.0f && brush[1].ofs.x == 16.0f );
     assert( move_calls == 2 && move_solid[0] == 0 && move_solid[1] == 1 );
 
@@ -255,7 +279,8 @@ int main( void )
     corner.org.z = plat.mins.z;
     trace_pos = 0;
     damage_calls = 0;
-    ent_move_trains( &world, &player, &fight, &rdr, 1.0f, ENT_RIDER_DEAD );
+    ent_move_trains( &world, &player, &fight, &rdr, &touches,
+                     1.0f, ENT_RIDER_DEAD );
     assert( damage_calls == 0 && brush[1].ofs.x == 16.0f );
 
     fixture( &world, &player, &plat, brush, &corner );
@@ -269,7 +294,8 @@ int main( void )
     trace_len = 2;
     trace_seq[0] = 0;
     trace_seq[1] = 1;
-    ent_move_trains( &world, &player, &fight, &rdr, 1.0f, ENT_RIDER_DEAD );
+    ent_move_trains( &world, &player, &fight, &rdr, &touches,
+                     1.0f, ENT_RIDER_DEAD );
     assert( !player.on_ground );
 
     fixture( &world, &player, &plat, brush, &corner );
@@ -282,7 +308,8 @@ int main( void )
     corner.org.z = plat.mins.z;
     player.no_clip = 1;
     damage_calls = 0;
-    ent_move_trains( &world, &player, &fight, &rdr, 1.0f, ENT_RIDER_LIVE );
+    ent_move_trains( &world, &player, &fight, &rdr, &touches,
+                     1.0f, ENT_RIDER_LIVE );
     assert( damage_calls == 0 && brush[1].ofs.x == 16.0f && player.pos.x == 0.0f );
 
     fixture( &world, &player, &trains[0], train_brush, &train_corner[0] );
@@ -306,7 +333,8 @@ int main( void )
     trace_len = 6; trace_pos = 0;
     trace_seq[0] = 1; trace_seq[1] = 0; trace_seq[2] = 1;
     trace_seq[3] = 1; trace_seq[4] = 0; trace_seq[5] = 1;
-    ent_move_trains( &world, &player, &fight, &rdr, 1.0f, ENT_RIDER_LIVE );
+    ent_move_trains( &world, &player, &fight, &rdr, &touches,
+                     1.0f, ENT_RIDER_LIVE );
     assert( damage_calls == 1 );
     assert( fight.health == -100 );
     assert( train_brush[1].ofs.x == 0.0f && train_brush[2].ofs.x == 16.0f );

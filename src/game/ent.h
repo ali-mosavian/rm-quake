@@ -106,7 +106,7 @@ typedef struct {
     BspVec3 travel;
     BspVec3 mid;
     float   speed, hold;
-    short   start_open, action, targeted, secret, shoot, snd, key, msg, order;
+    short   start_open, action, targeted, secret, shoot, snd, key, msg, order, dmg;
 } EntsDoor;
 
 typedef struct {
@@ -151,7 +151,7 @@ typedef struct {
 #define REC_ENTSPLAT 14
 #define REC_ENTSITEM 22
 #define REC_CRATE    92
-#define REC_ENTSDOOR 52
+#define REC_ENTSDOOR 54
 #define REC_ENTSTRIG 54
 #define REC_ENTSAMB  16
 #define REC_ENTSTRAIN 14

@@ -3,30 +3,11 @@
  */
 
 #include "plats.h"
-#include <math.h>
 #include "ent.h"
 #include "mathlib.h"
 #include "pl_move.h"
-#include "pl_trace.h"
-#include "combat.h"
 #include "snd.h"
-
-/*
- * name: ent_plat_touched
- * desc: True when the player is standing on a plat, or in the column
- *       above it. Quake builds a trigger brush around the plat for
- *       this; the box is close enough and needs nothing from the
- *       compiler.
- */
-static short near ent_mover_xy( Player *player, PlatEnt far *plt,
-                                BrushModel far *br )
-{
-    if ( player->pos.x + 16.0f < plt->mins.x + br->ofs.x ) return 0;
-    if ( player->pos.x - 16.0f > plt->maxs.x + br->ofs.x ) return 0;
-    if ( player->pos.y + 16.0f < plt->mins.y + br->ofs.y ) return 0;
-    if ( player->pos.y - 16.0f > plt->maxs.y + br->ofs.y ) return 0;
-    return 1;
-}
+#include "doors.h"
 
 /* The plat trigger is a column above the brush. It starts the lift, but
    is not evidence that a TOSS/BOUNCE body is supported by the lift. */
@@ -53,42 +34,6 @@ static short near ent_plat_activated( Player *player, PlatEnt far *plt )
     if ( plt->start.low_trigger ) maxs.z = mins.z + 8.0f;
 
     return ent_box_touched( player, &mins, &maxs, ENT_TOUCH_SLACK );
-}
-
-/* We do not retain groundentity, so support is reconstructed from the
-   grounded flag and the feet being at the mover's top. */
-static short near ent_mover_supported( Player *player, PlatEnt far *plt,
-                                       BrushModel far *br, short head )
-{
-    float bottom, top;
-
-    if ( !player->on_ground || !ent_mover_xy( player, plt, br ) ) return 0;
-    bottom = player->pos.z - ( head ? 0.0f : PL_FEET );
-    top = plt->maxs.z + br->ofs.z;
-    return (short) ( bottom >= top - 8.0f && bottom <= top + 8.0f );
-}
-
-/* SV_PushMove also moves an entity caught by the pusher's final box,
-   even when it was not standing on it before the move. */
-static short near ent_mover_intersects( World *world, Player *player,
-                                        PlatEnt far *plt, BrushModel far *br,
-                                        short head )
-{
-    float bottom, top;
-    BspVec3 org;
-    TraceResult tr;
-
-    if ( !ent_mover_xy( player, plt, br ) ) return 0;
-    bottom = player->pos.z - ( head ? 0.0f : PL_FEET );
-    top = player->pos.z + ( head ? 56.0f : 32.0f );
-    if ( top < plt->mins.z + br->ofs.z ) return 0;
-    if ( bottom > plt->maxs.z + br->ofs.z ) return 0;
-
-    org = player->pos;
-    /* HeadPlayer's 0..56 box is hull 1's -24..32 shifted up 24. */
-    if ( head ) org.z += PL_FEET;
-    pl_trace( world, &org, &org, &tr );
-    return tr.all_solid;
 }
 
 short ent_plat_touched( Player *player, World *world, short p )
@@ -119,7 +64,8 @@ void ent_move_plats( World *world, Player *player, float dt, short rider_kind )
         BrushModel far *br = &world->brush[plt->model];
         short head = (short) ( rider_kind == ENT_RIDER_HEAD );
         short activated = ent_plat_activated( player, plt );
-        short riding = ent_mover_supported( player, plt, br, head );
+        short riding = ent_mover_supported( player, &plt->mins, &plt->maxs,
+                                             br, head );
         float goal, step_z, moved, was;
 
         if ( plt->kind != ENT_PLAT_KIND_PLAT ) continue;   /* a train is ent_move_trains' */
@@ -165,7 +111,8 @@ void ent_move_plats( World *world, Player *player, float dt, short rider_kind )
         }
 
         if ( !riding && moved != 0.0f )
-            riding = ent_mover_intersects( world, player, plt, br, head );
+            riding = ent_mover_intersects( world, player, &plt->mins,
+                                            &plt->maxs, br, head );
 
         /* A walking rider follows only upward. SV_PushMove also carries
            TOSS/BOUNCE corpses in either direction and clears onground. */
@@ -192,51 +139,9 @@ void ent_train_init( World *world, PlatEnt far *p )
     p->state = p->start.targeted ? ENT_TRAIN_IDLE : ENT_TRAIN_WAIT;
 }
 
-static short near ent_train_push( World *world, Player *player,
-                                  PlatEnt far *p, BrushModel far *b,
-                                  BspVec3 *was, short riding, short rider_kind )
-{
-    BspVec3 saved, start, fin;
-    TraceResult tr;
-    short head = (short) ( rider_kind == ENT_RIDER_HEAD );
-    short solid;
-
-    if ( player->no_clip ) return -1;
-    if ( !riding ) riding = ent_mover_intersects( world, player, p, b, head );
-    if ( !riding ) return -1;
-    if ( rider_kind != ENT_RIDER_LIVE ) player->on_ground = 0;
-
-    saved = player->pos;
-    start = player->pos;
-    if ( head ) start.z += PL_FEET;
-    fin.x = start.x + b->ofs.x - was->x;
-    fin.y = start.y + b->ofs.y - was->y;
-    fin.z = start.z + b->ofs.z - was->z;
-    solid = b->solid;
-    b->solid = 0;
-    if ( rider_kind == ENT_RIDER_LIVE )
-        pl_trace_move( world, &start, &fin, -1, &tr, (short *) 0 );
-    else
-        pl_trace( world, &start, &fin, &tr );
-    b->solid = solid;
-    player->pos = tr.end_pos;
-    if ( head ) player->pos.z -= PL_FEET;
-    start = player->pos;
-    if ( head ) start.z += PL_FEET;
-    if ( rider_kind == ENT_RIDER_LIVE )
-        pl_trace_move( world, &start, &start, -1, &tr, (short *) 0 );
-    else
-        pl_trace( world, &start, &start, &tr );
-    if ( tr.all_solid ) {
-        if ( rider_kind != ENT_RIDER_LIVE ) return -1;
-        player->pos = saved;
-        return 0;
-    }
-    return -1;
-}
-
 void ent_move_trains( World *world, Player *player, Fight *fight,
-                      Renderer *rdr, float dt, short rider_kind )
+                      Renderer *rdr, PlayerTouches far *touches,
+                      float dt, short rider_kind )
 {
     short i, riding, arrived, kind;
     PlatEnt far *p;
@@ -267,30 +172,27 @@ void ent_move_trains( World *world, Player *player, Fight *fight,
         goal.y = world->corner[ p->corner ].org.y - p->mins.y;
         goal.z = world->corner[ p->corner ].org.z - p->mins.z;
 
-        riding = ent_mover_supported( player, p, b,
+        riding = ent_mover_supported( player, &p->mins, &p->maxs, b,
                                       (short) ( kind == ENT_RIDER_HEAD ) );
         was = b->ofs;
 
         arrived = ent_step_to( &b->ofs, &goal, p->speed * dt );
 
-        if ( ( b->ofs.x != was.x || b->ofs.y != was.y || b->ofs.z != was.z ) &&
-             !ent_train_push( world, player, p, b, &was, riding, kind ) ) {
-            b->ofs = was;
-            if ( kind == ENT_RIDER_LIVE && rdr->anim_time >= p->time.block_at ) {
-                float dx = player->pos.x - ( p->mins.x + p->maxs.x ) * 0.5f - was.x;
-                float dy = player->pos.y - ( p->mins.y + p->maxs.y ) * 0.5f - was.y;
-                float dz = player->pos.z - ( p->mins.z + p->maxs.z ) * 0.5f - was.z;
-                float len = (float) sqrt( dx*dx + dy*dy + dz*dz );
-                float kick = p->mode.dmg * 8.0f;
-                p->time.block_at = rdr->anim_time + 0.5f;
-                if ( len > 0.0f ) {
-                    player->vel.x += dx / len * kick;
-                    player->vel.y += dy / len * kick;
-                    player->vel.z += dz / len * kick;
+        if ( b->ofs.x != was.x || b->ofs.y != was.y || b->ofs.z != was.z ) {
+            short pushed = ent_mover_push( world, player, &p->mins,
+                                           &p->maxs, b, &was, riding, kind,
+                                           touches );
+            ent_doors_touch( world, player, fight, rdr, touches );
+            if ( !pushed ) {
+                b->ofs = was;
+                if ( kind == ENT_RIDER_LIVE &&
+                     rdr->anim_time >= p->time.block_at ) {
+                    p->time.block_at = rdr->anim_time + 0.5f;
+                    ent_mover_damage( world, player, fight, rdr, &p->mins,
+                                      &p->maxs, b, p->mode.dmg );
                 }
-                combat_damage_player( player, world, fight, rdr, p->mode.dmg );
+                continue;
             }
-            continue;
         }
 
         if ( b->ofs.x != was.x || b->ofs.y != was.y || b->ofs.z != was.z )

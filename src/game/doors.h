@@ -4,6 +4,7 @@
 #include "world.h"
 #include "renderer.h"
 #include "fight.h"
+#include "pl_move.h"
 
 /*
  * name: ent_move_doors
@@ -12,7 +13,11 @@
  *       message when touched; one with a key wants the key.
  */
 void ent_move_doors( World *world, Player *player, Fight *fight,
-                      Renderer *rdr, float dt );
+                      Renderer *rdr, PlayerTouches far *touches,
+                      float dt, short rider_kind );
+
+void ent_doors_touch( World *world, Player *player, Fight *fight,
+                      Renderer *rdr, PlayerTouches far *touches );
 
 /*
  * name: ent_link_doors

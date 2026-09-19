@@ -59,6 +59,16 @@ typedef struct {
     short hit_model;      /* solid submodel hit, 0 world, -1 none */
 } TraceResult;
 
+#define PL_TOUCH_MAX 12
+/* BSP29 permits 256 submodels, so a contact model is one byte. Keeping
+   this far-data queue byte-sized avoids spending the 90-byte stack guard. */
+typedef struct {
+    unsigned char model[PL_TOUCH_MAX];
+    unsigned char count;
+} PlayerTouches;
+
+void pl_touches_add( PlayerTouches far *touches, short model );
+
 /*
  * name: pl_point_contents
  * desc: The leaf contents at a point, walked in hull 0 -- the render
@@ -85,8 +95,9 @@ void pl_init( Player *player, Camera *cam, BspVec3 *start_override );
  *       -1, 0 or 1.
  */
 void pl_move( World *world, Player *player, Camera *cam, Fight *fight,
-              Renderer *rdr, float fwd, float strafe, float dir_x, float dir_y,
-              short jump, float dt );
+              Renderer *rdr, PlayerTouches far *touches,
+              float fwd, float strafe,
+              float dir_x, float dir_y, short jump, float dt );
 
 /* Builds world->clip: clip_count entries from assets.zip's own
    already-narrowed clip.pag (fatal if it won't load). pl_move owns

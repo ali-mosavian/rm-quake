@@ -296,7 +296,7 @@ SKILLS     = 4   # easy, normal, hard, nightmare: an ents<N>.bin each
 ENTS_HEAD  = '<4f3fff13hfhhh3ffh'  # ent.h's EntsHead; the monsters follow it
 ENTS_MON   = '<hh3ffhh'          # ent.h's EntsMon
 
-QMAP_VER   = 9
+QMAP_VER   = 10
 QMAP_HEAD  = 64
 QMAP_NAME  = 16
 QMAP_ENT   = 24
@@ -1066,11 +1066,14 @@ def ent_door(e: Ents, m: int, kv: dict[str, str], box: tuple[float, ...]) -> tup
     # DOOR_SILVER_KEY 16, DOOR_GOLD_KEY 8: door_touch's "You need the
     # silver key" stands in for a message the map does not give
     key = 1 if flags & 16 else 2 if flags & 8 else 0
+    if key:
+        hold = -1.0
+    dmg = int(float(kv.get('dmg', '0')) or 2.0)
     msg = ent_msg(kv)
     if key and not kv.get('message'):
         msg = message_bytes(f"You need the {'silver' if key == 1 else 'gold'} {KEY_NAMES[e.worldtype]}")
     return (m, travel, (0.0, 0.0, 0.0), speed, hold, 1 if flags & 1 else 0, 1 if flags & 4 else 0,
-            ent_name_id(e, kv.get('targetname', '')), 0, 0, int(kv.get('sounds', '0')), key, msg)
+            ent_name_id(e, kv.get('targetname', '')), 0, 0, int(kv.get('sounds', '0')), key, msg, dmg)
 
 
 def ent_secret(e: Ents, m: int, kv: dict[str, str], box: tuple[float, ...]) -> tuple:
@@ -1091,8 +1094,9 @@ def ent_secret(e: Ents, m: int, kv: dict[str, str], box: tuple[float, ...]) -> t
     hold = -1.0 if flags & 1 else (float(kv.get('wait', '0')) or 5.0)
     name = ent_name_id(e, kv.get('targetname', ''))
     shoot = 0 if flags & 8 else (1 if not name or flags & 16 else 0)
+    dmg = int(float(kv.get('dmg', '0')) or 2.0)
     return (m, travel, mid, speed, hold, 0, kv.get('target', ''), name, 1, shoot,
-            int(kv.get('sounds', '0')) or 3, 0, ent_msg(kv))
+            int(kv.get('sounds', '0')) or 3, 0, ent_msg(kv), dmg)
 
 
 def ent_trig(e: Ents, m: int, kv: dict[str, str]) -> tuple:
@@ -1503,7 +1507,7 @@ def pack_entities(e: Ents, nmodels: int, gravity: float, crates: CrateSet) -> by
         return msg_offsets.get(b, 0)
 
     for d in doors:
-        messages.append(d[-1])
+        messages.append(d[-2])
     for u in uses:
         messages.append(u[10])
         if u[1] == TRIG_EXIT:
@@ -1527,9 +1531,9 @@ def pack_entities(e: Ents, nmodels: int, gravity: float, crates: CrateSet) -> by
         buf += struct.pack('<hhh', m, boss, bits)
     for kind, amount, target, crate, order, org in items:
         buf += struct.pack('<hhhhh3f', kind, amount, target, crate, order, *org)
-    for m, travel, mid, speed, hold, start_open, action, targeted, secret, shoot, snd, key, msg in doors:
-        buf += struct.pack('<h3f3fffhhhhhhhhh', m, *travel, *mid, speed, hold, start_open, action, targeted,
-                           secret, shoot, snd, key, msg_id(msg), e.combat_order.get(m, 0))
+    for m, travel, mid, speed, hold, start_open, action, targeted, secret, shoot, snd, key, msg, dmg in doors:
+        buf += struct.pack('<h3f3fffhhhhhhhhhh', m, *travel, *mid, speed, hold, start_open, action, targeted,
+                           secret, shoot, snd, key, msg_id(msg), e.combat_order.get(m, 0), dmg)
     for m, kind, target, name, kill, count, wait, speed, travel, snd, msg, *rest in uses:
         org = rest[0] if rest else (0.0, 0.0, 0.0)   # a shooter's
         delay = rest[1] if len(rest) > 1 else 0.0

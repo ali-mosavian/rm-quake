@@ -349,7 +349,7 @@ static void near ent_store_door( World *world, const EntsDoor *dr )
     d->speed   = dr->speed;
     d->hold    = dr->hold;
     d->hold_left = 0.0f;
-    d->pause_left = 0.0f;
+    d->wait.pause_left = 0.0f;
     d->targeted = dr->targeted;
     d->secret  = dr->secret;
     if ( d->secret ) d->action.target = dr->action;
@@ -361,6 +361,7 @@ static void near ent_store_door( World *world, const EntsDoor *dr )
     d->ofs_mid = dr->mid;
     d->msg     = dr->msg;
     d->order   = dr->order;
+    d->dmg     = dr->dmg;
     d->state   = ENT_DOOR_SHUT;
     d->link    = world->door_count;
 
@@ -908,7 +909,7 @@ void ent_reset( World *world, Fight *fight )
     for ( k = 0; k < world->door_count; k++ ) {
         world->door[k].state = ENT_DOOR_SHUT;
         world->door[k].hold_left = 0.0f;
-        world->door[k].pause_left = 0.0f;
+        world->door[k].wait.pause_left = 0.0f;
         world->brush[ world->door[k].model ].ofs = world->door[k].ofs_shut;
     }
     for ( k = 0; k < world->trig_count; k++ ) {

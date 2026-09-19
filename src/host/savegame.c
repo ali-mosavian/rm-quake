@@ -26,12 +26,14 @@
 #define SG_VERSION_TRAIN_DMG 9
 #define SG_VERSION_LIGHTNING 10
 #define SG_VERSION_OLD 1
+#define SG_DOOR_BYTES 102
 #define SG_GIB_MAGIC 0x31424947L
 #define SG_SPR_MAGIC 0x31525053L
 #define SG_SPR2_MAGIC 0x32525053L
 #define SG_SPR3_MAGIC 0x33525053L
 #define SG_SPAWN_MAGIC 0x314E5053L
 #define SG_V4_BUBBLES 32
+typedef char sg_door_prefix_ok[ offsetof(DoorEnt, dmg) == SG_DOOR_BYTES ? 1 : -1 ];
 
 typedef struct {
     long magic;
@@ -97,24 +99,38 @@ static void near savegame_exit_static( TrigEnt *saved, TrigEnt far *asset )
     saved->delay = asset->delay;
 }
 
-/* Door action is map data, not mutable game state. Older saves wrote a
-   secret door's constant DONT_LINK word here; restore the current map's
-   target after the raw DoorEnt block is read. */
-static void near savegame_door_static( DoorEnt far *door, short action )
+/* Door action and damage are map data, not mutable game state. */
+static void near savegame_door_static( DoorEnt far *door, short action,
+                                       float hold, short dmg )
 {
     door->action.nolink = action;
+    door->hold = hold;
+    door->dmg = dmg;
 }
 
 static short near savegame_read_doors( short file, World *world )
 {
-    short i, action;
+    short i, action, dmg;
+    float hold;
 
     for ( i = 0; i < world->door_count; i++ ) {
         action = world->door[i].action.nolink;
+        hold = world->door[i].hold;
+        dmg = world->door[i].dmg;
         if ( !savegame_read_block( file, (long) &world->door[i],
-                                   sizeof(DoorEnt) ) ) return 0;
-        savegame_door_static( &world->door[i], action );
+                                   SG_DOOR_BYTES ) ) return 0;
+        savegame_door_static( &world->door[i], action, hold, dmg );
     }
+    return -1;
+}
+
+static short near savegame_write_doors( short file, World *world )
+{
+    short i;
+
+    for ( i = 0; i < world->door_count; i++ )
+        if ( !savegame_write_block( file, (long) &world->door[i],
+                                    SG_DOOR_BYTES ) ) return 0;
     return -1;
 }
 
@@ -123,31 +139,54 @@ static short near savegame_door_loader_selftest( World *world )
     const char *name = "sgdoor.tmp";
     DoorEnt far *copy;
     FILE *create;
-    short file, count, action, ok = 0;
+    short file, count, action, dmg, sentinel = 0x5a37, got = 0, ok = 0;
+    float hold;
+    long bytes;
 
     if ( world->door_count < 1 ) return -1;
     copy = (DoorEnt far *) qglMemAlloc( sizeof(DoorEnt) );
     if ( !copy ) return 0;
     _fmemcpy( copy, &world->door[0], sizeof(DoorEnt) );
     action = world->door[0].action.nolink;
+    hold = world->door[0].hold;
+    dmg = world->door[0].dmg;
     create = fopen( name, "wb" );
     if ( !create ) goto done;
     fclose( create );
     file = qglFileOpen( name );
     if ( !file ) goto done;
     world->door[0].action.nolink = 1;
-    ok = savegame_write_block( file, (long) &world->door[0], sizeof(DoorEnt) );
+    world->door[0].hold = 17.0f;
+    world->door[0].dmg = (short) ( dmg + 1 );
+    count = world->door_count;
+    world->door_count = 1;
+    ok = (short) ( savegame_write_doors( file, world ) &&
+                   savegame_write_block( file, (long) (void far *) &sentinel,
+                                         sizeof(sentinel) ) );
+    world->door_count = count;
     world->door[0].action.nolink = action;
+    world->door[0].hold = hold;
+    world->door[0].dmg = dmg;
     qglFileClose( file );
     if ( !ok ) goto done;
+    create = fopen( name, "rb" );
+    if ( !create ) { ok = 0; goto done; }
+    fseek( create, 0L, SEEK_END );
+    bytes = ftell( create );
+    fclose( create );
+    if ( bytes != SG_DOOR_BYTES + (long) sizeof(sentinel) ) { ok = 0; goto done; }
     file = qglFileOpen( name );
     if ( !file ) { ok = 0; goto done; }
     count = world->door_count;
     world->door_count = 1;
     ok = savegame_read_doors( file, world );
+    if ( ok ) ok = (short) ( qglFileRead( file, (long) (void far *) &got,
+                                          sizeof(got) ) == sizeof(got) &&
+                              got == sentinel );
     world->door_count = count;
     qglFileClose( file );
-    ok = (short) ( ok && world->door[0].action.nolink == action );
+    ok = (short) ( ok && world->door[0].action.nolink == action &&
+                   world->door[0].hold == hold && world->door[0].dmg == dmg );
 done:
     _fmemcpy( &world->door[0], copy, sizeof(DoorEnt) );
     qglMemFree( (long) copy );
@@ -348,8 +387,7 @@ static short near savegame_write( short file, SaveHead *head, World *world,
                                  (long) world->tele_count * sizeof(Teleporter) ) &&
            savegame_write_block( file, (long) world->plat,
                                  (long) world->plat_count * sizeof(PlatEnt) ) &&
-           savegame_write_block( file, (long) world->door,
-                                 (long) world->door_count * sizeof(DoorEnt) ) &&
+           savegame_write_doors( file, world ) &&
            savegame_write_block( file, (long) world->trig,
                                  (long) world->trig_count * sizeof(TrigEnt) ) &&
            savegame_write_block( file, (long) world->light,

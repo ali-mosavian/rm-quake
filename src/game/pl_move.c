@@ -19,6 +19,17 @@
 #include "r_bsp.h"
 #include "pak.h"
 
+void pl_touches_add( PlayerTouches far *touches, short model )
+{
+    short i;
+
+    if ( model <= 0 || model > 255 ) return;
+    for ( i = 0; i < touches->count; i++ )
+        if ( touches->model[i] == model ) return;
+    if ( touches->count < PL_TOUCH_MAX )
+        touches->model[touches->count++] = model;
+}
+
 /*
  * name: pl_point_contents
  * desc: What is at a point, from hull 0 -- the render tree, not the
@@ -89,7 +100,8 @@ static void pl_clip_velocity( BspVec3 *v, BspVec3 *norm )
  *       and the remaining time is retried, so an inside corner
  *       resolves in two bumps and a dead end stops.
  */
-static void pl_slide_move( World *world, BspVec3 *org, BspVec3 *vel, float dt, TraceResult *tr )
+static void pl_slide_move( World *world, BspVec3 *org, BspVec3 *vel, float dt,
+                           TraceResult *tr, PlayerTouches far *touches )
 {
     short bump;
     float time_left = dt;
@@ -116,6 +128,8 @@ static void pl_slide_move( World *world, BspVec3 *org, BspVec3 *vel, float dt, T
 
         if ( tr->frac == 1.0f ) break;
 
+        pl_touches_add( touches, tr->hit_model );
+
         time_left -= time_left*tr->frac;
 
         pl_clip_velocity( vel, &tr->norm );
@@ -134,7 +148,9 @@ static void pl_slide_move( World *world, BspVec3 *org, BspVec3 *vel, float dt, T
  *       doorframe lip, because a 16 unit stair and a wall are the same
  *       thing to a trace.
  */
-static void pl_step_move( World *world, Player *player, BspVec3 *org, BspVec3 *vel, float dt, TraceResult *tr )
+static void pl_step_move( World *world, Player *player, BspVec3 *org,
+                          BspVec3 *vel, float dt, TraceResult *tr,
+                          PlayerTouches far *touches )
 {
     BspVec3 flat_pos, flat_vel;
     BspVec3 up_pos, down_pos;
@@ -144,7 +160,7 @@ static void pl_step_move( World *world, Player *player, BspVec3 *org, BspVec3 *v
     /* the ordinary slide, kept in case the step attempt is worse */
     flat_pos = *org;
     flat_vel = *vel;
-    pl_slide_move( world, &flat_pos, &flat_vel, dt, tr );
+    pl_slide_move( world, &flat_pos, &flat_vel, dt, tr, touches );
 
     /*
      * Nothing to step over: the flat move's velocity came out exactly
@@ -187,6 +203,8 @@ static void pl_step_move( World *world, Player *player, BspVec3 *org, BspVec3 *v
     up_pos = *org;
     up_pos.z += PL_STEP;
     pl_trace_move( world, org, &up_pos, -1, tr, (short *) 0 );
+    if ( tr->frac < 1.0f || tr->start_solid )
+        pl_touches_add( touches, tr->hit_model );
 
     if ( tr->all_solid ) {
         *org = flat_pos;
@@ -197,13 +215,15 @@ static void pl_step_move( World *world, Player *player, BspVec3 *org, BspVec3 *v
 
     step_vel   = *vel;
     step_vel.z = 0.0f;
-    pl_slide_move( world, &up_pos, &step_vel, dt, tr );
+    pl_slide_move( world, &up_pos, &step_vel, dt, tr, touches );
 
     /* drop back down, extended by however far the original fall speed
        would have carried this tick */
     down_pos   = up_pos;
     down_pos.z = down_pos.z - PL_STEP + old_vel_z*dt;
     pl_trace_move( world, &up_pos, &down_pos, -1, tr, (short *) 0 );
+    if ( tr->frac < 1.0f || tr->start_solid )
+        pl_touches_add( touches, tr->hit_model );
 
     /*
      * Keep the stepped path only if it lands on walkable ground. A
@@ -301,7 +321,8 @@ static void pl_water_check( Player *player, World *world, Fight *fight, Renderer
 }
 
 static void pl_gravity( World *world, Player *player, Fight *fight,
-                         Renderer *rdr, float dt, TraceResult *tr )
+                         Renderer *rdr, float dt, TraceResult *tr,
+                         PlayerTouches far *touches )
 {
     BspVec3 below = player->pos;
     below.z -= 1.0f;
@@ -309,6 +330,7 @@ static void pl_gravity( World *world, Player *player, Fight *fight,
     pl_trace_move( world, &player->pos, &below, -1, tr, (short *) 0 );
 
     if ( tr->frac < 1.0f && tr->norm.z > PL_GROUND_NRM ) {
+        if ( player->vel.z <= 0.0f ) pl_touches_add( touches, tr->hit_model );
         if ( !player->on_ground ) pl_land( player, world, fight, rdr );
         player->on_ground = 1;
         if ( player->vel.z < 0.0f ) player->vel.z = 0.0f;
@@ -637,8 +659,9 @@ static void near pl_head_move( World *world, Player *player, Fight *fight,
  *       then put the eye where the camera can use it.
  */
 void pl_move( World *world, Player *player, Camera *cam, Fight *fight,
-              Renderer *rdr, float fwd, float strafe, float dir_x, float dir_y,
-              short jump, float dt )
+              Renderer *rdr, PlayerTouches far *touches,
+              float fwd, float strafe,
+              float dir_x, float dir_y, short jump, float dt )
 {
     TraceResult tr;
     BspVec3 wishvel, wishdir;
@@ -708,7 +731,7 @@ void pl_move( World *world, Player *player, Camera *cam, Fight *fight,
         player->vel.y = player->water_dir.y;
         player->on_ground = 0;
     } else {
-        pl_gravity( world, player, fight, rdr, dt, &tr );
+        pl_gravity( world, player, fight, rdr, dt, &tr, touches );
     }
 
     /*
@@ -759,9 +782,10 @@ void pl_move( World *world, Player *player, Camera *cam, Fight *fight,
     if ( player->vel.z < -PL_MAXVEL ) player->vel.z = -PL_MAXVEL;
 
     if ( player->water_until > rdr->anim_time )
-        pl_slide_move( world, &player->pos, &player->vel, dt, &tr );
+        pl_slide_move( world, &player->pos, &player->vel, dt, &tr, touches );
     else
-        pl_step_move( world, player, &player->pos, &player->vel, dt, &tr );
+        pl_step_move( world, player, &player->pos, &player->vel, dt, &tr,
+                      touches );
 
     if ( player->pos.z > player->peak_z ) player->peak_z = player->pos.z;
 

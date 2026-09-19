@@ -8,7 +8,8 @@ cc -std=c89 -pedantic -Wall -Wextra -Werror -fpack-struct=2 \
   -DQCPORT_NATIVE_TEST -Dfar= -Dnear= -Dpascal= \
   -I"$ROOT/src/game" -I"$ROOT/src/host" -I"$ROOT/src/model" \
   -I"$ROOT/src/render" -I"$ROOT/src/sound" -I"$ROOT/src/qgl" \
-  "$ROOT/tools/test-doors.c" "$ROOT/src/game/doors.c" \
+  "$ROOT/tools/test-doors.c" "$ROOT/src/game/doors.c" "$ROOT/src/game/mover.c" \
+  "$ROOT/src/game/pl_move.c" \
   "$ROOT/src/host/mathlib.c" -lm -o "$OUT/test-doors"
 "$OUT/test-doors"
-echo "ok: secret doors fire their own target exactly once from rest"
+echo "ok: doors push, damage, reverse, and share Quake's block/touch clocks"

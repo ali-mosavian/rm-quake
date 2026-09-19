@@ -260,7 +260,11 @@ typedef struct {
     short   model;
     BspVec3 ofs_shut, ofs_open;
     BspVec3 ofs_mid;     /* a secret door's corner */
-    float   speed, hold, hold_left, pause_left;
+    float   speed, hold, hold_left;
+    union {
+        float pause_left;
+        float touch_at;
+    } wait;
     short   state, secret, shoot;
     short   link;        /* lowest door index of its linked group */
     union {
@@ -274,6 +278,7 @@ typedef struct {
     BspVec3 mins, maxs;  /* the touch field */
     short   msg;
     short   order;       /* source edict order, for findradius */
+    short   dmg;         /* door_blocked's map-owned damage */
 } DoorEnt;
 
 /* q_ent.bi's TrigEnt -- triggers.qc and buttons.qc. All four kinds do

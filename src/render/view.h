@@ -6,6 +6,7 @@
 #include "input.h"
 #include "fight.h"
 #include "keybind.h"
+#include "pl_move.h"
 
 /*
  * view.h -- where the camera is and where it looks. C port of
@@ -28,8 +29,9 @@
  *       player and camera position.
  */
 void v_update_camera( Camera *cam, Player *player, World *world, Input *input,
-                       const KeyBindings KB_FAR *keys, Fight *fight, Renderer *rdr,
-                       float dt, short x_res, short y_res,
+                       const KeyBindings KB_FAR *keys, Fight *fight,
+                       Renderer *rdr, PlayerTouches far *touches, float dt,
+                       short x_res, short y_res,
                        float forward_speed, short invert_mouse );
 
 #endif

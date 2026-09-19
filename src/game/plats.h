@@ -4,10 +4,7 @@
 #include "world.h"
 #include "renderer.h"
 #include "fight.h"
-
-#define ENT_RIDER_DEAD 0
-#define ENT_RIDER_LIVE 1
-#define ENT_RIDER_HEAD 2
+#include "mover.h"
 
 short ent_plat_touched( Player *player, World *world, short p );
 void  ent_move_plats( World *world, Player *player, float dt, short rider_kind );
@@ -17,7 +14,8 @@ void  ent_move_plats( World *world, Player *player, float dt, short rider_kind )
  * desc: Every func_train one leg on, carrying its rider.
  */
 void ent_move_trains( World *world, Player *player, Fight *fight,
-                      Renderer *rdr, float dt, short rider_kind );
+                      Renderer *rdr, PlayerTouches far *touches,
+                      float dt, short rider_kind );
 
 /*
  * name: ent_train_init
