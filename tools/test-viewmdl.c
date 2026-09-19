@@ -13,10 +13,8 @@ static short loads, unloads, unload_calls, fail_rock = 1;
 
 void mdl_load( Pak *pak, MdlState *m, char *name, short need )
 {
-    short i;
     (void) pak; (void) need;
-    for ( i = 0; i < PL_VIEW_N; i++ )
-        assert( !test_world->vmdl[i].loaded );
+    assert( !test_world->vmdl.loaded );
     loads++;
     if ( fail_rock && !strcmp( name, "v_rock" ) ) { fail_rock = 0; return; }
     m->loaded = 1;
@@ -30,13 +28,6 @@ void mdl_unload( MdlState *m )
     memset( m, 0, sizeof(*m) );
 }
 
-static short resident( const World *world )
-{
-    short i, count = 0;
-    for ( i = 0; i < PL_VIEW_N; i++ ) if ( world->vmdl[i].loaded ) count++;
-    return count;
-}
-
 int main( void )
 {
     World world;
@@ -46,8 +37,11 @@ int main( void )
     /* The axe is a real view weapon, not the shotgun fallback. */
     assert( pl_view_of( PL_IT_AXE ) == PL_VIEW_AXE );
     host_view_load( &world, PL_IT_SHOTGUN );
+    assert( host_view_ready( &world, PL_IT_SHOTGUN ) );
+    assert( !host_view_ready( &world, PL_IT_NAILGUN ) );
     host_view_load( &world, PL_IT_GL );
-    assert( !world.vmdl[PL_VIEW_GL].loaded && world.vmdl[PL_VIEW_GL].ntri == -1 );
+    assert( world.vmdl_id == PL_VIEW_GL );
+    assert( !world.vmdl.loaded && world.vmdl.ntri == -1 );
     host_view_load( &world, PL_IT_GL );
     assert( loads == 2 );
     host_view_load( &world, PL_IT_NAILGUN );
@@ -55,7 +49,7 @@ int main( void )
     assert( loads == 4 );
     assert( unloads == 2 );
     assert( unload_calls == 3 );
-    assert( resident( &world ) == 1 );
-    assert( world.vmdl[PL_VIEW_GL].loaded );
+    assert( world.vmdl_id == PL_VIEW_GL );
+    assert( world.vmdl.loaded );
     return 0;
 }

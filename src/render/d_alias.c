@@ -864,8 +864,8 @@ short d_draw_view( World *world, Renderer *rdr, Camera *cam, Player *player,
     if ( fight->state >= GS_EXIT ) return 0;     /* no gun in an intermission/finale */
     if ( fight->health <= 0 ) return 0;          /* PlayerDie clears weaponmodel */
     if ( rdr->anim_time < fight->invis_until ) return 0;   /* R_DrawViewModel: none while invisible */
-    ms = &world->vmdl[ pl_view_of( fight->weapon ) ];
-    if ( !ms->loaded ) return 0;
+    if ( !host_view_ready( world, fight->weapon ) ) return 0;
+    ms = &world->vmdl;
 
     eye = player->pos;
     eye.z += PL_EYE;

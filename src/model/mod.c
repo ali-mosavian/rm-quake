@@ -245,7 +245,7 @@ void mod_unload( World *world )
     if ( world->cmap_dc )     qglSfFree( world->cmap_dc );
 
     for ( i = 0; i < MDL_KINDS; i++ ) mdl_unload( &world->mdl[i] );
-    for ( i = 0; i < PL_VIEW_N; i++ ) mdl_unload( &world->vmdl[i] );
+    mdl_unload( &world->vmdl );
     mdl_unload( &world->boss );
     mdl_unload_items( world );
     mdl_unload_effects( world );

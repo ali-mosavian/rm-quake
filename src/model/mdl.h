@@ -84,5 +84,6 @@ char *pl_view_name( short view );
  *       renderer has filled its surface cache.
  */
 void host_view_load( World *world, short weapon );
+short host_view_ready( const World *world, short weapon );
 
 #endif

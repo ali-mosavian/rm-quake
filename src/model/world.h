@@ -132,10 +132,9 @@ typedef struct {
     MdlEnt      far *mon;
     MdlState    mdl[MDL_KINDS];   /* one per kind, only the map's own loaded */
 
-    /* The view weapons -- the player's, not the map's, and here only
-       because everything that draws already reaches World. Indexed by
-       PL_VIEW_*; host_view_load keeps only the one in hand resident. */
-    MdlState    vmdl[PL_VIEW_N];
+    /* Only the view weapon in hand is resident. */
+    MdlState    vmdl;
+    short       vmdl_id;
 
     /* Chthon's, loaded with a map that has monster_boss */
     MdlState    boss;

@@ -22,18 +22,24 @@ static char *vmdl_name[PL_VIEW_N] = {
 
 char *pl_view_name( short view ) { return vmdl_name[view]; }
 
+short host_view_ready( const World *world, short weapon )
+{
+    return world->vmdl_id == pl_view_of( weapon ) && world->vmdl.loaded;
+}
+
 void host_view_load( World *world, short weapon )
 {
-    short i, active = pl_view_of( weapon );
+    short active = pl_view_of( weapon );
 
-    for ( i = 0; i < PL_VIEW_N; i++ )
-        if ( i != active && ( world->vmdl[i].loaded || world->vmdl[i].ntri ) )
-            mdl_unload( &world->vmdl[i] );
+    if ( world->vmdl_id != active ) {
+        if ( world->vmdl.loaded || world->vmdl.ntri ) mdl_unload( &world->vmdl );
+        world->vmdl_id = active;
+    }
 
     /* loaded stays 0 when the model is not in the container, and
        mdl_load says so once; asking again every frame would say it
        every frame, so a failed load is remembered as a try. */
-    if ( world->vmdl[active].loaded || world->vmdl[active].ntri ) return;
-    mdl_load( &world->pak, &world->vmdl[active], pl_view_name( active ), MDL_VIEW_SETS );
-    if ( !world->vmdl[active].loaded ) world->vmdl[active].ntri = -1;
+    if ( world->vmdl.loaded || world->vmdl.ntri ) return;
+    mdl_load( &world->pak, &world->vmdl, pl_view_name( active ), MDL_VIEW_SETS );
+    if ( !world->vmdl.loaded ) world->vmdl.ntri = -1;
 }
