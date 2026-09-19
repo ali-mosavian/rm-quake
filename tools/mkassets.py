@@ -296,7 +296,7 @@ SKILLS     = 4   # easy, normal, hard, nightmare: an ents<N>.bin each
 ENTS_HEAD  = '<4f3fff13hfhhh3ffh'  # ent.h's EntsHead; the monsters follow it
 ENTS_MON   = '<hh3ffhh'          # ent.h's EntsMon
 
-QMAP_VER   = 8
+QMAP_VER   = 9
 QMAP_HEAD  = 64
 QMAP_NAME  = 16
 QMAP_ENT   = 24
@@ -498,7 +498,7 @@ PAGED_ELEM = {
     'nodes.pag': 16,    # Node: planeid child0 child1 lfaceid lfacenum + bound[6]
     'clip.pag':   6,    # ClipNode: planenum front back
     'leaves.pag':16,    # Leaf: cont vislist bound[6] lfaceid lfacenum
-    'faces.pag': 10,    # Face: planeid geom_ofs texinfoid cache geom_row side
+    'faces.pag': 8,     # Face: three bounded indices with packed cache head, geom_row, side
 }
 
 
@@ -712,9 +712,10 @@ def convert_lightmaps(d, lumps, out):
         atlas += bytes(LM_ATLAS_W - (len(atlas) % LM_ATLAS_W))
     atlas_h = max(1, len(atlas) // LM_ATLAS_W)
 
-    light_keys = lighthash.bsp_light_keys(d)
+    surface_keys = lighthash.bsp_surface_keys(d)
+    animation_counts = lighthash.face_animation_counts(d)
     hash_choices = {
-        styles: lighthash.best_hash(keys, 64) for styles, keys in light_keys.items()
+        variant: lighthash.best_hash(keys, 512) for variant, keys in surface_keys.items()
     }
     table = bytearray()
     lit = unlit = 0
@@ -735,10 +736,13 @@ def convert_lightmaps(d, lumps, out):
         # scanline takes the signed field so -1 still means "unlit", which is
         # the sign test sb_build already makes.
         style_tuple = tuple(style for style in styles if style != 255)
-        choice = hash_choices.get(style_tuple, lighthash.HashChoice(0, 0, 0))
+        choice = hash_choices.get(
+            (style_tuple, animation_counts[fid]), lighthash.HashChoice(0, 0, 0)
+        )
         if choice.collisions:
             raise SystemExit(
-                f"face {fid}: styles {style_tuple} need more than 64 exact light states"
+                f"face {fid}: styles {style_tuple} and {animation_counts[fid]} animation frames "
+                "have no exact nine-bit surface hash"
             )
         table += struct.pack('<hH4h2HBB', ay, ax, tmin[0], tmin[1], lm_w, lm_h,
                              styles[0] | (styles[1] << 8),
@@ -1700,23 +1704,34 @@ def convert_lumps(d, lumps, outdir, gravity, crates):
         struct.pack('<hhh', struct.unpack_from('<i', raw, k)[0], *struct.unpack_from('<hh', raw, k+4))
         for k in range(0, len(raw), 8))
 
-    # faces: face(20) -> face2(10), dropping the two flag words and the
+    # faces: face(20) -> face2(8), dropping the two flag words and the
     # LIGHTING-lump offset (unused: d_surf.bas's lm_info replaced it).
     #
     # firstedge/numedges are replaced by the face's address in fgeom.bin:
     # the row uglMapEx maps, and the byte offset of its record inside it.
-    # Same ten bytes, and no ledges.bld index to unwrap on read.
+    # The spare high bits of the three bounded indices carry the cache's
+    # eleven-bit null head. They become mutable only after loading.
     raw = lump(7)
     buf = bytearray()
     for k in range(0, len(raw), 20):
         planeid, side, _le, _ln, texinfoid, _f1, _f2, _lightmap = \
             struct.unpack_from('<hhihhhhi', raw, k)
         grow, gofs = fgeom[k // 20]
+        if not (0 <= planeid < 8192):
+            raise SystemExit(f"faces.pag: plane {planeid} does not fit 13 bits")
+        if not (0 <= gofs < 16384):
+            raise SystemExit(f"faces.pag: geometry offset {gofs} does not fit 14 bits")
+        if not (0 <= texinfoid < 1024):
+            raise SystemExit(f"faces.pag: texinfo {texinfoid} does not fit 10 bits")
         if not (0 <= grow <= 255):
             raise SystemExit(f"faces.pag: geometry row {grow} does not fit Face.geom_row")
         if k // 20 >= 8192:
             raise SystemExit("faces.pag: face count does not fit the surface-cache owner field")
-        buf += struct.pack('<hhhHBB', planeid, gofs, texinfoid, 0x03FF, grow, side)
+        null_head = 0x07FF
+        packed_plane = planeid | (null_head & 0x0007) << 13
+        packed_geom = gofs | (null_head & 0x0018) << 11
+        packed_texinfo = texinfoid | (null_head & 0x07E0) << 5
+        buf += struct.pack('<HHHBB', packed_plane, packed_geom, packed_texinfo, grow, side)
     out['faces.pag'] = bytes(buf)
 
     # leaves: leaf(28) -> Leaf(16), dropping the trailing 4 bytes,

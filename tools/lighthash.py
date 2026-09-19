@@ -1,4 +1,4 @@
-"""Search and validate the surface cache's per-face light-state hashes."""
+"""Search and validate the surface cache's per-face light/animation hashes."""
 
 import math
 import re
@@ -99,6 +99,42 @@ def reachable_keys(styles: tuple[int, ...], switch_styles: set[int]) -> frozense
     return frozenset(keys)
 
 
+def reachable_surface_keys(
+    styles: tuple[int, ...], switch_styles: set[int], animation_frames: int
+) -> frozenset[int]:
+    return frozenset(
+        light_key * animation_frames + frame
+        for light_key in reachable_keys(styles, switch_styles)
+        for frame in range(animation_frames)
+    )
+
+
+def face_animation_counts(data: bytes) -> tuple[int, ...]:
+    miptex = _lump(data, 2)
+    texture_count = struct.unpack_from("<l", miptex)[0]
+    offsets = struct.unpack_from(f"<{texture_count}l", miptex, 4)
+    names = [
+        miptex[offset : offset + 16].split(b"\0", 1)[0].decode("latin-1")
+        if offset >= 0
+        else ""
+        for offset in offsets
+    ]
+    counts = [1] * texture_count
+    groups: dict[str, list[int]] = {}
+    for index, name in enumerate(names):
+        if len(name) >= 2 and name[0] == "+" and name[1].isdigit():
+            groups.setdefault(name[2:], []).append(index)
+    for indices in groups.values():
+        if len(indices) > 1:
+            for index in indices:
+                counts[index] = len(indices)
+
+    texinfo = _lump(data, 6)
+    texids = [struct.unpack_from("<i", texinfo, offset + 32)[0] for offset in range(0, len(texinfo), 40)]
+    faces = _lump(data, 7)
+    return tuple(counts[texids[struct.unpack_from("<h", faces, offset + 10)[0]]] for offset in range(0, len(faces), 20))
+
+
 def bsp_light_keys(data: bytes) -> dict[tuple[int, ...], frozenset[int]]:
     faces = _lump(data, 7)
     switch_styles = _switch_styles(data)
@@ -109,14 +145,32 @@ def bsp_light_keys(data: bytes) -> dict[tuple[int, ...], frozenset[int]]:
     return {styles: reachable_keys(styles, switch_styles) for styles in tuples if styles}
 
 
+def bsp_surface_keys(data: bytes) -> dict[tuple[tuple[int, ...], int], frozenset[int]]:
+    faces = _lump(data, 7)
+    animation_counts = face_animation_counts(data)
+    switch_styles = _switch_styles(data)
+    variants = {
+        (
+            tuple(style for style in faces[offset + 12 : offset + 16] if style != 255),
+            animation_counts[offset // 20],
+        )
+        for offset in range(0, len(faces), 20)
+    }
+    return {
+        variant: reachable_surface_keys(variant[0], switch_styles, variant[1])
+        for variant in variants
+        if variant[0]
+    }
+
+
 def cache_hash(key: int, buckets: int, multiplier: int, shift: int) -> int:
     mixed = (key * multiplier) ^ (key >> shift)
     return (mixed & (buckets - 1)) if (buckets & (buckets - 1)) == 0 else mixed % buckets
 
 
 def best_hash(keys: frozenset[int], buckets: int) -> HashChoice:
-    if buckets < 1 or buckets > 64:
-        raise ValueError("light hash bucket count must be 1..64")
+    if buckets < 1 or buckets > 512:
+        raise ValueError("surface hash bucket count must be 1..512")
     if len(keys) == 1:
         return HashChoice(0, 0, 0)
 

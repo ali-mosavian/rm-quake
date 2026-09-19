@@ -3,8 +3,8 @@
 ;; name: qglDspInit / qglDspCallback / qglDspLock / qglDspUnlock /
 ;;       qglDspPos / qglDspBuf / qglDspScratch / qglDspShutdown
 ;; desc: Quake's snd_dos.c on the SB16 path. The DSP at 220h is reset and
-;;       asked its version; an 8192-byte ring is taken from qglMemAlloc and
-;;       aligned to 8192 so it never crosses a 64K DMA page, filled with
+;;       asked its version; a 4096-byte ring is taken from qglMemAlloc and
+;;       aligned to 4096 so it never crosses a 64K DMA page, filled with
 ;;       silence (128), and DMA channel 1 streams it in auto-init mode
 ;;       while the DSP plays interleaved 8-bit unsigned stereo at the rate asked for,
 ;;       half the ring a block. IRQ 7 calls a registered far cdecl callback
@@ -53,7 +53,7 @@ PIC_CMD         equ     20h
 PIC_MASK        equ     21h
 PIC_EOI         equ     20h
 
-DSP_RING        equ     8192
+DSP_RING        equ     4096
 DSP_SCRATCH     equ     4544                    ;; the mixer's, after the ring: cport's snd_mix.c
                                                 ;; two paint buffers, 180 records and 18 channels.
                                                 ;; refuses a layout longer than this rather than
@@ -66,7 +66,7 @@ DSP_ALLOC       equ     DSP_RING*2 + DSP_SCRATCH + DSP_ISR_STACK
 
 qgl$dsp_on      dw      0
 qgl$dsp_block   dd      0                       ;; what qglMemAlloc gave
-qgl$dsp_ring    dw      0                       ;; its 8192-aligned segment
+qgl$dsp_ring    dw      0                       ;; its 4096-aligned segment
 qgl$dsp_stack   dw      0                       ;; callback stack segment
 qgl$dsp_old     dd      0
 qgl$dsp_callback dd     0                       ;; cdecl far (dst, byte count)
@@ -102,7 +102,7 @@ qgl$DspIsr      proc    far private
                 cmp     dword ptr cs:qgl$dsp_callback, 0
                 je      @@flip
                 mov     ax, cs:qgl$dsp_half
-                shl     ax, 12                  ;; byte offset 0 or 4096
+                shl     ax, 11                  ;; byte offset 0 or 2048
                 push    DSP_RING/2              ;; cdecl: rightmost first
                 push    cs:qgl$dsp_ring
                 push    ax
@@ -213,11 +213,11 @@ qglDspInit      proc    public uses bx cx dx si di es,\
                 jz      @@no
                 mov     W cs:qgl$dsp_block, ax
                 mov     W cs:qgl$dsp_block+2, dx
-                ;; the ring starts at the next 8192-byte physical boundary.
+                ;; the ring starts at the next 4096-byte physical boundary.
                 shr     ax, 4
                 add     dx, ax
-                add     dx, 01FFh
-                and     dx, 0FE00h
+                add     dx, 00FFh
+                and     dx, 0FF00h
                 mov     cs:qgl$dsp_ring, dx
                 mov     ax, dx
                 add     ax, (DSP_RING + DSP_SCRATCH) / 16
@@ -366,7 +366,7 @@ qglDspUnlock    endp
 
 
 ;;::::::::::::::
-;; qglDspPos () -> ax = the stereo frame the DMA is on, 0..4095
+;; qglDspPos () -> ax = the stereo frame the DMA is on, 0..2047
 ;;
 ;; The count register reads bytes-remaining-1. The IRQ handler alone owns
 ;; the DSP acknowledge; this diagnostic must not consume it.
@@ -393,7 +393,7 @@ qglDspPos       endp
 
 
 ;;::::::::::::::
-;; qglDspBuf () -> dx:ax = the ring, 8192 bytes
+;; qglDspBuf () -> dx:ax = the ring, 4096 bytes
 ;; qglDspScratch () -> dx:ax = DSP_SCRATCH bytes after it, the mixer's own
 ;; qglDspScratchBytes () -> ax = how many, for the mixer to check its layout
 ;;::::::::::::::

@@ -86,7 +86,7 @@ short sb_build( SurfCache far *sc, World *world, Renderer *rdr, LightStyles *ls,
                 short far *gv, unsigned long dlbits )
 {
     Face    far *f  = &world->faces[face];
-    TexInfo far *ti = &world->texinfo[ f->tex_info_id ];
+    TexInfo far *ti = &world->texinfo[ FACE_TEXINFO_ID( f ) ];
 
     long  au, av, du, dv;
     short cw, ch, umsk, vmsk;
@@ -169,7 +169,7 @@ short sb_build( SurfCache far *sc, World *world, Renderer *rdr, LightStyles *ls,
                     }
             }
             if ( dlbits )
-                dl_add_luxels( rdr, dlbits, &world->planes[ f->plane_id ], ti,
+                dl_add_luxels( rdr, dlbits, &world->planes[ FACE_PLANE_ID( f ) ], ti,
                                tms, tmt, ls_scratch_c, lmw, lmh );
             srow = ls_scratch_c;
             scaled = 1;

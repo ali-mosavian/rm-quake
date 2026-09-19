@@ -31,8 +31,6 @@
 #include "qgl.h"
 
 #define SC_HINDEX_MASK 0x07FF
-#define SC_HSTATE_SHIFT 11
-#define SC_HSTATE_HIGH 0x8000
 #define SC_GRAN_MASK 0x3FFF
 #define SC_DYNAMIC 0x4000
 #define SC_OWNER_MASK 0x1FFF
@@ -47,15 +45,19 @@ static short sc_hindex( unsigned short h )
 static short sc_hstate( SurfCache far *sc, unsigned short h )
 {
     short b = sc_hindex( h );
-    return (short) ( ( h >> SC_HSTATE_SHIFT ) |
-                     ( ( sc->bown[b] & SC_HSTATE_HIGH ) ? 32 : 0 ) );
+    return (short) ( sc->bstate[b]
+                   | ( ( sc->bstate[SC_NBLK + ( b >> 3 )] >> ( b & 7 ) ) & 1 ) << 8 );
 }
 
 static unsigned short sc_handle( SurfCache far *sc, short b, short state )
 {
-    sc->bown[b] = (unsigned short) ( ( sc->bown[b] & ~SC_HSTATE_HIGH ) |
-                                     ( ( state & 32 ) ? SC_HSTATE_HIGH : 0 ) );
-    return (unsigned short) ( ( ( state & 31 ) << SC_HSTATE_SHIFT ) | b );
+    unsigned char mask = (unsigned char) ( 1 << ( b & 7 ) );
+    unsigned char far *hi = &sc->bstate[SC_NBLK + ( b >> 3 )];
+
+    sc->bstate[b] = (unsigned char) state;
+    if ( state & 0x100 ) *hi |= mask;
+    else                 *hi &= (unsigned char) ~mask;
+    return (unsigned short) b;
 }
 
 static short sc_owner( SurfCache far *sc, short b )
@@ -71,6 +73,22 @@ static short sc_mip( SurfCache far *sc, short b )
 static void sc_set_owner( SurfCache far *sc, short b, short face, short mip )
 {
     sc->bown[b] = (unsigned short) ( face | ( mip << SC_MIP_SHIFT ) );
+}
+
+static unsigned short sc_face_head( SurfCache far *sc, short face )
+{
+    Face far *f = &sc->faces[face];
+    return (unsigned short) ( ( f->plane_id >> 13 )
+                            | ( ( f->geom_ofs >> 11 ) & 0x0018 )
+                            | ( ( f->tex_info_id >> 5 ) & 0x07E0 ) );
+}
+
+static void sc_face_set_head( SurfCache far *sc, short face, unsigned short h )
+{
+    Face far *f = &sc->faces[face];
+    f->plane_id   = (unsigned short) ( ( f->plane_id & 0x1FFF ) | ( ( h & 0x0007 ) << 13 ) );
+    f->geom_ofs   = (unsigned short) ( ( f->geom_ofs & 0x3FFF ) | ( ( h & 0x0018 ) << 11 ) );
+    f->tex_info_id = (unsigned short) ( ( f->tex_info_id & 0x03FF ) | ( ( h & 0x07E0 ) << 5 ) );
 }
 
 static short sc_gran( SurfCache far *sc, short b )
@@ -313,27 +331,27 @@ static short sc_lru_oldest( SurfCache far *sc, short ord )
 }
 
 /* A face's own blocks, most recently used first, linked through bsib
-   from Face.cache. Every eviction goes through sc_chain_drop: the
+   from the head packed into Face's bounded index fields. Every eviction goes through sc_chain_drop: the
    face keeps its other surfaces. */
 static void sc_chain_drop( SurfCache far *sc, short face, short b )
 {
-    unsigned short h = sc->faces[face].cache, p = SC_NULL_HANDLE;
+    unsigned short h = sc_face_head( sc, face ), p = SC_NULL_HANDLE;
     short k = sc_hindex( h );
 
     while ( k >= 0 && k != b ) { p = h; h = sc->bsib[k]; k = sc_hindex( h ); }
     if ( k < 0 ) return;
     if ( sc_hindex( p ) >= 0 ) sc->bsib[ sc_hindex( p ) ] = sc->bsib[k];
-    else sc->faces[face].cache = sc->bsib[k];
+    else sc_face_set_head( sc, face, sc->bsib[k] );
     sc->bsib[k] = SC_NULL_HANDLE;
 }
 
 static void sc_chain_front( SurfCache far *sc, short face, unsigned short h )
 {
     short b = sc_hindex( h );
-    if ( sc->faces[face].cache == h ) return;
+    if ( sc_face_head( sc, face ) == h ) return;
     sc_chain_drop( sc, face, b );
-    sc->bsib[b] = sc->faces[face].cache;
-    sc->faces[face].cache = h;
+    sc->bsib[b] = sc_face_head( sc, face );
+    sc_face_set_head( sc, face, h );
 }
 
 static void sc_reset_lists( SurfCache far *sc )
@@ -347,7 +365,7 @@ static void sc_reset_lists( SurfCache far *sc )
     sc->rfree = -1;
 }
 
-static short sc_why  = 0;   /* the allocation sc_init stopped on, 1..4 */
+static short sc_why  = 0;   /* the allocation sc_init stopped on */
 static long  sc_want = 0;   /* and the bytes it asked that one for */
 
 void sc_fail( short *step, long *want )
@@ -361,7 +379,8 @@ short sc_init( SurfCache far *sc, Face far *faces, short face_count )
     short i;
 
     sc->faces = faces;
-    sc->bgrn = 0; sc->bown = 0; sc->bnext = 0; sc->bsib = 0;
+    sc->meta = 0;
+    sc->bgrn = 0; sc->bown = 0; sc->bstate = 0; sc->bnext = 0; sc->bsib = 0;
     sc->desc = 0;
     sc->hnd = 0;
 
@@ -377,22 +396,21 @@ short sc_init( SurfCache far *sc, Face far *faces, short face_count )
     sc->dlit    = 0;
     sc->nofresh = 0;
 
-    sc_want = (long) SC_NBLK * sizeof(unsigned short);
-    sc_why = 1; sc->bgrn = (unsigned short far *) qglMemAlloc( sc_want );
-    if ( !sc->bgrn ) { sc_shutdown( sc ); return 0; }
-    sc_why = 2; sc->bown = (unsigned short far *) qglMemAlloc( sc_want );
-    if ( !sc->bown ) { sc_shutdown( sc ); return 0; }
-    sc_why = 3; sc->bsib = (unsigned short far *) qglMemAlloc( sc_want );
-    if ( !sc->bsib ) { sc_shutdown( sc ); return 0; }
-    sc_want = SC_NEXT_BYTES;
-    sc_why = 4; sc->bnext = (unsigned char far *) qglMemAlloc( sc_want );
-    if ( !sc->bnext ) { sc_shutdown( sc ); return 0; }
+    sc_want = SC_META_BYTES;
+    sc_why = 1; sc->meta = (unsigned char far *) qglMemAlloc( sc_want );
+    if ( !sc->meta ) { sc_shutdown( sc ); return 0; }
+    sc->bgrn = (unsigned short far *) sc->meta;
+    sc->bown = (unsigned short far *) ( sc->meta + SC_NBLK * sizeof(unsigned short) );
+    sc->bsib = (unsigned short far *) ( sc->meta + SC_NBLK * 2L * sizeof(unsigned short) );
+    sc->bstate = sc->meta + SC_NBLK * 3L * sizeof(unsigned short);
+    sc->bnext = sc->bstate + SC_STATE_BYTES;
+    _fmemset( sc->bstate + SC_NBLK, 0, (SC_NBLK + 7) / 8 );
     sc_why = 0;
 
     sc->desc = 0;
     sc_reset_lists( sc );
     sc->bcnt = 0;
-    for ( i = 0; i < face_count; i++ ) sc->faces[i].cache = SC_NULL_HANDLE;
+    for ( i = 0; i < face_count; i++ ) sc_face_set_head( sc, i, SC_NULL_HANDLE );
 
     sc->hnd  = 0;
     sc->next = 0;
@@ -433,7 +451,7 @@ void sc_reset( SurfCache far *sc, short face_count )
     short i;
 
     for ( i = 0; i < face_count; i++ ) {
-        sc->faces[i].cache = SC_NULL_HANDLE;
+        sc_face_set_head( sc, i, SC_NULL_HANDLE );
     }
     sc_reset_lists( sc );
     sc->bcnt = 0;
@@ -452,13 +470,10 @@ void sc_shutdown( SurfCache far *sc )
     sc->next = 0;
     sc->ok   = 0;
 
-    if ( sc->bgrn )  qglMemFree( (long) (void far *) sc->bgrn );
-    if ( sc->bown )  qglMemFree( (long) (void far *) sc->bown );
-    if ( sc->bnext ) qglMemFree( (long) (void far *) sc->bnext );
-    if ( sc->bsib )  qglMemFree( (long) (void far *) sc->bsib );
+    if ( sc->meta ) qglMemFree( (long) (void far *) sc->meta );
     sc->faces = 0; sc->bgrn = 0;
     sc->bown = 0; sc->bnext = 0;
-    sc->bsib = 0;
+    sc->bsib = 0; sc->bstate = 0; sc->meta = 0;
 }
 
 void sc_flush( SurfCache far *sc, short face_count )
@@ -472,7 +487,7 @@ void sc_flush( SurfCache far *sc, short face_count )
     sc->live = 0;
 
     sc_reset_lists( sc );
-    for ( i = 0; i < face_count; i++ ) sc->faces[i].cache = SC_NULL_HANDLE;
+    for ( i = 0; i < face_count; i++ ) sc_face_set_head( sc, i, SC_NULL_HANDLE );
     sc->bcnt = 0;
 }
 
@@ -483,7 +498,7 @@ QSurf sc_find( SurfCache far *sc, short face, short mip, short w, short h, short
     short a, b, blk;
 
     if ( !sc->ok || state < 0 ) return 0;
-    hnd = sc->faces[face].cache;
+    hnd = sc_face_head( sc, face );
     for ( blk = sc_hindex( hnd ); blk >= 0; hnd = sc->bsib[blk], blk = sc_hindex( hnd ) )
         if ( sc_mip( sc, blk ) == mip && !( sc->bgrn[blk] & SC_DYNAMIC ) &&
              sc_hstate( sc, hnd ) == state ) break;
@@ -509,7 +524,7 @@ QSurf sc_find( SurfCache far *sc, short face, short mip, short w, short h, short
        fetch reads nothing past row 0. sc_alloc aims every row. */
     if ( !qglAimView( dc, *aim_ofs ) ) return 0;
     sc->hits++;
-    if ( sc->faces[face].cache != hnd ) sc_chain_front( sc, face, hnd );
+    if ( sc_face_head( sc, face ) != hnd ) sc_chain_front( sc, face, hnd );
     return dc;
 }
 
@@ -564,7 +579,7 @@ QSurf sc_alloc( SurfCache far *sc, short face, short mip, short w, short h, shor
     blk  = -1;
     last = -1;
     n    = 0;
-    hnd = sc->faces[face].cache;
+    hnd = sc_face_head( sc, face );
     for ( k = sc_hindex( hnd ); k >= 0; hnd = sc->bsib[k], k = sc_hindex( hnd ) ) {
         if ( sc_mip( sc, k ) != mip ) continue;
         if ( blk < 0 && ( ( sc->bgrn[k] & SC_DYNAMIC ) ||
@@ -628,8 +643,8 @@ QSurf sc_alloc( SurfCache far *sc, short face, short mip, short w, short h, shor
         sc_set_owner( sc, blk, face, mip );
         sc_next_set( sc, blk, -1 );
         newh = sc_handle( sc, blk, state < 0 ? 0 : state );
-        sc->bsib[blk] = sc->faces[face].cache;
-        sc->faces[face].cache = newh;
+        sc->bsib[blk] = sc_face_head( sc, face );
+        sc_face_set_head( sc, face, newh );
         sc->live++;
     }
     sc->bgrn[blk] = (unsigned short) ( sc_gran( sc, blk ) | ( state < 0 ? SC_DYNAMIC : 0 ) );
@@ -652,7 +667,7 @@ QSurf sc_alloc( SurfCache far *sc, short face, short mip, short w, short h, shor
 void sc_forget( SurfCache far *sc, short face )
 {
     short blk;
-    if ( sc->ok && ( blk = sc_hindex( sc->faces[face].cache ) ) >= 0 )
+    if ( sc->ok && ( blk = sc_hindex( sc_face_head( sc, face ) ) ) >= 0 )
         sc->bgrn[blk] |= SC_DYNAMIC;
 }
 
@@ -748,7 +763,7 @@ static short sc_selftest_run( SurfCache far *sc )
     /* both round to 128x128, so they share a view and differ only in
        where it points -- the whole point of the store */
     if ( d0 != d1 ) return -18;
-    if ( sc_hindex( sc->faces[0].cache ) == sc_hindex( sc->faces[1].cache ) ) return -21;
+    if ( sc_hindex( sc_face_head( sc, 0 ) ) == sc_hindex( sc_face_head( sc, 1 ) ) ) return -21;
     if ( sc->hnd == 0 ) return -22;
 
     /* and the floor it implies: 224 needs mip 1, 112 does not */
@@ -756,9 +771,9 @@ static short sc_selftest_run( SurfCache far *sc )
     if ( sc_mipfloor( 112, 112 ) != 0 ) return -20;
 
     if ( sc_find( sc, 0, 0, 112, 112, 0, &aim ) != d0 ) return -9;
-    if ( aim != (long) sc_gran( sc, sc_hindex( sc->faces[0].cache ) ) * SC_GRAN ) return -91;
+    if ( aim != (long) sc_gran( sc, sc_hindex( sc_face_head( sc, 0 ) ) ) * SC_GRAN ) return -91;
     {   /* a granule past 255 reaches the offset's high word */
-        short hb = sc_hindex( sc->faces[0].cache );
+        short hb = sc_hindex( sc_face_head( sc, 0 ) );
         short keep = sc->bgrn[hb];
         sc->bgrn[hb] = 300;
         if ( sc_find( sc, 0, 0, 112, 112, 0, &aim ) != d0 || aim != 300L * SC_GRAN ) return -92;
@@ -769,7 +784,7 @@ static short sc_selftest_run( SurfCache far *sc )
 
     /* a write into the last row of the largest class, the 16K page edge.
        sc_find aims row 0 alone, so every row is aimed here first. */
-    if ( !qglSetView( d0, (long) sc_gran( sc, sc_hindex( sc->faces[0].cache ) ) * SC_GRAN ) ) return -85;
+    if ( !qglSetView( d0, (long) sc_gran( sc, sc_hindex( sc_face_head( sc, 0 ) ) ) * SC_GRAN ) ) return -85;
     for ( i = 0; i < 32; i++ ) { wr[i] = (unsigned char) ((i * 7 + 3) & 255); rd[i] = 0; }
     /* through a far cast: (long) on a near array drops DS, and the row
        went to and from segment 0 */
@@ -786,8 +801,8 @@ static short sc_selftest_run( SurfCache far *sc )
     d2 = sc_alloc( sc, 5, 0, 112, 112, 112, 112, 0, 10, &aim );
     if ( d2 != d0 ) return -15;
     if ( sc->made != made0 ) return -16;
-    if ( sc_hindex( sc->faces[5].cache ) < 0 ) return -23;
-    if ( sc_gran( sc, sc_hindex( sc->faces[5].cache ) ) != 0 ) return -33;
+    if ( sc_hindex( sc_face_head( sc, 5 ) ) < 0 ) return -23;
+    if ( sc_gran( sc, sc_hindex( sc_face_head( sc, 5 ) ) ) != 0 ) return -33;
 
     /*
      * ---- FIFO reuse ----------------------------------------------
@@ -804,9 +819,9 @@ static short sc_selftest_run( SurfCache far *sc )
     d2 = sc_alloc( sc, 2, 0, 112, 112, 112, 112, 0, 10, &aim );
     if ( d0 == 0 || d1 == 0 || d2 == 0 ) return -24;
     if ( sc->bcnt != 3 ) return (short) -(2000 + sc->bcnt);
-    if ( sc_hindex( sc->faces[0].cache ) < 0 ) return -2999;
-    if ( sc_hindex( sc->faces[0].cache ) == sc_hindex( sc->faces[1].cache ) ) return -25;
-    if ( sc_hindex( sc->faces[1].cache ) == sc_hindex( sc->faces[2].cache ) ) return -26;
+    if ( sc_hindex( sc_face_head( sc, 0 ) ) < 0 ) return -2999;
+    if ( sc_hindex( sc_face_head( sc, 0 ) ) == sc_hindex( sc_face_head( sc, 1 ) ) ) return -25;
+    if ( sc_hindex( sc_face_head( sc, 1 ) ) == sc_hindex( sc_face_head( sc, 2 ) ) ) return -26;
 
     /* FIFO deliberately does no work on a hit: face 0 remains the victim. */
     if ( sc_find( sc, 0, 0, 112, 112, 0, &aim ) == 0 ) return -27;
@@ -831,11 +846,11 @@ static short sc_selftest_run( SurfCache far *sc )
        Building mip 1 must leave mip 0 resident and cost no flush. */
     sc_reset( sc, 10 );
     if ( sc_alloc( sc, 0, 0, 112, 112, 112, 112, 0, 10, &aim ) == 0 ) return -105;
-    ofs0   = sc_hindex( sc->faces[0].cache );
+    ofs0   = sc_hindex( sc_face_head( sc, 0 ) );
     live0  = sc->live;
     flush0 = sc->flushes;
     if ( sc_alloc( sc, 0, 1, 56, 56, 112, 112, 0, 10, &aim ) == 0 ) return -29;
-    if ( sc_hindex( sc->faces[0].cache ) == ofs0 ) return -30;
+    if ( sc_hindex( sc_face_head( sc, 0 ) ) == ofs0 ) return -30;
     if ( sc->live != live0 + 1 ) return -31;
     if ( sc_find( sc, 0, 0, 112, 112, 0, &aim ) == 0 ) return -34;
     if ( sc_find( sc, 0, 1, 56, 56, 0, &aim ) == 0 ) return -35;
@@ -880,7 +895,7 @@ static short sc_selftest_run( SurfCache far *sc )
     /*
      * ---- state: a light-style change must force a rebuild --------
      * Everything above passes whether or not sc_find checks the state,
-     * so this block proves that a different six-bit state misses.
+     * so this block proves that a different state misses.
      */
     sc_reset( sc, 10 );
     if ( sc_alloc( sc, 0, 0, 112, 112, 112, 112, 5, 10, &aim ) == 0 ) return -50;
@@ -904,6 +919,12 @@ static short sc_selftest_run( SurfCache far *sc )
     if ( sc_find( sc, 0, 0, 112, 112, 5, &aim ) != 0 ) return -59;
     if ( sc_find( sc, 0, 0, 112, 112, 62, &aim ) == 0 ) return -60;
     if ( sc_find( sc, 1, 0, 112, 112, 0, &aim ) == 0 ) return -61;
+
+    /* The animation phase extends the key to nine bits. Its high bit
+       must survive the packed state table instead of aliasing state 255. */
+    if ( sc_alloc( sc, 9, 0, 16, 16, 16, 16, 511, 10, &aim ) == 0 ) return -106;
+    if ( sc_find( sc, 9, 0, 16, 16, 511, &aim ) == 0 ) return -107;
+    if ( sc_find( sc, 9, 0, 16, 16, 255, &aim ) != 0 ) return -108;
 
     /* The light-state cap is per mip. Adding one past SC_VARIANTS gives
        up only mip 0's oldest face-chain state; all mip 1 states stay. */
@@ -965,19 +986,17 @@ static short sc_selftest_run( SurfCache far *sc )
     sc->cap = sc->next;
     built = sc_alloc( sc, 3, 0, 16, 16, 16, 16, 0, 10, &aim ) != 0;
     sc->cap = next0;
-    if ( !built || sc_hindex( sc->faces[0].cache ) >= 0 ||
-         sc_hindex( sc->faces[1].cache ) < 0 ) return -96;
+    if ( !built || sc_hindex( sc_face_head( sc, 0 ) ) >= 0 ||
+         sc_hindex( sc_face_head( sc, 1 ) ) < 0 ) return -96;
 
     sc_reset( sc, 10 );
     return 1;
 }
 
-/* sc_init refused part-way must return 0 and keep nothing. The struct is
-   0xFF, as uncleared qglMemAlloc bytes can be: the pointers sc_init never
-   reached passed its null test, it returned 1, and what it did allocate
-   was never given back. Memory is filled with blocks one short array wide
-   and two non-adjacent ones freed, so two short arrays fit and the third
-   does not. Everything allocated before the failure has to go back. */
+/* sc_init refused must return 0 and keep nothing. The struct is 0xFF, as
+   uncleared qglMemAlloc bytes can be. Memory is filled with small blocks
+   and two non-adjacent ones freed, so the total free memory is misleading
+   but the consolidated metadata block cannot fit. */
 static short sc_selftest_short( SurfCache far *sc )
 {
     long hog[256];   /* on the stack: static is 1K of DGROUP */
@@ -1004,7 +1023,7 @@ static short sc_selftest_short( SurfCache far *sc )
     for ( k = 1; k < n; k++ ) if ( k != 2 ) qglMemFree( hog[k] );
     if ( r != 0 ) return -87;
     if ( ok != 0 ) return -88;
-    if ( step < 3 ) return -86;   /* no array allocated: not armed */
+    if ( step != 1 || want != SC_META_BYTES ) return -86;
     qglMemAvail( QGL_MEM_LARGEST );
     if ( qglMemAvail( QGL_MEM_TOTAL ) != before ) return -89;
     return 1;

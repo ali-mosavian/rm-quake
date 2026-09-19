@@ -9,11 +9,11 @@
 /*
  * snd.h -- the sound layer: Quake's snd_dma.c stereo spatializer.
  *
- * qglDspInit starts a Sound Blaster playing an 8192-byte ring in
+ * qglDspInit starts a Sound Blaster playing a 4096-byte ring in
  * auto-init DMA; snd.bsc, mksnd.py's concatenation of the game's wavs
  * as bsc4/32n, goes into one EMS handle a page at a time and
  * snddec.raw is the table it is decoded through. The SB ISR gives each
- * completed 4096-byte half to snd_mix.c, which refills it before the DSP
+ * completed 2048-byte half to snd_mix.c, which refills it before the DSP
  * acknowledges the interrupt.
  */
 

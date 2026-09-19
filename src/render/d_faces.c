@@ -148,7 +148,7 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
     short mi, m_node, ti, i, j, v0, gn, vcnt, cnt;
     short all_in;
     float zn, zf;
-    short tex, tex_id, draw_mip, mip_level, liquid, sky, sky_made = 0;
+    short tex, tex_id, anim_count, anim_step, draw_mip, mip_level, liquid, sky, sky_made = 0;
     short z_want, z_have = -1, lm_use, lm_on;
     short lm_tms, lm_tmt, lm_extw, lm_exth;
     long  lm_stag;
@@ -202,7 +202,7 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
                against it, and a face is only ever visible from its
                own front. */
             fmdl = (short) ( tri[i].side >> 1 );
-            pl = &planes[ tri[i].plane_id ];
+            pl = &planes[ FACE_PLANE_ID( &tri[i] ) ];
             dp_dist = r_cam_plane_dist( campos, pl );
             if ( fmdl ) {
                 dp_dist -= brush[fmdl].ofs.x*pl->norm.x
@@ -223,16 +223,21 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
                assumed. */
             gv = gv_buf;
             gn = GEOM_MAXREC;
-            if ( tri[i].geom_ofs + gn > GEOM_W ) gn = (short)( GEOM_W - tri[i].geom_ofs );
+            if ( FACE_GEOM_OFS( &tri[i] ) + gn > GEOM_W )
+                gn = (short)( GEOM_W - FACE_GEOM_OFS( &tri[i] ) );
             {
-                char far *src = (char far *) mod_geom_map( world, tri[i].geom_row ) + tri[i].geom_ofs;
+                char far *src = (char far *) mod_geom_map( world, tri[i].geom_row )
+                              + FACE_GEOM_OFS( &tri[i] );
                 char far *dst = (char far *) gv;
                 r_gvcpy( src, dst, gn );
             }
 
             vcnt   = gv[0];
-            tex    = tri[i].tex_info_id;
+            tex    = FACE_TEXINFO_ID( &tri[i] );
             tex_id = texinf[tex].mip_tex;
+            anim_count = mipinf[tex_id].anim_count;
+            anim_step = anim_count > 1
+                      ? (short) ( ifloor( dp->anim_time * 5.0f ) % anim_count ) : 0;
             liquid = mipinf[tex_id].liquid;
             sky    = mipinf[tex_id].sky && world->sky_dc;
             ofs3[0] = brush[fmdl].ofs.x;
@@ -264,9 +269,9 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
             tw = mipinf[tex_id].wdth;
             th = mipinf[tex_id].hght;
 
-            /* Surface-cache candidate? Needs a lightmap, and must be
-               neither liquid (warped per pixel) nor animated
-               (would rebuild every time the frame index moved). */
+            /* Surface-cache candidate? Needs a lightmap and must not be
+               liquid, whose coordinates are warped per pixel. Animation
+               phase is part of the exact cache state below. */
             lm_on = 0;
             lm_stag = 0;
             lm_state = 0;
@@ -278,7 +283,7 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
             dp->k_lm += gv[GEOM_LMOFS];
 #endif
 
-            if ( lm_use && liquid == 0 && !sky && mipinf[tex_id].anim_count <= 1 ) {
+            if ( lm_use && liquid == 0 && !sky ) {
                 if ( gv[GEOM_LMOFS] >= 0 ) {
 #if QR_PROF
                     dp->k_hdr++;
@@ -292,10 +297,10 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
                     {
                         short s01 = gv[GEOM_LMOFS + 6], s23 = gv[GEOM_LMOFS + 7];
                         unsigned short hp = (unsigned short) gv[GEOM_LMOFS + 8];
-                        lm_stag = LS_FACE_KEY( ls, s01, s23 );
+                        lm_stag = LS_FACE_KEY( ls, s01, s23 ) * anim_count + anim_step;
                         if ( hp & 255 )
                             lm_state = (short) ( ( ( lm_stag * ( hp & 255 ) ) ^
-                                                  ( (unsigned long) lm_stag >> ( hp >> 8 ) ) ) & 63 );
+                                                  ( (unsigned long) lm_stag >> ( hp >> 8 ) ) ) & 511 );
                     }
 
                     /* D_CacheSurface's cache->dlight: a lit face
@@ -326,9 +331,9 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
 
             /* Animation swaps which image is sampled; index
                arithmetic only, once per face. */
-            if ( mipinf[tex_id].anim_count > 1 )
+            if ( anim_count > 1 )
                 tex_id = world->anim_tab[ mipinf[tex_id].anim_base
-                       + ( ifloor( dp->anim_time * 5.0f ) % mipinf[tex_id].anim_count ) ];
+                       + anim_step ];
 
             if ( sky ) {
                 for ( j = 0; j < vcnt; j++ ) {

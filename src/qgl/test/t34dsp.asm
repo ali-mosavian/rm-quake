@@ -1,11 +1,10 @@
 ;; t34dsp -- the Sound Blaster plays the ring at the rate asked for.
 ;;
-;; Three BIOS ticks are 165 ms, 1819 samples at 11025 Hz: the DMA position
-;; must have moved about that far -- the emulator feeds its mixer in
-;; blocks, so within 600 -- which a wrong channel (no movement), a wrong
-;; rate (twice or half the distance) or a wrong count register (garbage)
-;; all fail. Then over ten ticks it wraps the 4096 ring at least once, and
-;; after qglDspShutdown the vector is the one that was there.
+;; Three BIOS ticks are 165 ms, 1819 samples at 11025 Hz. Accumulate three
+;; one-tick deltas so a doubled rate cannot wrap the shortened ring and look
+;; nominal. The emulator feeds its mixer in blocks, so within 600 is accepted.
+;; Then over ten ticks it wraps the ring at least once, and after shutdown the
+;; vector is the one that was there.
 
                 .model  medium, pascal
                 .386
@@ -20,11 +19,11 @@ qglDspShutdown  proto   far
 
 BIOS_TICK       equ     6Ch
 SB_IRQ_VEC      equ     0Fh
-RING            equ     4096
+RING            equ     2048
 
 .data
 n_init          db      'DSP answered           $'
-n_buf           db      'ring aligned to 8192   $'
+n_buf           db      'ring aligned to 4096   $'
 n_adv           db      '3 ticks move 1219..2419$'
 n_wrap          db      'ten ticks wrap the ring$'
 n_back          db      'vector restored        $'
@@ -61,17 +60,26 @@ tmain           proc    far public uses bx cx dx si di es
                 CHK     n_init, ax, 1
 
                 invoke  qglDspBuf
-                and     dx, 01FFh
+                and     dx, 00FFh
                 or      dx, ax
                 CHK     n_buf, dx, 0
 
                 invoke  bios_wait, 1            ;; align to a tick edge
                 invoke  qglDspPos
                 mov     p0, ax
-                invoke  bios_wait, 3
+                mov     got, 0
+                mov     cx, 3
+@@rate:         push    cx
+                invoke  bios_wait, 1
                 invoke  qglDspPos
-                sub     ax, p0
+                mov     dx, ax
+                sub     ax, p0                  ;; one tick cannot wrap twice
                 and     ax, RING - 1
+                add     got, ax
+                mov     p0, dx
+                pop     cx
+                loop    @@rate
+                mov     ax, got
                 mov     got, 1
                 cmp     ax, 1219
                 jb      @@bad

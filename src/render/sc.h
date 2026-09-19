@@ -10,7 +10,7 @@
  * slice (see sc.c's own header for the pool's shape and why).
  *
  * SurfCache is heap-sized, not stack/DGROUP-sized -- its block tables
- * are 15.1 KB, and
+ * are 17.4 KB, and
  * medium model's DGROUP is 64 KB shared with the stack and every other
  * near global. Its owner allocates it with qglMemAlloc (mgl's dos.h, the
  * standard far heap, not a MEM/EMS uGL store -- this is bookkeeping,
@@ -47,6 +47,8 @@
 #define SC_NULL_INDEX 2047
 #define SC_NULL_HANDLE 0x07FF
 #define SC_NEXT_BYTES 2814
+#define SC_STATE_BYTES (SC_NBLK + (SC_NBLK + 7) / 8)
+#define SC_META_BYTES ((long) SC_NBLK * 3L * sizeof(unsigned short) + SC_STATE_BYTES + SC_NEXT_BYTES)
 
 /* bspfile.bi's CacheStats -- sc_stats' own snapshot, one crossing
    instead of nine separate counter reads. */
@@ -77,7 +79,7 @@ typedef struct {
     long      next;      /* bump pointer within it */
     long      cap;       /* how big it is */
 
-    Face far *faces;      /* Face.cache is the head of its surface chain */
+    Face far *faces;      /* each Face's spare index bits hold its chain head */
 
     QSurf       desc;      /* one tableless strided view, reshaped and
                               re-aimed for the surface being used */
@@ -86,10 +88,12 @@ typedef struct {
        per face. Offsets are kept in SC_GRAN granules so they fit a
        short: SC_GRAN is the smallest class, so every block is a whole
        number of them, and SC_STORE/SC_GRAN is 16,384, inside int16. */
-    unsigned short far *bsib; /* next handle: five state bits, eleven-bit index;
-                                 the sixth state bit is in bown */
+    unsigned char far *meta;  /* one DOS block, so map-sized allocation holes
+                                 cannot strand one of the tables */
+    unsigned short far *bsib; /* next block in this face's chain */
     unsigned short far *bgrn; /* low 14: granule; bit 14: dynamic */
     unsigned short far *bown; /* low 13: face; bits 13..14: mip; 0xffff free */
+    unsigned char far *bstate; /* exact nine-bit light-style/animation key */
     unsigned char far *bnext; /* byte low + packed three-bit free/FIFO link */
     short     bcnt;     /* blocks made so far */
     short     rfree;    /* recycled block records, via bnext */
@@ -112,7 +116,7 @@ typedef struct {
 
 /*
  * name: sc_init
- * desc: Allocates sc's compact block tables and clears Face.cache. The store DC
+ * desc: Allocates sc's compact block tables and clears each face's packed head. The store DC
  *       itself is claimed lazily, on first use (sc_store_open) -- see
  *       its own header for why. Returns 0 if the far heap couldn't
  *       supply the bookkeeping arrays (a hard failure, unlike EMS

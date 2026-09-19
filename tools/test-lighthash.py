@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prove the six-bit surface-cache light hash is exact for every shipped map."""
+"""Prove the nine-bit surface-cache state hash is exact for every shipped map."""
 
 import re
 import sys
@@ -28,7 +28,7 @@ def main() -> int:
     for styles, keys in synthetic.items():
         curve = lighthash.collision_curve(keys)
         if curve[-1].collisions:
-            print(f"FAIL: synthetic styles {styles} have no exact six-bit hash", file=sys.stderr)
+            print(f"FAIL: synthetic styles {styles} have no exact hash", file=sys.stderr)
             return 1
         for buckets, choice in enumerate(curve, 1):
             collisions = len(keys) - len(
@@ -41,6 +41,14 @@ def main() -> int:
                 print(f"FAIL: {buckets}-bucket result misreports its collisions", file=sys.stderr)
                 return 1
 
+    animated = lighthash.reachable_surface_keys((0, 2), set(), 4)
+    if len(animated) != len(lighthash.reachable_keys((0, 2), set())) * 4:
+        print("FAIL: animation phases collide before hashing", file=sys.stderr)
+        return 1
+    if lighthash.best_hash(animated, 512).collisions:
+        print("FAIL: animated light states have no exact nine-bit hash", file=sys.stderr)
+        return 1
+
     maps = sorted((root / "data").glob("*.bsp"))
     if not maps:
         print("FAIL: no BSP maps", file=sys.stderr)
@@ -48,23 +56,24 @@ def main() -> int:
 
     worst = (0, "", ())
     for path in maps:
-        for styles, keys in lighthash.bsp_light_keys(path.read_bytes()).items():
+        for (styles, animation_frames), keys in lighthash.bsp_surface_keys(path.read_bytes()).items():
             states = len(keys)
             if states > worst[0]:
                 worst = (states, path.stem, styles)
-            choice = lighthash.best_hash(keys, 64)
+            choice = lighthash.best_hash(keys, 512)
             hashes = {
-                lighthash.cache_hash(key, 64, choice.multiplier, choice.shift)
+                lighthash.cache_hash(key, 512, choice.multiplier, choice.shift)
                 for key in keys
             }
             if len(hashes) != states:
                 print(
-                    f"FAIL: {path.stem} styles {styles}: {states - len(hashes)} collisions",
+                    f"FAIL: {path.stem} styles {styles}, animation {animation_frames}: "
+                    f"{states - len(hashes)} collisions",
                     file=sys.stderr,
                 )
                 return 1
 
-    print(f"ok: six-bit light hash is exact; worst available set is {worst}")
+    print(f"ok: nine-bit surface hash is exact; worst available set is {worst}")
     return 0
 
 

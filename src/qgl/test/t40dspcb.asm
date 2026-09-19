@@ -1,7 +1,7 @@
 ;; t40dspcb -- IRQ 7 gives each completed DMA half to the registered callback.
 ;;
 ;; Foreground code does no painting after registration.  Within ten BIOS
-;; ticks both halves must have been handed to the callback, with the 4096-byte
+;; ticks both halves must have been handed to the callback, with the 2048-byte
 ;; half size MGL's Sound Blaster callback contract uses.  The callback must
 ;; run on the driver's stack: using the interrupted renderer stack corrupted
 ;; a partially presented frame, then returned through VGA ROM after long play.
@@ -22,7 +22,7 @@ BIOS_TICK       equ     6Ch
 
 .data
 n_called        db      'IRQ callback called   $'
-n_size          db      'callback half is 4096 $'
+n_size          db      'callback half is 2048 $'
 n_halves        db      'both halves refilled  $'
 n_stack         db      'callback owns stack   $'
 n_bound         db      'callback stack bounded$'
@@ -44,7 +44,7 @@ dsp_callback    proc    far private
                 mov     ax, ss
                 mov     cb_ss, ax
                 inc     calls
-                cmp     word ptr [bp+10], 4096
+                cmp     word ptr [bp+10], 2048
                 je      @@size
                 inc     badsize
 @@size:         push    es
@@ -100,7 +100,7 @@ tmain           proc    far public uses bx dx es
                 xor     ax, ax
                 cmp     byte ptr es:[bx], 11h
                 jne     @@halves
-                cmp     byte ptr es:[bx+4096], 11h
+                cmp     byte ptr es:[bx+2048], 11h
                 jne     @@halves
                 mov     ax, 1
 @@halves:       CHK     n_halves, ax, 1

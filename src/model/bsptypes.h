@@ -76,16 +76,20 @@ typedef struct {
 } Submodel;
 
 /* bspfile.bi's Face. geom_row/geom_ofs locate the face's fetched
-   geometry record (d_poly's own gv_buf scratch, not World's -- it's
-   filled per face by the caller, model.bas isn't ported yet either). */
+   geometry record. The unused high bits of its three bounded indices
+   hold the surface-cache chain head: eleven bits without another word
+   on every face. */
 typedef struct {
-    short plane_id;
-    short geom_ofs;
-    short tex_info_id;
-    unsigned short cache;
+    unsigned short plane_id;
+    unsigned short geom_ofs;
+    unsigned short tex_info_id;
     unsigned char geom_row;
     unsigned char side;
 } Face;
+
+#define FACE_PLANE_ID( f )  ( (short) ( (f)->plane_id & 0x1FFF ) )
+#define FACE_GEOM_OFS( f )  ( (short) ( (f)->geom_ofs & 0x3FFF ) )
+#define FACE_TEXINFO_ID( f ) ( (short) ( (f)->tex_info_id & 0x03FF ) )
 
 /* bspfile.bi's TexInfo. vecs/vect are FIXED-size embedded arrays (dim
    x(3) inside a BASIC TYPE), not the dynamic kind that cannot be a UDT
@@ -142,7 +146,7 @@ typedef struct {
 #define REC_PLANE     16
 #define REC_NODE      16
 #define REC_LEAF      16
-#define REC_FACE      10
+#define REC_FACE       8
 #define REC_CLIPNODE   6
 #define REC_SUBMODEL  32
 #define REC_TEXINFO   34
