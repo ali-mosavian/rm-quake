@@ -360,6 +360,21 @@ static void near sbar_draw_pic( QSurf dst, short sx, short sy, short sw, short s
     }
 }
 
+void scr_sbar_crosshair( QSurf dst, short x, short y, short w, short h )
+{
+    unsigned char code = '+';
+    short sx = (short) ( code % 64 * 8 );
+    short sy = (short) ( SBARC_CHARS_Y + code / 64 * 8 );
+    short sw = 8, sh = 8;
+
+    if ( x >= w || y >= h || x + sw <= 0 || y + sh <= 0 ) return;
+    if ( x < 0 ) { sx = (short) ( sx - x ); sw = (short) ( sw + x ); x = 0; }
+    if ( y < 0 ) { sy = (short) ( sy - y ); sh = (short) ( sh + y ); y = 0; }
+    if ( x + sw > w ) sw = (short) ( w - x );
+    if ( y + sh > h ) sh = (short) ( h - y );
+    sbar_draw_pic( dst, sx, sy, sw, sh, x, y );
+}
+
 static void near sbar_draw_cell( QSurf dst, short index, short x, short y )
 {
     sbar_draw_pic( dst, (short) ( index % SBARC_CELL_COLS * CELL ),

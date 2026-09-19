@@ -39,6 +39,7 @@ void scr_sbar_load( Pak *pak );
 void scr_sbar_shutdown( void );
 void scr_sbar_draw( World *world, Fight *fight, float now, short showscores,
                     short lines, QSurf dst, short w, short h );
+void scr_sbar_crosshair( QSurf dst, short x, short y, short w, short h );
 void scr_sbar_intermission( World *world, Fight *fight, QSurf dst, short w, short h );
 void scr_sbar_finale( QSurf dst, short w );
 

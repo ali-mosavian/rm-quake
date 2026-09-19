@@ -101,6 +101,10 @@ PAK0 and are left out.
       id: `screen.c` `scr_viewsize`, `SCR_SizeUp_f`, `scr_fov`
       qcport: archived `viewsize`/`fov` cvars and `sizeup`/`sizedown`, with
       id's centered 30..120 layouts; `src/render/vid.c`, `src/host/host.c`
+- [x] Software-renderer crosshair
+      id: `view.c` `V_RenderView`, `crosshair`, `cl_crossx`, `cl_crossy`
+      qcport: id's `CONCHARS` plus glyph at the final view centre with both
+      offsets; `src/ui/sbar.c`, `tools/test-crosshair.sh`
 
 ## Gameplay
 

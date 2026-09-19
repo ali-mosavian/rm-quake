@@ -81,6 +81,7 @@ typedef struct {
     float          viewsize_applied;
     float          forward_speed;
     short          invert_mouse;
+    short          crosshair_cvar, crosshair_x_cvar, crosshair_y_cvar;
     Hud far       *hud;
     SurfCache far *sc;
     Mat4           mtx_prj;

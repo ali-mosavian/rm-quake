@@ -1176,6 +1176,14 @@ void host_init( Host *h )
     cvar_register( h->cmd, "volume", "1", CVAR_ARCHIVE, 0.0f, 1.0f );
     cvar_register( h->cmd, "cl_forwardspeed", "200", CVAR_ARCHIVE, 200.0f, 400.0f );
     cvar_register( h->cmd, "m_pitch", "1", CVAR_ARCHIVE, -1.0f, 1.0f );
+    h->crosshair_cvar = cvar_register( h->cmd, "crosshair", "0",
+                                       CVAR_ARCHIVE, -32767.0f, 32767.0f );
+    h->crosshair_x_cvar = cvar_register( h->cmd, "cl_crossx", "0",
+                                         0, -320.0f, 320.0f );
+    h->crosshair_y_cvar = cvar_register( h->cmd, "cl_crossy", "0",
+                                         0, -200.0f, 200.0f );
+    if ( h->crosshair_cvar < 0 || h->crosshair_x_cvar < 0 || h->crosshair_y_cvar < 0 )
+        sys_error( "crosshair cvar registration failed" );
     h->viewsize_applied = 100.0f;
     h->forward_speed = 200.0f;
     h->invert_mouse = 0;
@@ -1644,6 +1652,13 @@ static void near host_present( Host *h )
     else
         v_present( v, h->h_dst_dc, 0, (short) ( !special && !menu ) );
     target = v->h_comp_dc;
+    if ( h->cmd->cvar[h->crosshair_cvar].value )
+        scr_sbar_crosshair( target,
+            (short) ( v->view_x + v->x_res * v->view_scale / 2 +
+                      h->cmd->cvar[h->crosshair_x_cvar].value ),
+            (short) ( v->view_y + v->y_res * v->view_scale / 2 +
+                      h->cmd->cvar[h->crosshair_y_cvar].value ),
+            v->scr_x_res, v->scr_y_res );
     if ( menu ) {
         menu_draw( h->menu, h->keys, h->cmd, h->rdr.anim_time,
                    target, v->scr_x_res, v->scr_y_res );
