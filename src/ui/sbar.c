@@ -37,7 +37,7 @@ typedef struct {
     short power, face, score;
     short kills, monsters, secrets, secret_total;
     short lines;
-    short weapon_frame[6];
+    short weapon_frame[7];
     long seconds;
 } SbarState;
 
@@ -112,14 +112,23 @@ static void near sbar_cell( short index, short x, short y )
 
 static void near sbar_weapon( short index, short x )
 {
-    sbar_pic( (short) ( index % SBARC_WEAPON_COLS * 24 ),
-               (short) ( SBARC_WEAPON_Y + index / SBARC_WEAPON_COLS * 16 ),
-               24, 16, x, 8 );
+    short sx, sy, width;
+
+    if ( index < 42 ) {
+        sx = (short) ( index % SBARC_WEAPON_COLS * 24 );
+        sy = (short) ( SBARC_WEAPON_Y + index / SBARC_WEAPON_COLS * 16 );
+        width = 24;
+    } else {
+        sx = (short) ( ( index - 42 ) * 48 );
+        sy = SBARC_ITEM_Y;
+        width = 48;
+    }
+    sbar_pic( sx, sy, width, 16, x, 8 );
 }
 
 static void near sbar_item( short sx, short width, short x )
 {
-    sbar_pic( sx, SBARC_ITEM_Y, width, 16, x, 8 );
+    sbar_pic( (short) ( SBARC_ITEM_X + sx ), SBARC_ITEM_Y, width, 16, x, 8 );
 }
 
 static void near sbar_char( unsigned char code, short x, short y )
@@ -190,8 +199,8 @@ static void near sbar_state( SbarState *state, const World *world,
                              const Fight *fight, float now,
                              short showscores, short lines )
 {
-    static short bits[6] = { PL_IT_SHOTGUN, PL_IT_SSG, PL_IT_NAILGUN,
-                              PL_IT_SNG, PL_IT_GL, PL_IT_RL };
+    static short bits[7] = { PL_IT_SHOTGUN, PL_IT_SSG, PL_IT_NAILGUN,
+                              PL_IT_SNG, PL_IT_GL, PL_IT_RL, PL_IT_LIGHTNING };
     short i, frame, elapsed;
 
     memset( state, 0, sizeof(*state) );
@@ -214,10 +223,11 @@ static void near sbar_state( SbarState *state, const World *world,
     state->secret_total = fight->secret_total;
     state->seconds = (long) ( now - fight->level_start );
     state->lines = lines;
-    for ( i = 0; i < 6; i++ ) {
+    for ( i = 0; i < 7; i++ ) {
+        float at = i < 6 ? fight->weapon_at[i] : fight->lightning_at;
         frame = fight->weapon == bits[i] ? 1 : 0;
-        if ( fight->weapon_at[i] >= 0.0f && now - fight->weapon_at[i] < 1.0f ) {
-            elapsed = (short) ( ( now - fight->weapon_at[i] ) * 10.0f );
+        if ( at >= 0.0f && now - at < 1.0f ) {
+            elapsed = (short) ( ( now - at ) * 10.0f );
             if ( elapsed < 0 ) elapsed = 0;
             frame = (short) ( elapsed % 5 + 2 );
         }
@@ -227,6 +237,7 @@ static void near sbar_state( SbarState *state, const World *world,
 
 static short near current_ammo( const Fight *fight )
 {
+    if ( fight->weapon == PL_IT_LIGHTNING ) return fight->cells;
     if ( fight->weapon == PL_IT_NAILGUN || fight->weapon == PL_IT_SNG ) return fight->nails;
     if ( fight->weapon == PL_IT_GL || fight->weapon == PL_IT_RL ) return fight->rockets;
     return fight->shells;
@@ -234,6 +245,7 @@ static short near current_ammo( const Fight *fight )
 
 static short near current_ammo_icon( const Fight *fight )
 {
+    if ( fight->weapon == PL_IT_LIGHTNING ) return 3;
     if ( fight->weapon == PL_IT_NAILGUN || fight->weapon == PL_IT_SNG ) return 1;
     if ( fight->weapon == PL_IT_GL || fight->weapon == PL_IT_RL ) return 2;
     return 0;
@@ -265,8 +277,8 @@ static void near sbar_score( const World *world, const SbarState *state )
 static void near sbar_paint( const World *world, const Fight *fight,
                              const SbarState *state )
 {
-    static short bits[6] = { PL_IT_SHOTGUN, PL_IT_SSG, PL_IT_NAILGUN,
-                              PL_IT_SNG, PL_IT_GL, PL_IT_RL };
+    static short bits[7] = { PL_IT_SHOTGUN, PL_IT_SSG, PL_IT_NAILGUN,
+                              PL_IT_SNG, PL_IT_GL, PL_IT_RL, PL_IT_LIGHTNING };
     short i, ammo;
 
     if ( state->lines == 48 ) sbar_copy_bar( SBARC_IBAR_Y, SBARC_WORK_Y );
@@ -274,7 +286,7 @@ static void near sbar_paint( const World *world, const Fight *fight,
                     (short) ( SBARC_WORK_Y + 24 ) );
 
     if ( state->lines == 48 ) {
-        for ( i = 0; i < 6; i++ ) if ( fight->items & bits[i] )
+        for ( i = 0; i < 7; i++ ) if ( fight->items & bits[i] )
             sbar_weapon( (short) ( i * WEAPON_FRAMES + state->weapon_frame[i] ),
                           (short) ( i * 24 ) );
         sbar_small_num( 10, fight->shells );

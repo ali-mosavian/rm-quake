@@ -162,6 +162,7 @@ typedef struct {
     short no_ents;        /* -noents */
     short no_items;       /* -noitems */
     short no_mdl;         /* -nomdl */
+    short no_beam;        /* -nobeam: keep state, omit beam raster */
     short no_view;        /* -noview: no weapon in hand, for a reference frame */
     short demo_view_frame;/* recorded QDS1 frame, -1 outside demo playback */
     short no_ai;          /* -noai: the monsters stand where they spawned */

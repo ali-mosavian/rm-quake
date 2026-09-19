@@ -18,6 +18,7 @@
 #include "ent.h"
 #include "triggers.h"
 #include "pl_trace.h"
+#include "weapons.h"
 #include "qgl.h"
 
 /* items.qc's netname for a key: silver or gold, then the worldtype's word */
@@ -61,15 +62,11 @@ typedef char item_float_ok[ sizeof(((Fight *) 0)->quad_until) == sizeof(float) &
                             sizeof(((Fight *) 0)->suit_until) == sizeof(float) &&
                             sizeof(((Fight *) 0)->pent_until) == sizeof(float) ? 1 : -1 ];
 
-/* v1.01 W_BestWeapon. Its rocket choices are deliberately commented out
-   in the original shareware QC. */
-static short near item_best_weapon( Fight *fight )
+static void near item_switch_best( Fight *fight, short old_best )
 {
-    if ( fight->nails >= 2 && ( fight->items & PL_IT_SNG ) ) return PL_IT_SNG;
-    if ( fight->shells >= 2 && ( fight->items & PL_IT_SSG ) ) return PL_IT_SSG;
-    if ( fight->nails >= 1 && ( fight->items & PL_IT_NAILGUN ) ) return PL_IT_NAILGUN;
-    if ( fight->shells >= 1 && ( fight->items & PL_IT_SHOTGUN ) ) return PL_IT_SHOTGUN;
-    return PL_IT_AXE;
+    if ( fight->weapon != old_best ) return;
+    fight->weapon = pl_best_weapon( fight );
+    if ( fight->weapon == PL_IT_LIGHTNING ) fight->weapon_phase = -1;
 }
 
 /* ammo_touch: refused at the cap, capped after */
@@ -80,10 +77,10 @@ static short near item_take_ammo( Fight *fight, Renderer *rdr, ItemEnt far *it, 
 
     (void) rdr;
     if ( *v >= inf->cap ) return -1;
-    best = item_best_weapon( fight );
+    best = pl_best_weapon( fight );
     *v = (short) ( *v + it->amount );
     if ( *v > inf->cap ) *v = inf->cap;
-    if ( fight->weapon == best ) fight->weapon = item_best_weapon( fight );
+    item_switch_best( fight, best );
     return inf->snd;
 }
 
@@ -91,20 +88,24 @@ static short near item_take_ammo( Fight *fight, Renderer *rdr, ItemEnt far *it, 
 static short near item_take_backpack( Fight *fight, ItemEnt far *it, const ItemInfo far *inf )
 {
     short *v = FIGHT_SHORT( fight, inf->ofs );
-    short best = item_best_weapon( fight );
+    short best = pl_best_weapon( fight );
     *v = (short) ( *v + it->amount );
     if ( *v > inf->cap ) *v = inf->cap;
-    if ( fight->weapon == best ) fight->weapon = item_best_weapon( fight );
+    item_switch_best( fight, best );
     return SND_AMMO;
 }
 
 /* ammo_touch's cells: refused at 200, not at the 100 bound_other_ammo caps to */
 static short near item_take_cells( Fight *fight, Renderer *rdr, ItemEnt far *it, const ItemInfo far *inf )
 {
+    short best;
+
     (void) rdr;
     if ( fight->cells >= PL_CELLS_TAKE ) return -1;
+    best = pl_best_weapon( fight );
     fight->cells = (short) ( fight->cells + it->amount );
     if ( fight->cells > inf->cap ) fight->cells = inf->cap;
+    item_switch_best( fight, best );
     return inf->snd;
 }
 
@@ -121,10 +122,15 @@ static short near item_take_weapon( Fight *fight, Renderer *rdr, ItemEnt far *it
     case PL_IT_SNG: slot = 3; break;
     case PL_IT_GL: slot = 4; break;
     case PL_IT_RL: slot = 5; break;
+    case PL_IT_LIGHTNING: slot = 6; break;
     }
-    if ( slot >= 0 && !( fight->items & inf->bit ) ) fight->weapon_at[slot] = rdr->anim_time;
+    if ( slot >= 0 && !( fight->items & inf->bit ) ) {
+        if ( slot < 6 ) fight->weapon_at[slot] = rdr->anim_time;
+        else fight->lightning_at = rdr->anim_time;
+    }
     fight->items |= inf->bit;
     fight->weapon = inf->bit;
+    if ( fight->weapon == PL_IT_LIGHTNING ) fight->weapon_phase = -1;
     *v = (short) ( *v + it->amount );
     if ( *v > inf->cap ) *v = inf->cap;
     return inf->snd;
@@ -216,7 +222,8 @@ static const ItemInfo far item_info[] = {
     { item_take_rune, ENT_ITEM_SIGIL,    0,                           0,              0,             0.0f,           SND_KEY + 1, B,            Y },   /* SIGIL: misc/runekey */
     { item_take_armor, ENT_ITEM_ARMOR3,   0,                           0,              0,             PL_ARMOR3_TYPE, SND_ARMOR,  B,             Y },   /* ARMOR3 */
     { item_take_cells, ENT_ITEM_CELLS,    offsetof(Fight, cells),      PL_CELLS_CAP,   0,             0.0f,           SND_AMMO,   B,             Y },   /* CELLS */
-    { item_take_powerup, ENT_ITEM_INVIS, offsetof(Fight, invis_until), 0,            0,             0.0f,           SND_INV,    B,             Y }    /* INVIS */
+    { item_take_powerup, ENT_ITEM_INVIS, offsetof(Fight, invis_until), 0,            0,             0.0f,           SND_INV,    B,             Y },   /* INVIS */
+    { item_take_weapon, ENT_ITEM_LIGHTNING, offsetof(Fight, cells), PL_CELLS_CAP, PL_IT_LIGHTNING, 0.0f, SND_WEAPON, B, Y } /* LIGHTNING */
 };
 #undef B
 #undef Y
@@ -240,9 +247,12 @@ short item_selftest( void )
     memset( &fight, 0, sizeof(fight) );
     fight.items = PL_IT_SHOTGUN | PL_IT_SNG | PL_IT_AXE;
     fight.shells = 25;
-    if ( item_best_weapon( &fight ) != PL_IT_SHOTGUN ) return 0;
+    if ( pl_best_weapon( &fight ) != PL_IT_SHOTGUN ) return 0;
     fight.nails = 2;
-    if ( item_best_weapon( &fight ) != PL_IT_SNG ) return 0;
+    if ( pl_best_weapon( &fight ) != PL_IT_SNG ) return 0;
+    fight.items |= PL_IT_LIGHTNING;
+    fight.cells = 1;
+    if ( pl_best_weapon( &fight ) != PL_IT_LIGHTNING ) return 0;
     return 1;
 }
 
@@ -317,6 +327,7 @@ static void near item_notice_take( Fight *fight, ItemEnt far *it,
     case ENT_ITEM_GL: item_notice_add( notice, ctx, "You got the Grenade Launcher" ); return;
     case ENT_ITEM_SNG: item_notice_add( notice, ctx, "You got the Super Nailgun" ); return;
     case ENT_ITEM_RL: item_notice_add( notice, ctx, "You got the Rocket Launcher" ); return;
+    case ENT_ITEM_LIGHTNING: item_notice_add( notice, ctx, "You got the Thunderbolt" ); return;
     case ENT_ITEM_QUAD: item_notice_add( notice, ctx, "You got the Quad Damage" ); return;
     case ENT_ITEM_SUIT: item_notice_add( notice, ctx, "You got the Biosuit" ); return;
     case ENT_ITEM_PENT: item_notice_add( notice, ctx, "You got the Pentagram of Protection" ); return;

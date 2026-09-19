@@ -103,6 +103,7 @@ SOUNDS = [
     "demon/dland2",                                                                   # 172 the fiend landing after a leap
     "weapons/ax1", "player/axhit1", "player/axhit2",                              # 173..175 axe: swing, flesh, world
     "boss1/throw",                                                                  # 176 Chthon's lava ball
+    "weapons/lstart", "weapons/lhit",                                             # 177, 178 Thunderbolt
 ]
 
 
@@ -182,10 +183,18 @@ def wav_samples(name: str, wav: bytes) -> tuple[bytes, int]:
     if fmt is None or data is None:
         raise SystemExit(f"{name}: no fmt or data chunk")
     tag, channels, rate, _, _, bits = fmt
-    if (tag, channels, rate, bits) != (1, 1, RATE, 8):
-        raise SystemExit(f"{name}: want PCM mono {RATE} Hz 8-bit, got {fmt}")
+    if tag != 1 or channels != 1 or bits not in (8, 16) or rate < RATE or rate % RATE:
+        raise SystemExit(f"{name}: want PCM mono at a multiple of {RATE} Hz, got {fmt}")
     if name.startswith("ambience/") and loop < 0:
         raise SystemExit(f"{name}: an ambient with no cue does not loop (S_StaticSound)")
+    step = rate // RATE
+    samples = (np.frombuffer(data, "<i2").astype(np.int32) >> 8) + 128 if bits == 16 \
+        else np.frombuffer(data, np.uint8)
+    data = np.clip(samples[::step], 0, 255).astype(np.uint8).tobytes()
+    if loop >= 0:
+        loop //= step
+    if mark is not None:
+        mark //= step
     if loop > 32767:
         raise SystemExit(f"{name}: loop start {loop} past sndtab.raw's short")
     if mark is not None:

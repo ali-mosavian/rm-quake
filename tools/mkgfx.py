@@ -30,6 +30,7 @@ CELL_COLS = 21
 WEAPON_Y = 240
 WEAPON_COLS = 21
 ITEM_Y = 272
+ITEM_X = 336
 SYMBOL_X = 48
 SYMBOL_Y = 216
 CHARS_Y = 288
@@ -48,10 +49,13 @@ CELLS = [
     "FACE_INVIS", "FACE_INVUL2", "FACE_INV2", "FACE_QUAD", "DISC",
 ]
 
-WEAPONS = ("shotgun", "sshotgun", "nailgun", "snailgun", "rlaunch", "srlaunch")
+WEAPONS = (
+    ("shotgun", 24), ("sshotgun", 24), ("nailgun", 24),
+    ("snailgun", 24), ("rlaunch", 24), ("srlaunch", 24), ("lightng", 48),
+)
 WEAPON_PICS = [
-    name
-    for weapon in WEAPONS
+    (name, width)
+    for weapon, width in WEAPONS
     for name in (
         f"INV_{weapon}", f"INV2_{weapon}",
         *(f"INVA{i}_{weapon}" for i in range(1, 6)),
@@ -127,12 +131,16 @@ def main() -> int:
         y = CELL_Y + index // CELL_COLS * CELL
         blit(atlas, qpic(lumps, name, CELL, CELL), x, y, CELL, CELL)
 
-    for index, name in enumerate(WEAPON_PICS):
-        x = index % WEAPON_COLS * 24
-        y = WEAPON_Y + index // WEAPON_COLS * 16
-        blit(atlas, qpic(lumps, name, 24, 16), x, y, 24, 16)
+    x, y = 0, WEAPON_Y
+    for name, width in WEAPON_PICS:
+        if x + width > ATLAS_W:
+            x, y = 0, y + 16
+        blit(atlas, qpic(lumps, name, width, 16), x, y, width, 16)
+        x += width
+    if y != ITEM_Y or x > ITEM_X:
+        raise ValueError("weapon pictures overlap the item row")
 
-    x = 0
+    x = ITEM_X
     for name in ITEMS:
         width = 8 if name.startswith("SB_SIGIL") else 16
         blit(atlas, qpic(lumps, name, width, 16), x, ITEM_Y, width, 16)

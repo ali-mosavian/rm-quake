@@ -87,8 +87,8 @@ def write_zip(path: str) -> None:
 #   ...   member data, each aligned to 16
 # q_pl.bi's PL_IT_* order for the weapons that have one: shotgun,
 # super shotgun, nailgun, grenade launcher, super nailgun, rocket
-# launcher, axe.
-VIEW_MDLS = ('v_shot', 'v_shot2', 'v_nail', 'v_rock', 'v_nail2', 'v_rock2', 'v_axe')
+# launcher, axe, Thunderbolt.
+VIEW_MDLS = ('v_shot', 'v_shot2', 'v_nail', 'v_rock', 'v_nail2', 'v_rock2', 'v_axe', 'v_light')
 VIEW_MODEL_SET = {'v_axe': 'frame'}
 
 # Chthon's model, every set in mdltypes.h's MDL_BOSS_* order, for a map
@@ -98,7 +98,7 @@ BOSS_MDL = ('boss', 'rise,walk,death,attack,shocka,shockb,shockc')
 ITEM_MODELS = {
     2: "armor", 3: "armor", 4: "g_shot", 6: "g_nail",
     7: "quaddama", 8: "suit", 12: "g_rock", 14: "g_nail2",
-    15: "g_rock2", 16: "invulner", 18: "armor", 20: "invisibl",
+    15: "g_rock2", 16: "invulner", 18: "armor", 20: "invisibl", 21: "g_light",
 }
 KEY_MODELS = (
     ("w_s_key", "w_g_key"),
@@ -108,7 +108,7 @@ KEY_MODELS = (
 EFFECT_MODELS = (
     "spike", "s_spike", "grenade", "missile", "lavaball", "w_spike", "zom_gib",
     "gib1", "gib2", "gib3", "h_player", "h_guard", "h_knight", "h_dog",
-    "h_ogre", "h_demon", "h_zombie", "h_wizard", "h_shams", "bolt", "bolt3",
+    "h_ogre", "h_demon", "h_zombie", "h_wizard", "h_shams", "bolt", "bolt3", "bolt2",
 )
 EFFECT_PAGE = 16384
 EFFECT_SKIN_W = 256
@@ -292,7 +292,7 @@ SKILLS     = 4   # easy, normal, hard, nightmare: an ents<N>.bin each
 ENTS_HEAD  = '<4f3fff13hfhhh3ffh'  # ent.h's EntsHead; the monsters follow it
 ENTS_MON   = '<hh3ffhh'          # ent.h's EntsMon
 
-QMAP_VER   = 6
+QMAP_VER   = 7
 QMAP_HEAD  = 64
 QMAP_NAME  = 16
 QMAP_ENT   = 24
@@ -900,7 +900,7 @@ ITEM_KIND = {'item_health': 0, 'item_shells': 1, 'item_armor1': 2, 'item_armor2'
              'item_key1': 10, 'item_key2': 11, 'weapon_grenadelauncher': 12, 'item_rockets': 13,
              'weapon_supernailgun': 14, 'weapon_rocketlauncher': 15,
              'item_artifact_invulnerability': 16, 'item_sigil': 17, 'item_armorInv': 18, 'item_cells': 19,
-             'item_artifact_invisibility': 20}
+             'item_artifact_invisibility': 20, 'weapon_lightning': 21}
 # misc.qc's ambientsound calls: the wav and its volume, ATTN_STATIC
 AMB_KIND = {'ambient_comp_hum': ('ambience/comp1', 1.0), 'ambient_drone': ('ambience/drone6', 0.5),
             'ambient_drip': ('ambience/drip1', 0.5), 'ambient_swamp1': ('ambience/swamp1', 0.5),
@@ -971,6 +971,7 @@ def ent_item_amount(classname: str, flags: int) -> int:
         case 'weapon_nailgun', _, _: return 30
         case 'weapon_grenadelauncher' | 'weapon_rocketlauncher', _, _: return 5
         case 'weapon_supernailgun', _, _: return 30
+        case 'weapon_lightning', _, _: return 15
         case 'item_rockets', 1, _: return 10
         case 'item_rockets', _, _: return 5
         case 'item_spikes', 1, _: return 50

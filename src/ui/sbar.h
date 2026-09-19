@@ -30,6 +30,7 @@
 #define SBARC_WEAPON_Y   240
 #define SBARC_WEAPON_COLS 21
 #define SBARC_ITEM_Y     272
+#define SBARC_ITEM_X     336
 #define SBARC_SYMBOL_X    48
 #define SBARC_SYMBOL_Y   216
 #define SBARC_CHARS_Y    288

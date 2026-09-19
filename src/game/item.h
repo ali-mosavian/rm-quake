@@ -36,7 +36,8 @@
 #define ENT_ITEM_ARMOR3   18     /* item_armorInv, 200 at 0.8 */
 #define ENT_ITEM_CELLS    19     /* item_cells, 6 or 12 */
 #define ENT_ITEM_INVIS    20     /* item_artifact_invisibility; amount is its seconds */
-#define ENT_ITEM_KINDS    21
+#define ENT_ITEM_LIGHTNING 21    /* weapon_lightning; amount is its cells */
+#define ENT_ITEM_KINDS    22
 
 #define ENT_ITEM_HALF    10.0f   /* the flat box's half width */
 #define ENT_ITEM_TOP     20.0f   /* and its height */

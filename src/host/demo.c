@@ -12,6 +12,7 @@
 #include "mdl.h"
 #include "mdl_ai.h"
 #include "dl.h"
+#include "d_beam.h"
 #include "snd.h"
 #include "demo.h"
 
@@ -202,6 +203,8 @@ static void near demo_snapshot_apply( Demo *dm, DemoFrame *frame, World *world,
 {
     DemoEntity e;
     short i, j, mon = 0, item = 0, item_applied = 0, brush = 0, projectile = 0;
+    short beam_key = 0;
+    BspVec3 beam_start;
 
     if ( !dm->snapshot_item_base ) dm->snapshot_item_base = world->item_count;
     world->item_count = world->item_max;
@@ -274,6 +277,14 @@ static void near demo_snapshot_apply( Demo *dm, DemoFrame *frame, World *world,
             s->dmg = (float) ( e.kind == MDL_FX_SSPIKE ? PL_SNG_DMG : PL_NG_DMG );
             s->vel.x = (float) cos( e.yaw * 0.017453293f );
             s->vel.y = (float) sin( e.yaw * 0.017453293f );
+        } else if ( e.type == DEMO_ENT_BEAM_START ) {
+            beam_key = e.number == 0 ? BEAM_PLAYER_KEY : e.number;
+            beam_start.x = e.x; beam_start.y = e.y; beam_start.z = e.z;
+        } else if ( e.type == DEMO_ENT_BEAM_END && beam_key ) {
+            BspVec3 end;
+            end.x = e.x; end.y = e.y; end.z = e.z;
+            d_beam_spawn( rdr, beam_key, e.kind, &beam_start, &end );
+            beam_key = 0;
         }
     }
     fight->items = frame->items;

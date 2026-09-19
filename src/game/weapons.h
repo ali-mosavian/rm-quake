@@ -35,6 +35,9 @@ void pl_fire( World *world, Player *player, Camera *cam, Fight *fight,
  */
 void pl_select_weapon( Fight *fight, short impulse );
 
+/* v1.01 W_BestWeapon, shared by ammo pickups and empty weapons. */
+short pl_best_weapon( const Fight *fight );
+
 /*
  * name: pl_spikes_tick
  * desc: Every projectile a step along its velocity: what it hits, what
@@ -44,6 +47,7 @@ void pl_spikes_tick( World *world, Player *player, Fight *fight,
                       Renderer *rdr, float dt );
 
 short pl_projectile_selftest( void );
+void pl_lightning_release( Fight *fight );
 
 /*
  * name: pl_traps_tick

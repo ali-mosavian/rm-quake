@@ -82,11 +82,27 @@ static short near mdl_front_det( float det )
     return (short) ( det < 0.0f );
 }
 
+static void near mdl_beam_start( Beam *beam, const Player *player )
+{
+    if ( beam->key == BEAM_PLAYER_KEY ) beam->start = player->pos;
+}
+
 short d_alias_selftest( void )
 {
+    Beam beam;
+    Player player;
+
+    memset( &beam, 0, sizeof(beam) );
+    memset( &player, 0, sizeof(player) );
+    beam.key = BEAM_PLAYER_KEY;
+    beam.start.z = 16.0f;
+    player.pos.x = 10.0f;
+    player.pos.z = 20.0f;
+    mdl_beam_start( &beam, &player );
     /* id's d_xdenom is the negative of this screen-space area. */
     return (short) ( mdl_front_area( 1.0f ) && !mdl_front_area( -1.0f ) &&
-                     mdl_front_det( -1.0f ) && !mdl_front_det( 1.0f ) );
+                     mdl_front_det( -1.0f ) && !mdl_front_det( 1.0f ) &&
+                     beam.start.x == 10.0f && beam.start.z == 20.0f );
 }
 
 /* id's alias light points along world -x. qgl's alias path has no light
@@ -886,6 +902,8 @@ short d_draw_view( World *world, Renderer *rdr, Camera *cam, Player *player,
         frame = (short) ( 1 + (short) ( ( rdr->anim_time - fight->fire_at ) * 10.0f ) );
         if ( fight->weapon == PL_IT_NAILGUN || fight->weapon == PL_IT_SNG )
             frame = (short) ( 1 + ( (long) ( rdr->anim_time * 10.0f ) % 8 ) );
+        if ( fight->weapon == PL_IT_LIGHTNING )
+            frame = (short) ( 1 + fight->weapon_phase );
     }
     if ( frame >= ms->nframe ) frame = (short) ( ms->nframe - 1 );
 
@@ -969,7 +987,8 @@ short d_draw_spikes( World *world, Renderer *rdr, Fight *fight,
     return drawn;
 }
 
-short d_draw_beams( World *world, Renderer *rdr, DiskPlane far *frustum,
+short d_draw_beams( World *world, Renderer *rdr, Player *player,
+                     DiskPlane far *frustum,
                      Mat4 *mtx_fin, float xresh, float yresh,
                      float z_near, QSurf dst )
 {
@@ -977,7 +996,7 @@ short d_draw_beams( World *world, Renderer *rdr, DiskPlane far *frustum,
     short i, seg, live = 0, drawn = 0, segments = 0;
 
     rdr->beam_drawn = rdr->beam_segments = 0;
-    if ( rdr->beam_live <= 0 ) return 0;
+    if ( rdr->beam_live <= 0 || rdr->no_beam ) return 0;
 
     for ( i = 0; i < BEAM_MAX; i++ ) {
         Beam far *pool;
@@ -999,6 +1018,7 @@ short d_draw_beams( World *world, Renderer *rdr, DiskPlane far *frustum,
             continue;
         }
         live++;
+        mdl_beam_start( &b, player );
         if ( b.model < 0 || b.model >= world->fx_mdl_count ) continue;
         if ( !mdl_effect_model( world, b.model, &model ) ) continue;
         if ( !model.state.loaded ) continue;

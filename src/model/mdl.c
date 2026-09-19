@@ -222,14 +222,15 @@ void mdl_unload( MdlState *m )
 }
 
 #define ITEM_MDL_ARMOR    0
-#define ITEM_MDL_BACKPACK 20
-#define ITEM_MDL_N        21
+#define ITEM_MDL_LIGHTNING 20
+#define ITEM_MDL_BACKPACK 21
+#define ITEM_MDL_N        22
 
 static char *item_mdl_name[ITEM_MDL_N] = {
     "armor", "g_shot", "g_nail", "quaddama", "suit",
     "g_rock", "g_nail2", "g_rock2", "invulner", "invisibl",
     "w_s_key", "w_g_key", "m_s_key", "m_g_key", "b_s_key", "b_g_key",
-    "end1", "end2", "end3", "end4", "backpack"
+    "end1", "end2", "end3", "end4", "g_light", "backpack"
 };
 
 static short near item_mdl_id( ItemEnt far *it, short worldtype )
@@ -248,6 +249,7 @@ static short near item_mdl_id( ItemEnt far *it, short worldtype )
     case ENT_ITEM_RL: return 7;
     case ENT_ITEM_PENT: return 8;
     case ENT_ITEM_INVIS: return 9;
+    case ENT_ITEM_LIGHTNING: return ITEM_MDL_LIGHTNING;
     case ENT_ITEM_KEY1: return (short) ( 10 + worldtype * 2 );
     case ENT_ITEM_KEY2: return (short) ( 11 + worldtype * 2 );
     case ENT_ITEM_SIGIL:
@@ -307,18 +309,30 @@ void mdl_load_items( World *world, short worldtype )
         n++;
     }
 
-    for ( i = 0; i < world->item_count; i++ ) {
-        ItemEnt far *it = &world->item[i];
-        id = item_mdl_id( it, worldtype );
-        world->item_mdl_slot[i] = (signed char) ( id < 0 ? -1 : item_mdl_slot( world, id ) );
-        world->item_skin[i] = (signed char) ( it->kind == ENT_ITEM_ARMOR2 ? 1 :
-                                              it->kind == ENT_ITEM_ARMOR3 ? 2 : 0 );
-    }
+    mdl_rebind_items( world, worldtype );
     /* Slots after the map's items are reserved for dropped backpacks.
        Demo snapshots use those slots directly rather than pl_item_add. */
     for ( i = world->item_count; i < world->item_max; i++ ) {
         world->item_mdl_slot[i] = (signed char) world->backpack_mdl;
         world->item_skin[i] = 0;
+    }
+}
+
+void mdl_rebind_items( World *world, short worldtype )
+{
+    short i, id;
+
+    for ( i = 0; i < world->item_count; i++ ) {
+        ItemEnt far *it = &world->item[i];
+        if ( it->crate <= ENT_BACKPACK_CRATE ) {
+            world->item_mdl_slot[i] = (signed char) world->backpack_mdl;
+            world->item_skin[i] = 0;
+            continue;
+        }
+        id = item_mdl_id( it, worldtype );
+        world->item_mdl_slot[i] = (signed char) ( id < 0 ? -1 : item_mdl_slot( world, id ) );
+        world->item_skin[i] = (signed char) ( it->kind == ENT_ITEM_ARMOR2 ? 1 :
+                                              it->kind == ENT_ITEM_ARMOR3 ? 2 : 0 );
     }
 }
 

@@ -6,6 +6,7 @@
 #define BEAM_MAX 24
 #define BEAM_LIFE 0.2f
 #define BEAM_TRIGGER_KEY 0x4000
+#define BEAM_PLAYER_KEY  0x7fff
 
 typedef struct {
     BspVec3 start, end;

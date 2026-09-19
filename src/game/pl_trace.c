@@ -217,25 +217,27 @@ static short near pl_hull_check_c(
     ClipNode far *clip, Plane far *planes
 )
 {
-    short pid, side, other;
+    short pid, side, other, descent = 0;
     float t1, t2, frac, midf;
     BspVec3 midp;
 
-    if ( node < 0 ) {
-        tr->all_solid = ( node == CONTENTS_SOLID ) ? 1 : 0;
-        return 1;
+    for ( ; ; ) {
+        if ( node < 0 ) {
+            tr->all_solid = ( node == CONTENTS_SOLID ) ? 1 : 0;
+            return 1;
+        }
+        if ( ++descent > 256 ) return 0;
+
+        pid = clip[node].plane_num;
+        t1 = p1->x * planes[pid].norm.x + p1->y * planes[pid].norm.y +
+             p1->z * planes[pid].norm.z - planes[pid].dist;
+        t2 = p2->x * planes[pid].norm.x + p2->y * planes[pid].norm.y +
+             p2->z * planes[pid].norm.z - planes[pid].dist;
+
+        if ( t1 >= 0.0f && t2 >= 0.0f ) node = clip[node].front;
+        else if ( t1 < 0.0f && t2 < 0.0f ) node = clip[node].back;
+        else break;
     }
-
-    pid = clip[node].plane_num;
-    t1 = p1->x * planes[pid].norm.x + p1->y * planes[pid].norm.y +
-         p1->z * planes[pid].norm.z - planes[pid].dist;
-    t2 = p2->x * planes[pid].norm.x + p2->y * planes[pid].norm.y +
-         p2->z * planes[pid].norm.z - planes[pid].dist;
-
-    if ( t1 >= 0.0f && t2 >= 0.0f )
-        return pl_hull_check_c( clip[node].front, p1f, p2f, p1, p2, tr, clip, planes );
-    if ( t1 < 0.0f && t2 < 0.0f )
-        return pl_hull_check_c( clip[node].back, p1f, p2f, p1, p2, tr, clip, planes );
 
     if ( t1 < 0.0f ) {
         frac = (t1 + PL_CLIP_EPS) / (t1 - t2);

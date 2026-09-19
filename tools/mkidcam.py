@@ -42,6 +42,8 @@ ENT_DAMAGE = 6
 ENT_MUZZLE = 7
 ENT_STOP_SOUND = 8
 ENT_PROJECTILE = 9
+ENT_BEAM_START = 10
+ENT_BEAM_END = 11
 
 EF_MUZZLEFLASH = 2
 LOCAL_SOUNDS = {name.lower(): index for index, name in enumerate(SOUNDS)}
@@ -85,6 +87,7 @@ ITEMS = {
     "b_batt0": 19,
     "b_batt1": 19,
     "invisibl": 20,
+    "g_light": 21,
     "backpack": 1,
 }
 
@@ -297,7 +300,17 @@ def parse_damage(reader: Reader, state: DemoState) -> None:
 
 def parse_temp_entity(reader: Reader, state: DemoState) -> None:
     kind = reader.byte()
-    if kind in (5, 6, 9, 13):
+    if kind == 6:
+        entity = reader.short()
+        start = tuple(read_coord(reader) for _ in range(3))
+        end = tuple(read_coord(reader) for _ in range(3))
+        number = 0 if entity == state.view_entity else entity
+        state.events.extend((
+            (number, ENT_BEAM_START, 21, 0, 0, *start, 0.0),
+            (number, ENT_BEAM_END, 21, 0, 0, *end, 0.0),
+        ))
+        return
+    if kind in (5, 9, 13):
         reader.take(14)
         return
     origin = tuple(read_coord(reader) for _ in range(3))
@@ -467,6 +480,8 @@ def local_items(bits: int) -> int:
         result |= 32
     if bits & 32:
         result |= 128
+    if bits & 64:
+        result |= 256
     if bits & 131072:
         result |= 8
     if bits & 262144:
@@ -475,7 +490,7 @@ def local_items(bits: int) -> int:
 
 
 def local_weapon(bit: int) -> int:
-    return {1: 1, 2: 2, 4: 4, 8: 64, 16: 32, 32: 128}.get(bit, 1)
+    return {1: 1, 2: 2, 4: 4, 8: 64, 16: 32, 32: 128, 64: 256}.get(bit, 1)
 
 
 def armor_kind(bits: int) -> int:

@@ -53,6 +53,8 @@ typedef struct {
 #define DEMO_ENT_MUZZLE  7
 #define DEMO_ENT_STOPSND 8
 #define DEMO_ENT_PROJECTILE 9
+#define DEMO_ENT_BEAM_START 10
+#define DEMO_ENT_BEAM_END   11
 #define REC_DEMOFRAME 52
 #define REC_DEMOENTITY 26
 typedef char rec_demoframe_ok[ sizeof(DemoFrame) == REC_DEMOFRAME ? 1 : -1 ];

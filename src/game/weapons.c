@@ -27,8 +27,19 @@
 #include "triggers.h"
 #include "dl.h"
 #include "combat.h"
+#include "d_beam.h"
 
 #define DEG2RAD 0.017453293f
+
+short pl_best_weapon( const Fight *fight )
+{
+    if ( fight->cells >= 1 && ( fight->items & PL_IT_LIGHTNING ) ) return PL_IT_LIGHTNING;
+    if ( fight->nails >= 2 && ( fight->items & PL_IT_SNG ) ) return PL_IT_SNG;
+    if ( fight->shells >= 2 && ( fight->items & PL_IT_SSG ) ) return PL_IT_SSG;
+    if ( fight->nails >= 1 && ( fight->items & PL_IT_NAILGUN ) ) return PL_IT_NAILGUN;
+    if ( fight->shells >= 1 && ( fight->items & PL_IT_SHOTGUN ) ) return PL_IT_SHOTGUN;
+    return PL_IT_AXE;
+}
 
 /* One axis of the ray-box test: narrows tn..tf to the slab. */
 static short mdl_slab( float lo, float hi, float o, float d,
@@ -67,13 +78,16 @@ float mdl_ray_player( BspVec3 *pl, BspVec3 *org, BspVec3 *dir, float maxt )
 }
 
 /* a monster's box, the one the model is culled with */
-static float mdl_ray_box( BspVec3 far *c, BspVec3 *org, BspVec3 *dir, float maxt )
+static float mdl_ray_monster( MdlEnt far *ent, BspVec3 *org,
+                              BspVec3 *dir, float maxt )
 {
     BspVec3 mins, maxs;
+    float half = MDL_MON_HALF( ent->kind );
 
-    mins.x = c->x - MDL_HALF; maxs.x = c->x + MDL_HALF;
-    mins.y = c->y - MDL_HALF; maxs.y = c->y + MDL_HALF;
-    mins.z = c->z + MDL_ZLO;  maxs.z = c->z + MDL_ZHI;
+    mins.x = ent->pos.x - half; maxs.x = ent->pos.x + half;
+    mins.y = ent->pos.y - half; maxs.y = ent->pos.y + half;
+    mins.z = ent->pos.z + MDL_ZLO;
+    maxs.z = ent->pos.z + MDL_MON_ZHI( ent->kind );
     return pl_ray_box( &mins, &maxs, org, dir, maxt );
 }
 
@@ -110,6 +124,20 @@ void pl_spread_dir( Rng *rng, BspVec3 *dir, float sx, float sy, BspVec3 *out )
     out->x = dir->x + a * rx + b * ux;
     out->y = dir->y + a * ry + b * uy;
     out->z = dir->z + b * uz;
+}
+
+/* Literal v1.01 LightningDamage semantics: normalize returns a vector,
+   so the unassigned call leaves f long; f_y then reads the overwritten f_x. */
+static void near pl_lightning_side( BspVec3 *p1, BspVec3 *p2, BspVec3 *f )
+{
+    f->x = p2->x - p1->x;
+    f->y = p2->y - p1->y;
+    f->z = p2->z - p1->z;
+    f->x = -f->y;
+    f->y = f->x;
+    f->z = 0.0f;
+    f->x *= 16.0f;
+    f->y *= 16.0f;
 }
 
 short pl_nail_free( Fight *fight )
@@ -219,18 +247,29 @@ static short near pl_grenade_monster( MdlEnt far *mon, short count, BspVec3 *pos
 
     for ( i = 0; i < count; i++ ) {
         if ( !MDL_IS_SOLID( &mon[i] ) ) continue;
-        t = mdl_ray_box( &mon[i].pos, pos, dir, *best_t );
+        t = mdl_ray_monster( &mon[i], pos, dir, *best_t );
         if ( t >= 0.0f && t < *best_t ) { *best_t = t; best = i; }
     }
     return best;
+}
+
+static void near pl_lightning_release_values( short weapon, short *phase,
+                                               short *sustained, float fire_at,
+                                               float *next_fire )
+{
+    if ( weapon != PL_IT_LIGHTNING || *phase < 0 ) return;
+    if ( *sustained ) *next_fire = fire_at + PL_LG_RESTART;
+    *phase = -1;
+    *sustained = 0;
 }
 
 short pl_projectile_selftest( void )
 {
     MdlEnt mon[2];
     Spike s;
-    BspVec3 fin, dir;
-    float reach, hit;
+    BspVec3 fin, dir, p1, p2, side;
+    float reach, hit, next;
+    short phase, sustained;
 
     memset( mon, 0, sizeof(mon) );
     memset( &s, 0, sizeof(s) );
@@ -247,7 +286,32 @@ short pl_projectile_selftest( void )
     if ( pl_grenade_contact( 0, 1.0f ) != PL_CONTACT_BOX ||
          pl_grenade_contact( -1, 1.0f ) != PL_CONTACT_NONE ||
          pl_grenade_contact( -1, 0.5f ) != PL_CONTACT_BRUSH ) return 0;
+    p1.x = 1.0f; p1.y = 2.0f; p1.z = 3.0f;
+    p2.x = 11.0f; p2.y = 22.0f; p2.z = 33.0f;
+    pl_lightning_side( &p1, &p2, &side );
+    if ( side.x != -320.0f || side.y != -320.0f || side.z != 0.0f ) return 0;
+    memset( &mon[0], 0, sizeof(mon[0]) );
+    mon[0].kind = MDL_KIND_DOG;
+    mon[0].pos.x = 100.0f;
+    p1.x = 0.0f; p1.y = 24.0f; p1.z = 0.0f;
+    dir.x = 1.0f; dir.y = dir.z = 0.0f;
+    if ( mdl_ray_monster( &mon[0], &p1, &dir, 200.0f ) != 68.0f ) return 0;
+    phase = 0; sustained = 0; next = 1.1f;
+    pl_lightning_release_values( PL_IT_LIGHTNING, &phase, &sustained, 1.0f, &next );
+    if ( phase != -1 || fabs( next - 1.1f ) > 0.001f ) return 0;
+    phase = 1; sustained = -1;
+    pl_lightning_release_values( PL_IT_LIGHTNING, &phase, &sustained, 1.0f, &next );
+    if ( phase != -1 || sustained || fabs( next - 1.2f ) > 0.001f ) return 0;
+    pl_lightning_release_values( PL_IT_LIGHTNING, &phase, &sustained, 1.0f, &next );
+    if ( fabs( next - 1.2f ) > 0.001f ) return 0;
     return 1;
+}
+
+void pl_lightning_release( Fight *fight )
+{
+    pl_lightning_release_values( fight->weapon, &fight->weapon_phase,
+                                 &fight->lg_sustained, fight->fire_at,
+                                 &fight->next_fire );
 }
 
 /* Shootable triggers and secret doors short of where the shot stopped. */
@@ -279,6 +343,140 @@ static void pl_shot_touch( World *world, Player *player, Fight *fight,
         ent_door_fire( world, player, world->door[i].link );
         if ( stopped ) *stopped = -1;
     }
+}
+
+#define PL_LHIT_NONE 0
+#define PL_LHIT_MON  1
+#define PL_LHIT_BOX  2
+#define PL_LHIT_TRIG 3
+#define PL_LHIT_DOOR 4
+typedef struct {
+    short kind, index, order;
+    float t;
+} LightningTarget;
+
+static short near pl_lightning_target( World *world, BspVec3 *start,
+                                        BspVec3 *end, LightningTarget *hit )
+{
+    BspVec3 dir, mins, maxs;
+    TraceResult tr;
+    float reach, t;
+    short i, box, brush_model;
+
+    dir.x = end->x - start->x;
+    dir.y = end->y - start->y;
+    dir.z = end->z - start->z;
+    reach = (float) sqrt( dir.x*dir.x + dir.y*dir.y + dir.z*dir.z );
+    if ( reach < 0.001f ) return 0;
+    dir.x /= reach; dir.y /= reach; dir.z /= reach;
+
+    pl_trace_point( world, start, end, &tr );
+    brush_model = tr.hit_model;
+    box = pl_trace_boxes( world, start, end, &tr );
+    hit->kind = PL_LHIT_NONE;
+    hit->index = hit->order = -1;
+    hit->t = reach * tr.frac;
+    if ( box >= 0 ) {
+        hit->kind = PL_LHIT_BOX;
+        hit->index = box;
+        hit->order = world->item[box].order;
+    }
+
+    if ( box < 0 && brush_model > 0 ) {
+        for ( i = 0; i < world->trig_count; i++ ) {
+            if ( world->trig[i].kind == ENT_TRIG_SHOOT_BUTTON &&
+                 world->trig[i].state == ENT_TRIG_READY &&
+                 world->trig[i].model == brush_model ) {
+                hit->kind = PL_LHIT_TRIG;
+                hit->index = i;
+                hit->order = world->trig[i].order;
+                break;
+            }
+        }
+        for ( i = 0; i < world->door_count; i++ ) {
+            if ( world->door[i].shoot && world->door[i].state == ENT_DOOR_SHUT &&
+                 world->door[i].model == brush_model ) {
+                hit->kind = PL_LHIT_DOOR;
+                hit->index = i;
+                hit->order = world->door[i].order;
+                break;
+            }
+        }
+    }
+
+    for ( i = 0; i < world->mon_count; i++ ) {
+        if ( !MDL_IS_SOLID( &world->mon[i] ) ) continue;
+        t = mdl_ray_monster( &world->mon[i], start, &dir, hit->t );
+        if ( t >= 0.0f && t < hit->t ) {
+            hit->kind = PL_LHIT_MON;
+            hit->index = i;
+            hit->order = world->mon[i].order;
+            hit->t = t;
+        }
+    }
+    for ( i = 0; i < world->trig_count; i++ ) {
+        if ( world->trig[i].kind != ENT_TRIG_SHOOT ||
+             world->trig[i].state != ENT_TRIG_READY ) continue;
+        mins = world->trig[i].mins;
+        maxs = world->trig[i].maxs;
+        t = pl_ray_box( &mins, &maxs, start, &dir, hit->t );
+        if ( t >= 0.0f && t < hit->t ) {
+            hit->kind = PL_LHIT_TRIG;
+            hit->index = i;
+            hit->order = world->trig[i].order;
+            hit->t = t;
+        }
+    }
+    return (short) ( hit->kind != PL_LHIT_NONE );
+}
+
+static void near pl_lightning_ray( World *world, Player *player, Fight *fight,
+                                    Renderer *rdr, BspVec3 *start, BspVec3 *end,
+                                    short *seen, short *nseen, float damage )
+{
+    LightningTarget hit;
+    BspVec3 impact, up = { 0.0f, 0.0f, 100.0f };
+    float dx, dy, dz, len;
+    short i;
+
+    if ( !pl_lightning_target( world, start, end, &hit ) ) return;
+    for ( i = 0; i < *nseen; i++ ) if ( seen[i] == hit.order ) return;
+    if ( *nseen < 3 ) seen[(*nseen)++] = hit.order;
+
+    dx = end->x - start->x; dy = end->y - start->y; dz = end->z - start->z;
+    len = (float) sqrt( dx*dx + dy*dy + dz*dz );
+    if ( len > 0.001f ) {
+        impact.x = start->x + dx / len * hit.t;
+        impact.y = start->y + dy / len * hit.t;
+        impact.z = start->z + dz / len * hit.t;
+        part_effect( rdr, &impact, &up, 225, PL_LG_DMG * 4 );
+    }
+
+    if ( hit.kind == PL_LHIT_MON )
+        combat_damage_monster( world, player, fight, rdr, &world->mon[hit.index], damage );
+    else if ( hit.kind == PL_LHIT_BOX )
+        combat_damage_box( world, player, fight, rdr, hit.index, damage );
+    else if ( hit.kind == PL_LHIT_TRIG )
+        ent_trig_shot( world, player, fight, rdr, hit.index );
+    else if ( hit.kind == PL_LHIT_DOOR )
+        ent_door_fire( world, player, world->door[hit.index].link );
+}
+
+static void near pl_lightning_damage( World *world, Player *player, Fight *fight,
+                                       Renderer *rdr, BspVec3 *start, BspVec3 *end,
+                                       float damage )
+{
+    BspVec3 side, s, e;
+    short seen[3], nseen = 0;
+
+    pl_lightning_side( start, end, &side );
+    pl_lightning_ray( world, player, fight, rdr, start, end, seen, &nseen, damage );
+    s.x = start->x + side.x; s.y = start->y + side.y; s.z = start->z;
+    e.x = end->x + side.x; e.y = end->y + side.y; e.z = end->z;
+    pl_lightning_ray( world, player, fight, rdr, &s, &e, seen, &nseen, damage );
+    s.x = start->x - side.x; s.y = start->y - side.y;
+    e.x = end->x - side.x; e.y = end->y - side.y;
+    pl_lightning_ray( world, player, fight, rdr, &s, &e, seen, &nseen, damage );
 }
 
 /* EF_MUZZLEFLASH on the player. The relink turns the player entity's
@@ -329,7 +527,7 @@ static void pl_fire_nail( Player *player, Sound *snd, Camera *cam, Fight *fight,
     fight->flash_until = rdr->anim_time + 0.1f;
     pl_muzzle_light( player, cam, rdr );
     fight->nails =(short) ( fight->nails - ( super ? 2 : 1 ) );
-    fight->nail_side = (short) ( -fight->nail_side - 1 );
+    fight->weapon_phase = (short) ( ( fight->weapon_phase + 1 ) & 1 );
     snd_self( snd, player, CHAN_WEAPON, (short) ( super ? SND_SPIKE2 : SND_NAIL ) );
 
     aim.x = cam->look_at.x - cam->pos.x;
@@ -341,7 +539,7 @@ static void pl_fire_nail( Player *player, Sound *snd, Camera *cam, Fight *fight,
     if ( rl < 0.001f ) { rx = 1.0f; ry = 0.0f; rl = 1.0f; }
     rx = rx / rl * PL_NG_OX;
     ry = ry / rl * PL_NG_OX;
-    if ( fight->nail_side ) { rx = -rx; ry = -ry; }
+    if ( fight->weapon_phase ) { rx = -rx; ry = -ry; }
     if ( super ) { rx = 0.0f; ry = 0.0f; }
 
     fight->nail[i].pos.x = player->pos.x + rx;
@@ -444,7 +642,7 @@ static void pl_fire_axe( World *world, Player *player, Camera *cam,
     bt = PL_AXE_RANGE * tr.frac;
     for ( i = 0; i < world->mon_count && i < MDL_MAX_ENTS; i++ ) {
         if ( !MDL_IS_SOLID( &world->mon[i] ) ) continue;
-        t = mdl_ray_box( &world->mon[i].pos, &org, &aim, bt );
+        t = mdl_ray_monster( &world->mon[i], &org, &aim, bt );
         if ( t >= 0.0f && t < bt ) { bt = t; best = i; }
     }
 
@@ -465,6 +663,66 @@ static void pl_fire_axe( World *world, Player *player, Camera *cam,
         pl_shot_touch( world, player, fight, rdr, &org, &aim, bt, &stopped );
     if ( tr.frac < 1.0f || stopped )
         snd_play( &world->snd, player, SND_AX_WALL, &tr.end_pos );
+}
+
+static void near pl_fire_lightning( World *world, Player *player, Camera *cam,
+                                    Fight *fight, Renderer *rdr )
+{
+    BspVec3 aim, org, fin, damage_end;
+    TraceResult tr;
+    float len, damage;
+    short cells;
+
+    if ( fight->cells < 1 ) {
+        fight->weapon = pl_best_weapon( fight );
+        return;
+    }
+    fight->next_fire = rdr->anim_time + PL_LG_RATE;
+    fight->fire_at = rdr->anim_time;
+    fight->show_hostile = rdr->anim_time + 1.0f;
+    fight->flash_until = rdr->anim_time + 0.1f;
+    pl_muzzle_light( player, cam, rdr );
+
+    if ( !fight->fire_prev || fight->weapon_phase < 0 ) {
+        snd_self( &world->snd, player, CHAN_AUTO, SND_LSTART );
+        fight->weapon_phase = -1;
+        fight->lg_sustained = 0;
+    } else fight->lg_sustained = -1;
+    if ( player->water_level > 1 ) {
+        cells = fight->cells;
+        fight->cells = 0;
+        combat_radius( world, player, fight, rdr, player->pos,
+                       35.0f * cells, COMBAT_BY_PLAYER, COMBAT_NO_IGNORE );
+        return;
+    }
+    if ( rdr->anim_time >= fight->lg_hit_at ) {
+        snd_self( &world->snd, player, CHAN_WEAPON, SND_LHIT );
+        fight->lg_hit_at = rdr->anim_time + 0.6f;
+    }
+    fight->weapon_phase = (short) ( ( fight->weapon_phase + 1 ) & 3 );
+    fight->punch_pitch = -2.0f;
+    fight->cells--;
+
+    aim.x = cam->look_at.x - cam->pos.x;
+    aim.y = cam->look_at.z - cam->pos.z;
+    aim.z = cam->look_at.y - cam->pos.y;
+    len = (float) sqrt( aim.x*aim.x + aim.y*aim.y + aim.z*aim.z );
+    if ( len < 0.001f ) len = 1.0f;
+    aim.x /= len; aim.y /= len; aim.z /= len;
+    org = player->pos;
+    org.z += 16.0f;
+    fin.x = org.x + aim.x * PL_LG_RANGE;
+    fin.y = org.y + aim.y * PL_LG_RANGE;
+    fin.z = org.z + aim.z * PL_LG_RANGE;
+    pl_trace_point( world, &org, &fin, &tr );
+    d_beam_spawn( rdr, BEAM_PLAYER_KEY, MDL_FX_BOLT2, &org, &tr.end_pos );
+
+    damage_end.x = tr.end_pos.x + aim.x * 4.0f;
+    damage_end.y = tr.end_pos.y + aim.y * 4.0f;
+    damage_end.z = tr.end_pos.z + aim.z * 4.0f;
+    damage = (float) ( rdr->anim_time < fight->quad_until
+                         ? PL_LG_DMG * PL_QUAD_MUL : PL_LG_DMG );
+    pl_lightning_damage( world, player, fight, rdr, &player->pos, &damage_end, damage );
 }
 
 void pl_fire( World *world, Player *player, Camera *cam, Fight *fight,
@@ -492,6 +750,10 @@ void pl_fire( World *world, Player *player, Camera *cam, Fight *fight,
     }
     if ( fight->weapon == PL_IT_GL ) { pl_fire_grenade( player, &world->snd, cam, fight, rdr ); return; }
     if ( fight->weapon == PL_IT_RL ) { pl_fire_rocket( player, &world->rng, &world->snd, cam, fight, rdr ); return; }
+    if ( fight->weapon == PL_IT_LIGHTNING ) {
+        pl_fire_lightning( world, player, cam, fight, rdr );
+        return;
+    }
     if ( fight->shells <= 0 ) return;
 
     npellet = PL_PELLETS; sx = PL_SPREAD; sy = PL_SPREAD; rate = PL_FIRE_RATE;
@@ -535,7 +797,7 @@ void pl_fire( World *world, Player *player, Camera *cam, Fight *fight,
         bt = PL_SHOT_RANGE * tr.frac;
         for ( i = 0; i < world->mon_count && i < MDL_MAX_ENTS; i++ ) {
             if ( !MDL_IS_SOLID( &world->mon[i] ) ) continue;
-            t = mdl_ray_box( &world->mon[i].pos, &org, &dir, bt );
+            t = mdl_ray_monster( &world->mon[i], &org, &dir, bt );
             if ( t >= 0.0f && t < bt ) { bt = t; best = i; }
         }
         pdmg = (short) ( rdr->anim_time < fight->quad_until
@@ -565,20 +827,23 @@ void pl_fire( World *world, Player *player, Camera *cam, Fight *fight,
 void pl_select_weapon( Fight *fight, short impulse )
 {
     static short cycle[] = { PL_IT_AXE, PL_IT_SHOTGUN, PL_IT_SSG,
-                              PL_IT_NAILGUN, PL_IT_SNG, PL_IT_GL, PL_IT_RL };
+                              PL_IT_NAILGUN, PL_IT_SNG, PL_IT_GL, PL_IT_RL,
+                              PL_IT_LIGHTNING };
     short i, remaining;
 
     if ( impulse == 10 ) {
-        for ( i = 0; i < 7 && cycle[i] != fight->weapon; i++ ) {}
-        if ( i == 7 ) i = 0;
-        for ( remaining = 0; remaining < 7; remaining++ ) {
-            i = (short) ( ( i + 1 ) % 7 );
+        for ( i = 0; i < 8 && cycle[i] != fight->weapon; i++ ) {}
+        if ( i == 8 ) i = 0;
+        for ( remaining = 0; remaining < 8; remaining++ ) {
+            i = (short) ( ( i + 1 ) % 8 );
             if ( ( fight->items & cycle[i] ) &&
                  ( cycle[i] == PL_IT_AXE ||
                    ( cycle[i] == PL_IT_SHOTGUN || cycle[i] == PL_IT_SSG ? fight->shells > 0
                      : cycle[i] == PL_IT_NAILGUN || cycle[i] == PL_IT_SNG ? fight->nails > 0
+                     : cycle[i] == PL_IT_LIGHTNING ? fight->cells > 0
                      : fight->rockets > 0 ) ) ) {
                 fight->weapon = cycle[i];
+                if ( fight->weapon == PL_IT_LIGHTNING ) fight->weapon_phase = -1;
                 return;
             }
         }
@@ -591,6 +856,10 @@ void pl_select_weapon( Fight *fight, short impulse )
     if ( impulse == 5 && ( fight->items & PL_IT_SNG ) ) fight->weapon = PL_IT_SNG;
     if ( impulse == 6 && ( fight->items & PL_IT_GL ) ) fight->weapon = PL_IT_GL;
     if ( impulse == 7 && ( fight->items & PL_IT_RL ) ) fight->weapon = PL_IT_RL;
+    if ( impulse == 8 && ( fight->items & PL_IT_LIGHTNING ) && fight->cells > 0 ) {
+        fight->weapon = PL_IT_LIGHTNING;
+        fight->weapon_phase = -1;
+    }
 }
 
 /* MOVETYPE_BOUNCE, either side's: what it can hurt over the step blows
@@ -756,7 +1025,7 @@ void pl_spikes_tick( World *world, Player *player, Fight *fight,
         best = -1;
         for ( i = 0; i < world->mon_count; i++ ) {
             if ( !MDL_IS_SOLID( &world->mon[i] ) ) continue;
-            t = mdl_ray_box( &world->mon[i].pos, &s->pos, &dir, bt );
+            t = mdl_ray_monster( &world->mon[i], &s->pos, &dir, bt );
             if ( t >= 0.0f && t < bt ) { bt = t; best = i; }
         }
         ndmg = (float) ( rdr->anim_time < fight->quad_until

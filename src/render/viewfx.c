@@ -70,12 +70,24 @@ float v_view_roll( const Camera *cam, const Player *player )
 
 void v_render_effects( Camera *out, Vec3 *up, const Camera *base,
                        const Player *player, short dead, float base_height,
-                       float dead_height, float time )
+                       float dead_height, float time, float punch_pitch )
 {
     Vec3 forward, right, upright;
-    float bob, roll, cs, sn;
+    float bob, roll, cs, sn, horizontal, pitch, yaw;
 
     *out = *base;
+    if ( punch_pitch != 0.0f ) {
+        forward.x = out->look_at.x - out->pos.x;
+        forward.y = out->look_at.y - out->pos.y;
+        forward.z = out->look_at.z - out->pos.z;
+        horizontal = (float) sqrt( forward.x*forward.x + forward.z*forward.z );
+        yaw = (float) atan2( forward.z, forward.x );
+        pitch = (float) atan2( forward.y, horizontal )
+              - punch_pitch * V_PI / 180.0f;
+        out->look_at.x = out->pos.x + (float) cos( pitch ) * (float) cos( yaw );
+        out->look_at.y = out->pos.y + (float) sin( pitch );
+        out->look_at.z = out->pos.z + (float) cos( pitch ) * (float) sin( yaw );
+    }
     bob = v_view_bob( player, time );
     if ( dead ) bob += dead_height - base_height;
     out->pos.x += V_NUDGE; out->pos.y += bob + V_NUDGE; out->pos.z += V_NUDGE;

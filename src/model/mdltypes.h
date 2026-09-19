@@ -43,8 +43,7 @@
 #define MDL_BOSS_SETS   7
 #define MDL_VIEW_SETS   1
 
-/* the view weapons, in the order host_view_load and d_draw_view index
-   them -- v_shot, v_shot2, v_nail, v_rock, v_nail2, v_rock2, v_axe */
+/* the view weapons, in the order host_view_load and d_draw_view index them */
 #define PL_VIEW_SHOT   0
 #define PL_VIEW_SSG    1
 #define PL_VIEW_NAIL   2
@@ -52,7 +51,8 @@
 #define PL_VIEW_SNG    4
 #define PL_VIEW_RL     5
 #define PL_VIEW_AXE    6
-#define PL_VIEW_N      7
+#define PL_VIEW_LIGHT  7
+#define PL_VIEW_N      8
 
 /* MDL_KIND_*, mkassets.py's own numbering */
 #define MDL_KIND_ARMY     0
@@ -140,7 +140,8 @@ typedef struct {
 #define MDL_FX_HSHAMS   18
 #define MDL_FX_BOLT     19
 #define MDL_FX_BOLT3    20
-#define MDL_FX_N        21
+#define MDL_FX_BOLT2    21
+#define MDL_FX_N        22
 
 /* One spawned monster: everything mdl_think owns, separate from the
    MdlState a whole kind shares. BSP space, Z up, like Player.pos, so it

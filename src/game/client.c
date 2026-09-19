@@ -93,6 +93,7 @@ void pl_weapon_flash( Fight *fight, float now )
 
     for ( i = 0; i < 6; i++ )
         fight->weapon_at[i] = fight->items & bits[i] ? now : -1.0f;
+    fight->lightning_at = fight->items & PL_IT_LIGHTNING ? now : -1.0f;
 }
 
 void pl_reset_player( Player *player, Fight *fight, Renderer *rdr )
@@ -115,8 +116,11 @@ void pl_reset_player( Player *player, Fight *fight, Renderer *rdr )
     fight->invis_until = 0.0f;
     fight->invis_snd_at = 0.0f;
     fight->next_fire  = 0.0f;
+    fight->lg_hit_at = 0.0f;
+    fight->punch_pitch = 0.0f;
+    fight->lg_sustained = 0;
     fight->show_hostile = 0.0f;
-    fight->rot_at     = 0.0f;
+    fight->lightning_at = -1.0f;
     player->pos = fight->spawn;
     player->vel.x = player->vel.y = player->vel.z = 0.0f;
     player->fall_vz = 0.0f;

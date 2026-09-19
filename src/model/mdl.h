@@ -59,6 +59,7 @@ void mdl_load_monster_models( World *world );
 
 /* Load the distinct alias models used by this map's pickups. */
 void mdl_load_items( World *world, short worldtype );
+void mdl_rebind_items( World *world, short worldtype );
 void mdl_unload_items( World *world );
 
 /* Load and release effects.bin's projectile, gib and head alias bank. */

@@ -12,16 +12,18 @@
 #include "d_sprite.h"
 #include "d_beam.h"
 #include "item.h"
+#include "mdl.h"
 #include "mdl_ai.h"
 
 #define SG_MAGIC   0x31565351L
-#define SG_VERSION 9
+#define SG_VERSION 10
 #define SG_VERSION_ITEMS 2
 #define SG_VERSION_SPR3 5
 #define SG_VERSION_ANIM 6
 #define SG_VERSION_SPAWN 7
 #define SG_VERSION_ZWAIT 8
 #define SG_VERSION_TRAIN_DMG 9
+#define SG_VERSION_LIGHTNING 10
 #define SG_VERSION_OLD 1
 #define SG_GIB_MAGIC 0x31424947L
 #define SG_SPR_MAGIC 0x31525053L
@@ -245,10 +247,13 @@ static short near savegame_write( short file, SaveHead *head, World *world,
     sr.mouse_x = mouse_x;
     sr.mouse_y = mouse_y;
 
+    /* The Thunderbolt sound/recoil clocks are transient tail fields, kept
+       out of the file so every pre-v10 block after Fight stays aligned. */
     if ( !savegame_write_block( file, (long) (void far *) head, sizeof(*head) ) ||
          !savegame_write_block( file, (long) (void far *) player, sizeof(*player) ) ||
          !savegame_write_block( file, (long) (void far *) cam, sizeof(*cam) ) ||
-         !savegame_write_block( file, (long) (void far *) fight, sizeof(*fight) ) ||
+         !savegame_write_block( file, (long) (void far *) fight,
+                                offsetof(Fight, lg_hit_at) ) ||
          !savegame_write_block( file, (long) (void far *) &sw, sizeof(sw) ) ||
          !savegame_write_block( file, (long) (void far *) &sr, sizeof(sr) ) ) return 0;
     if ( !( savegame_write_block( file, (long) world->brush,
@@ -376,6 +381,16 @@ static short near savegame_read_items( short file, ItemEnt far *item,
     return -1;
 }
 
+static short near savegame_read_fight( short file, Fight *fight, short version )
+{
+    (void) version;
+    fight->lg_hit_at = 0.0f;
+    fight->punch_pitch = 0.0f;
+    fight->lg_sustained = 0;
+    return savegame_read_block( file, (long) (void far *) fight,
+                                offsetof(Fight, lg_hit_at) );
+}
+
 static unsigned char near savegame_anim_set( const MdlEnt far *ent,
                                               const MdlState *model )
 {
@@ -493,7 +508,7 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
     }
     ok = (short) ( savegame_read_block( file, (long) (void far *) player, sizeof(*player) ) &&
                    savegame_read_block( file, (long) (void far *) cam, sizeof(*cam) ) &&
-                   savegame_read_block( file, (long) (void far *) fight, sizeof(*fight) ) &&
+                   savegame_read_fight( file, fight, head.version ) &&
                    savegame_read_block( file, (long) (void far *) &sw, sizeof(sw) ) &&
                    savegame_read_block( file, (long) (void far *) &sr, sizeof(sr) ) &&
                    savegame_read_block( file, (long) world->brush,
@@ -620,6 +635,7 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
     memcpy( world->fog_org, sw.fog_org, sizeof(sw.fog_org) );
     memcpy( world->fog_at, sw.fog_at, sizeof(sw.fog_at) );
     world->item_count = head.item_count;
+    mdl_rebind_items( world, fight->worldtype );
     rdr->anim_time = sr.anim_time;
     if ( head.version < SG_VERSION_SPR3 ) {
         d_sprite_air_reset( rdr, sr.anim_time );
@@ -628,10 +644,10 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
     if ( head.version == SG_VERSION_OLD ) {
         /* v1 had one player-wide mega timer. Preserve that behavior for
            the old snapshot by handing it to one collected mega. */
-        if ( fight->rot_at > 0.0f ) for ( i = 0; i < world->item_count; i++ ) {
+        if ( fight->lightning_at > 0.0f ) for ( i = 0; i < world->item_count; i++ ) {
             ItemEnt far *it = &world->item[i];
             if ( it->gone && it->kind == ENT_ITEM_HEALTH && it->amount == ENT_ITEM_MEGA ) {
-                it->rot_at = fight->rot_at;
+                it->rot_at = fight->lightning_at;
                 break;
             }
         }
@@ -639,6 +655,12 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
         fight->suit_warn = savegame_warn_v1( fight->suit_until, fight->suit_warn, sr.anim_time );
         fight->pent_warn = savegame_warn_v1( fight->pent_until, fight->pent_warn, sr.anim_time );
         fight->invis_warn = savegame_warn_v1( fight->invis_until, fight->invis_warn, sr.anim_time );
+    }
+    if ( head.version < SG_VERSION_LIGHTNING ) {
+        fight->lightning_at = -1.0f;
+        fight->lg_hit_at = 0.0f;
+        fight->punch_pitch = 0.0f;
+        fight->lg_sustained = 0;
     }
     dl_import( rdr, sr.dlights );
     rdr->dl_tick = sr.dl_tick;

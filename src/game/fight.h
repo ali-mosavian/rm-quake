@@ -20,6 +20,7 @@
 #define PL_IT_GL      32
 #define PL_IT_SNG     64
 #define PL_IT_RL      128
+#define PL_IT_LIGHTNING 256
 #define PL_IT_AXE     4096    /* q_pl.bi: not a compact local weapon bit */
 
 #define PL_HEALTH       100
@@ -76,6 +77,11 @@
 #define PL_RL_HIT_RND   20
 #define PL_RL_DMG       120.0f   /* and the blast where it stopped */
 #define PL_RL_LIFE      5.0f
+
+#define PL_LG_RATE      0.1f
+#define PL_LG_RESTART   0.2f
+#define PL_LG_RANGE     600.0f
+#define PL_LG_DMG       30
 
 #define PL_BOUNCE       1.5f     /* MOVETYPE_BOUNCE's ClipVelocity overbounce */
 #define PL_NAILS_MAX    24       /* in flight at once */
@@ -145,7 +151,7 @@ typedef struct {
     float weapon_at[6];       /* newly acquired weapon icon flash, status order */
     float face_until;         /* damage face, separate from pain sound throttling */
     short shells, nails, rockets, cells;
-    float rot_at;             /* retained in v1 saves; each mega now owns its thinker */
+    float lightning_at;       /* seventh weapon icon flash; v1 used this slot for megahealth */
     float quad_until;         /* super_damage_finished */
     float suit_until;         /* radsuit_finished */
     float pent_until;         /* invincible_finished */
@@ -184,8 +190,11 @@ typedef struct {
     float next_fire;          /* attack_finished */
     float fire_at;            /* when the last shot left, for the view model */
     float flash_until;        /* the muzzle flash shows until then */
-    short nail_side;          /* the nailgun alternates its muzzle */
+    short weapon_phase;       /* alternating nails; Thunderbolt view frame */
     Spike nail[PL_NAILS_MAX];
+    float lg_hit_at;           /* lhit's independent six-tenths clock */
+    float punch_pitch;         /* svc_smallkick, decaying ten degrees/second */
+    short lg_sustained;        /* release extends only a repeated beam */
 } Fight;
 
 /* The header carries only the struct and its constants; every routine

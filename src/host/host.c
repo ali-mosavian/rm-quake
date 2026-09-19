@@ -374,6 +374,7 @@ static void near host_state( Host *h, short fire, short advance )
         }
         break;
     }
+    if ( fight->fire_prev && !fire ) pl_lightning_release( fight );
     fight->fire_prev = fire;
 }
 
@@ -394,6 +395,11 @@ static void near host_tick( Host *h, float dt )
                               keybind_action( h->keys, KA_USE ) );
     short live;
     short rider_kind;
+
+    if ( fight->punch_pitch < 0.0f ) {
+        fight->punch_pitch += 10.0f * dt;
+        if ( fight->punch_pitch > 0.0f ) fight->punch_pitch = 0.0f;
+    }
 
     v_update_camera( cam, player, world, input, h->keys, fight, rdr,
                      dt, scr_x_res, scr_y_res, h->forward_speed, h->invert_mouse );
@@ -634,7 +640,7 @@ static void near host_render_models( Host *h, RenderView *rv, Camera *cam )
                     rv->xresh, rv->yresh, z_near, dst );
     d_draw_gibs( world, rdr, rv->frustum, &rv->mtx_fin,
                   rv->xresh, rv->yresh, z_near, dst );
-    d_draw_beams( world, rdr, rv->frustum, &rv->mtx_fin,
+    d_draw_beams( world, rdr, &h->player, rv->frustum, &rv->mtx_fin,
                    rv->xresh, rv->yresh, z_near, dst );
     part_frame( rdr, &rv->mtx_fin, rv->xresh, rv->yresh, z_near, dst, h->z_dc );
     d_draw_sprites( world, rdr, &rv->mtx_fin, &h->mtx_prj,
@@ -670,7 +676,7 @@ static void near host_render( Host *h )
     rv.xresh = (float) h->v.x_res / 2.0f;
     rv.yresh = (float) h->v.y_res / 2.0f;
     v_render_effects( &view, &up, &h->cam, &h->player, dead, PL_EYE,
-                      dead_height, h->rdr.anim_time );
+                      dead_height, h->rdr.anim_time, h->fight.punch_pitch );
     host_render_walk( h, &rv, &view, &up );
 #if QR_PROF
     pt_stop( h, t0, &h->pt.cull_sum, &h->pt.cull_max );
@@ -1035,6 +1041,7 @@ static void near host_view_setup( Host *h )
     rdr->no_ents   = a->no_ents;
     rdr->no_items  = a->no_items;
     rdr->no_mdl    = a->no_mdl;
+    rdr->no_beam   = a->no_beam;
     rdr->no_view   = a->no_view;
     rdr->demo_view_frame = -1;
     rdr->no_ai     = a->no_ai;
@@ -1861,6 +1868,9 @@ static void near host_report( Host *h )
              fight->armor, fight->items, fight->weapon, item_taken( &h->world ), fight->kills,
              fight->booms, fight->deaths, fight->cells );
     mark( buf );
+    sprintf( buf, "lightning phase=%d punch=%d", (int) fight->weapon_phase,
+             (int) ( fight->punch_pitch * 10.0f ) );
+    mark( buf );
     sprintf( buf, "center msg=%d ms=%ld", fight->msg != 0,
              (long) ( fight->msg_time * 1000.0f ) );
     mark( buf );
@@ -1929,6 +1939,7 @@ static void near host_change_args( RunArgs *args, char *map )
     args->no_stats = old.no_stats;
     args->no_ai = old.no_ai;
     args->no_mdl = old.no_mdl;
+    args->no_beam = old.no_beam;
     args->no_items = old.no_items;
     args->no_view = old.no_view;
     args->no_sound = old.no_sound;
