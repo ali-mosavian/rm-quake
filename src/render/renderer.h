@@ -109,9 +109,9 @@ typedef struct {
                             in its solid shaft), so pruning by vis_sub
                             alone loses the node it is placed at and the
                             entity never draws. Rebuilt every frame. */
-    short far *nd_parent;         /* a node's parent, -1 at the root; the
-                            only way to walk up to mark that path */
-    short far *lf_parent;         /* and a leaf's, because ent_find_node
+    short far *nd_parent;         /* a world node's parent, -1 at the root;
+                            the way visibility and entities mark a path */
+    short far *lf_parent;         /* and a world leaf's, because ent_find_node
                             stops at a LEAF whenever the box straddles no
                             plane all the way down -- r_emit_entities is
                             called from the leaf branch too */

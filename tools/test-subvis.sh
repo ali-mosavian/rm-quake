@@ -13,6 +13,8 @@
 #   vis_walk carries the root-to-node path of every placed entity for
 #   exactly this. Dropping that marking costs 152 of e1m1's 589 marked
 #   faces a frame at the spawn, which is what pt_marked reads here.
+#   -entinsert keeps that parent-chain path active when depth buffering
+#   would otherwise draw entities after the world.
 #
 #   And nothing else at all: the two arms must render the same frame.
 #
@@ -34,7 +36,7 @@ MAP="${2:-e1m1.qmp}"
 
 arm() {   # arm <flags> -> "<md5> <pt_marked> <pt_nodes>"
     TIMEOUT="${TIMEOUT:-300}" "${RUN_SH:-$HERE/run.sh}" "$OUT" \
-        "$MAP -nostats -noai -bench 4000 -ticks 120 $1" >/dev/null 2>&1
+        "$MAP -nostats -noai -entinsert -bench 4000 -ticks 120 $1" >/dev/null 2>&1
     [[ -s "$OUT/BENCH.BMP" ]] || { echo "MISSING 0 0"; return; }
     echo "$(md5 -q "$OUT/BENCH.BMP" 2>/dev/null || md5sum "$OUT/BENCH.BMP" | cut -d' ' -f1)" \
          "$(field pt_marked)" "$(field pt_nodes)" "$(field pt_polys)"

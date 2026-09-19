@@ -171,32 +171,14 @@ void r_set_frustum( DiskPlane far *frustum, Mat4 *mtx )
  *       The compressed blob lives in EMS. A decode maps its current
  *       16K page and only remaps when the byte offset crosses one.
  */
-/* Any leaf below nodenr in pvsb? One post-order pass, no parent
-   pointers needed, run only when pvsb is rebuilt. pvs_now is a SUBSET of
-   pvsb (r_portal_mark only ever clears bits), so a node this pass leaves
-   unmarked can hold nothing the flood would have kept either -- and the
-   leaf still gets its own pvs_now test on the way past. */
-static short r_mark_sub( World *world, Renderer *rdr, short nodenr )
+/* Mark every world node above a PVS leaf, only when pvsb is rebuilt.
+   pvs_now is a SUBSET of pvsb (r_portal_mark only ever clears bits), so
+   a node this pass leaves unmarked can hold nothing the flood would have
+   kept either -- and the leaf still gets its own pvs_now test. */
+static void r_mark_subtrees( World *world, Renderer *rdr, short all )
 {
-    short any;
-
-    if ( nodenr & 0x8000 ) {
-        if ( !rdr->pvsb[ (short) ~nodenr ] ) return 0;
-        rdr->vis_leaves++;
-        return 1;
-    }
-    any = r_mark_sub( world, rdr, world->nodes[nodenr].child0 );
-    if ( r_mark_sub( world, rdr, world->nodes[nodenr].child1 ) ) any = 1;
-    if ( any ) {
-        rdr->vis_sub[nodenr >> 3] |= (unsigned char) ( 1 << (nodenr & 7) );
-        rdr->vis_nodes++;
-    }
-    return any;
-}
-
-static void r_mark_subtrees( World *world, Renderer *rdr, short head, short all )
-{
-    short nb = (short) ( ( world->node_count + 7 ) / 8 ), i;
+    short nb = (short) ( ( world->node_count + 7 ) / 8 ), i, n, byte;
+    unsigned char bit;
 
     for ( i = 0; i < nb; i++ ) rdr->vis_sub[i] = all ? 0xFF : 0;
     rdr->vis_leaves = rdr->vis_nodes = 0;
@@ -205,7 +187,23 @@ static void r_mark_subtrees( World *world, Renderer *rdr, short head, short all 
         rdr->vis_nodes  = world->node_count;
         return;
     }
-    r_mark_sub( world, rdr, head );
+
+    /* Each visible leaf marks its chain to the world root. Once a node
+       is set, the rest of that chain was set by the earlier leaf too,
+       so every node is visited at most once. This is the recursive
+       post-order result without putting the whole BSP depth on the
+       16-bit C stack. Leaf zero is solid and has no PVS bit. */
+    for ( i = 1; i < world->leaf_count; i++ ) {
+        if ( !rdr->pvsb[i] ) continue;
+        rdr->vis_leaves++;
+        for ( n = rdr->lf_parent[i]; n >= 0; n = rdr->nd_parent[n] ) {
+            byte = (short) ( n >> 3 );
+            bit = (unsigned char) ( 1 << ( n & 7 ) );
+            if ( rdr->vis_sub[byte] & bit ) break;
+            rdr->vis_sub[byte] |= bit;
+            rdr->vis_nodes++;
+        }
+    }
 }
 
 /*
@@ -216,15 +214,24 @@ static void r_mark_subtrees( World *world, Renderer *rdr, short head, short all 
  */
 void r_build_parents( World *world, Renderer *rdr )
 {
-    short i, c;
+    short i, c, n, top = 0;
 
-    for ( i = 0; i < world->node_count; i++ ) rdr->nd_parent[i] = -1;
+    /* Only model 0 owns visibility. A submodel may reuse a leaf, so a
+       flat pass over every node can replace that leaf's world parent.
+       ord is idle until the first frame and is the traversal stack. */
+    for ( i = 0; i < world->node_count; i++ ) rdr->nd_parent[i] = -2;
     for ( i = 0; i < world->leaf_count; i++ ) rdr->lf_parent[i] = -1;
-    for ( i = 0; i < world->node_count; i++ ) {
-        c = world->nodes[i].child0;
-        if ( c & 0x8000 ) rdr->lf_parent[ (short) ~c ] = i; else rdr->nd_parent[c] = i;
-        c = world->nodes[i].child1;
-        if ( c & 0x8000 ) rdr->lf_parent[ (short) ~c ] = i; else rdr->nd_parent[c] = i;
+    n = (short) world->models[0].head_node0;
+    rdr->nd_parent[n] = -1;
+    rdr->ord[top++] = n;
+    while ( top ) {
+        n = rdr->ord[--top];
+        c = world->nodes[n].child0;
+        if ( c & 0x8000 ) rdr->lf_parent[ (short) ~c ] = n;
+        else { rdr->nd_parent[c] = n; rdr->ord[top++] = c; }
+        c = world->nodes[n].child1;
+        if ( c & 0x8000 ) rdr->lf_parent[ (short) ~c ] = n;
+        else { rdr->nd_parent[c] = n; rdr->ord[top++] = c; }
     }
 }
 
@@ -248,9 +255,8 @@ void r_mark_leaves( World *world, Renderer *rdr, short nodenr, Vec3 *campos )
 {
     unsigned char far *pvs = 0;
     long ofs;
-    short leafnr, l, j, byte, bit, run, page = -1, head = 0;
+    short leafnr, l, j, byte, bit, run, page = -1;
 
-    head = nodenr;              /* the root of the walk, before the descent */
     while ( !(nodenr & 0x8000) ) {
         if ( r_node_side( nodenr, campos, world ) )
             nodenr = world->nodes[nodenr].child0;
@@ -270,7 +276,7 @@ void r_mark_leaves( World *world, Renderer *rdr, short nodenr, Vec3 *campos )
     if ( world->leaves[leafnr].vis_list == -1 ) {
         /* no visibility restriction: draw from everywhere */
         for ( l = 0; l < world->leaf_count; l++ ) rdr->pvsb[l] = -1;
-        r_mark_subtrees( world, rdr, head, 1 );
+        r_mark_subtrees( world, rdr, 1 );
         return;
     }
 
@@ -295,7 +301,7 @@ void r_mark_leaves( World *world, Renderer *rdr, short nodenr, Vec3 *campos )
         }
     }
 
-    r_mark_subtrees( world, rdr, head, 0 );
+    r_mark_subtrees( world, rdr, 0 );
 }
 
 /*

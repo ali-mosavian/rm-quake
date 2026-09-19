@@ -201,9 +201,9 @@ void mod_load_world( World *world, Renderer *rdr, Camera *cam, Fight *fight, cha
     r_load_lfaces( world, counts->face_lump_bytes );
     r_load_portals( world, rdr, counts->leaves );
     mod_load_nodes( world, counts );
-    r_build_parents( world, rdr );
     mod_load_planes( world, counts );
     mod_load_submodels( world );
+    r_build_parents( world, rdr );
     mod_load_visibility( world );
     pl_load_hulls( world, (short) counts->clips );
 

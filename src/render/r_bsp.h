@@ -82,8 +82,8 @@ void r_free_scratch( Renderer *rdr );
 
 /*
  * name: r_build_parents
- * desc: Fills rdr->nd_parent from the node tree. Call once, after the
- *       nodes are loaded and before the first frame.
+ * desc: Fills the world tree's node and leaf parent tables. Call once,
+ *       after nodes and submodels are loaded and before the first frame.
  */
 void r_build_parents( World *world, Renderer *rdr );
 
