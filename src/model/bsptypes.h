@@ -179,7 +179,7 @@ typedef struct {
 #define ENT_PLAT_KIND_TRAIN 1
 typedef struct {
     short model;
-    float travel;
+    union { float travel; float block_at; } time;
     float speed;
     short state;
     BspVec3  mins, maxs;
@@ -189,7 +189,10 @@ typedef struct {
     short corner;        /* the one it is at, or bound for */
     float wait_left;
     short snd;           /* the map's sounds; a train's 0 is silent */
-    short moving;        /* a plat under way, whose stop is still to play */
+    union {
+        short moving;    /* a plat under way, whose stop is still to play */
+        short dmg;       /* a train's blocked damage */
+    } mode;
 } PlatEnt;
 
 /* q_ent.bi's ItemEnt: a pickup where the map put it, dropped to the

@@ -3,10 +3,12 @@
  */
 
 #include "plats.h"
+#include <math.h>
 #include "ent.h"
 #include "mathlib.h"
 #include "pl_move.h"
 #include "pl_trace.h"
+#include "combat.h"
 #include "snd.h"
 
 /*
@@ -115,7 +117,7 @@ void ent_move_plats( World *world, Player *player, float dt, short rider_kind )
         if ( plt->kind != ENT_PLAT_KIND_PLAT ) continue;   /* a train is ent_move_trains' */
 
         plt->state = rider_kind == ENT_RIDER_LIVE && activated ? ENT_PLAT_UP : ENT_PLAT_DOWN;
-        goal = ( plt->state == ENT_PLAT_UP ) ? 0.0f : -plt->travel;
+        goal = ( plt->state == ENT_PLAT_UP ) ? 0.0f : -plt->time.travel;
 
         was = br->ofs.z;
         if ( br->ofs.z < goal ) {
@@ -133,9 +135,9 @@ void ent_move_plats( World *world, Player *player, float dt, short rider_kind )
             /* plat_go_up and _down: the move, looping; plat_hit_top and
                _bottom: the stop, on the same channel */
             snd = (short) ( SND_PLAT + ( plt->snd - 1 ) * 2 );
-            if ( !plt->moving ) ent_brush_sound( player, world, plt->model, snd );
-            plt->moving = (short) ( br->ofs.z != goal );
-            if ( !plt->moving ) ent_brush_sound( player, world, plt->model, (short) ( snd + 1 ) );
+            if ( !plt->mode.moving ) ent_brush_sound( player, world, plt->model, snd );
+            plt->mode.moving = (short) ( br->ofs.z != goal );
+            if ( !plt->mode.moving ) ent_brush_sound( player, world, plt->model, (short) ( snd + 1 ) );
         }
 
         if ( !riding && moved != 0.0f )
@@ -166,9 +168,53 @@ void ent_train_init( World *world, PlatEnt far *p )
     p->state = p->targeted ? ENT_TRAIN_IDLE : ENT_TRAIN_WAIT;
 }
 
-void ent_move_trains( World *world, Player *player, float dt, short rider_kind )
+static short near ent_train_push( World *world, Player *player,
+                                  PlatEnt far *p, BrushModel far *b,
+                                  BspVec3 *was, short riding, short rider_kind )
 {
-    short i, riding;
+    BspVec3 saved, start, fin;
+    TraceResult tr;
+    short head = (short) ( rider_kind == ENT_RIDER_HEAD );
+    short solid;
+
+    if ( player->no_clip ) return -1;
+    if ( !riding ) riding = ent_mover_intersects( world, player, p, b, head );
+    if ( !riding ) return -1;
+    if ( rider_kind != ENT_RIDER_LIVE ) player->on_ground = 0;
+
+    saved = player->pos;
+    start = player->pos;
+    if ( head ) start.z += PL_FEET;
+    fin.x = start.x + b->ofs.x - was->x;
+    fin.y = start.y + b->ofs.y - was->y;
+    fin.z = start.z + b->ofs.z - was->z;
+    solid = b->solid;
+    b->solid = 0;
+    if ( rider_kind == ENT_RIDER_LIVE )
+        pl_trace_move( world, &start, &fin, -1, &tr, (short *) 0 );
+    else
+        pl_trace( world, &start, &fin, &tr );
+    b->solid = solid;
+    player->pos = tr.end_pos;
+    if ( head ) player->pos.z -= PL_FEET;
+    start = player->pos;
+    if ( head ) start.z += PL_FEET;
+    if ( rider_kind == ENT_RIDER_LIVE )
+        pl_trace_move( world, &start, &start, -1, &tr, (short *) 0 );
+    else
+        pl_trace( world, &start, &start, &tr );
+    if ( tr.all_solid ) {
+        if ( rider_kind != ENT_RIDER_LIVE ) return -1;
+        player->pos = saved;
+        return 0;
+    }
+    return -1;
+}
+
+void ent_move_trains( World *world, Player *player, Fight *fight,
+                      Renderer *rdr, float dt, short rider_kind )
+{
+    short i, riding, arrived, kind;
     PlatEnt far *p;
     BrushModel far *b;
     BspVec3 goal, was;
@@ -178,6 +224,8 @@ void ent_move_trains( World *world, Player *player, float dt, short rider_kind )
         if ( p->kind != ENT_PLAT_KIND_TRAIN ) continue;
         if ( p->state == ENT_TRAIN_IDLE ) continue;
         if ( p->first < 0 || p->first >= world->corner_count ) continue;
+        kind = rider_kind;
+        if ( kind == ENT_RIDER_LIVE && fight->health <= 0 ) kind = ENT_RIDER_DEAD;
 
         if ( p->state == ENT_TRAIN_WAIT ) {
             p->wait_left -= dt;
@@ -185,6 +233,7 @@ void ent_move_trains( World *world, Player *player, float dt, short rider_kind )
             if ( world->corner[ p->corner ].nxt < 0 ) continue;
             p->corner = world->corner[ p->corner ].nxt;
             p->state = ENT_TRAIN_MOVE;
+            p->wait_left = 0.0f;
             /* train_next: noise1, the move, from every corner */
             if ( p->snd ) ent_brush_sound( player, world, p->model, SND_TRAIN + 1 );
         }
@@ -195,10 +244,35 @@ void ent_move_trains( World *world, Player *player, float dt, short rider_kind )
         goal.z = world->corner[ p->corner ].org.z - p->mins.z;
 
         riding = ent_mover_supported( player, p, b,
-                                      (short) ( rider_kind == ENT_RIDER_HEAD ) );
+                                      (short) ( kind == ENT_RIDER_HEAD ) );
         was = b->ofs;
 
-        if ( ent_step_to( &b->ofs, &goal, p->speed * dt ) ) {
+        arrived = ent_step_to( &b->ofs, &goal, p->speed * dt );
+
+        if ( ( b->ofs.x != was.x || b->ofs.y != was.y || b->ofs.z != was.z ) &&
+             !ent_train_push( world, player, p, b, &was, riding, kind ) ) {
+            b->ofs = was;
+            if ( kind == ENT_RIDER_LIVE && rdr->anim_time >= p->time.block_at ) {
+                float dx = player->pos.x - ( p->mins.x + p->maxs.x ) * 0.5f - was.x;
+                float dy = player->pos.y - ( p->mins.y + p->maxs.y ) * 0.5f - was.y;
+                float dz = player->pos.z - ( p->mins.z + p->maxs.z ) * 0.5f - was.z;
+                float len = (float) sqrt( dx*dx + dy*dy + dz*dz );
+                float kick = p->mode.dmg * 8.0f;
+                p->time.block_at = rdr->anim_time + 0.5f;
+                if ( len > 0.0f ) {
+                    player->vel.x += dx / len * kick;
+                    player->vel.y += dy / len * kick;
+                    player->vel.z += dz / len * kick;
+                }
+                combat_damage_player( player, world, fight, rdr, p->mode.dmg );
+            }
+            continue;
+        }
+
+        if ( b->ofs.x != was.x || b->ofs.y != was.y || b->ofs.z != was.z )
+            b->node = ENT_NODE_DIRTY;
+
+        if ( arrived ) {
             p->state = ENT_TRAIN_WAIT;
             p->wait_left = world->corner[ p->corner ].wait;
             /* train_wait: noise, the stop, only at a corner that waits */
@@ -206,22 +280,5 @@ void ent_move_trains( World *world, Player *player, float dt, short rider_kind )
             /* id's -1 is a wait of nothing, not a wait for ever */
             if ( p->wait_left <= 0.0f ) p->wait_left = 0.1f;
         }
-
-        if ( b->ofs.x != was.x || b->ofs.y != was.y || b->ofs.z != was.z )
-            b->node = ENT_NODE_DIRTY;
-
-        if ( !riding && ( b->ofs.x != was.x || b->ofs.y != was.y ||
-                           b->ofs.z != was.z ) )
-            riding = ent_mover_intersects( world, player, p, b,
-                                           (short) ( rider_kind == ENT_RIDER_HEAD ) );
-        if ( !riding || ( b->ofs.x == was.x && b->ofs.y == was.y &&
-                           b->ofs.z == was.z ) ) continue;
-        player->pos.x += b->ofs.x - was.x;
-        player->pos.y += b->ofs.y - was.y;
-        /* Walking riders drop from a descending mover; TOSS/BOUNCE
-           corpses receive the pusher's complete displacement. */
-        if ( b->ofs.z > was.z || rider_kind != ENT_RIDER_LIVE )
-            player->pos.z += b->ofs.z - was.z;
-        if ( rider_kind != ENT_RIDER_LIVE ) player->on_ground = 0;
     }
 }

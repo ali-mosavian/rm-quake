@@ -126,7 +126,7 @@ typedef struct {
 typedef struct {
     short model;
     float speed;
-    short targeted, first;
+    short dmg, targeted, first;
     short snd;          /* 1 train1/train2, 0 misc/null */
 } EntsTrain;
 
@@ -153,7 +153,7 @@ typedef struct {
 #define REC_ENTSDOOR 52
 #define REC_ENTSTRIG 54
 #define REC_ENTSAMB  16
-#define REC_ENTSTRAIN 12
+#define REC_ENTSTRAIN 14
 #define REC_PATHCORNER 18
 #define REC_ENTSLIGHT 6
 #define REC_ENTSGATE  6

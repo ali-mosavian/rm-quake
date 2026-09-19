@@ -494,14 +494,14 @@ static void near ent_load_trains( World *world, unsigned char far *buf, long *of
         p = &world->plat[ world->plat_count ];
         p->model = m;
         p->speed = tr.speed > 0.0f ? tr.speed : 100.0f;
-        p->travel = 0.0f;
+        p->time.block_at = 0.0f;
+        p->mode.dmg = tr.dmg > 0 ? tr.dmg : 2;
         p->kind  = ENT_PLAT_KIND_TRAIN;
         p->targeted = tr.targeted;
         p->first = tr.first;
         p->corner = tr.first;
         p->wait_left = 0.0f;
         p->snd   = tr.snd;
-        p->moving = 0;
         p->state = ENT_TRAIN_IDLE;
         p->mins  = world->models[m].mins;
         p->maxs  = world->models[m].maxs;
@@ -627,12 +627,13 @@ static void near ent_load_plats( World *world, unsigned char far *buf, long *ofs
             PlatEnt far *p = &world->plat[ world->plat_count ];
             p->model  = mdlnum;
             p->speed  = pr.speed;
-            p->travel = pr.travel;
+            p->time.travel = pr.travel;
             p->mins   = world->models[mdlnum].mins;
             p->maxs   = world->models[mdlnum].maxs;
 
             if ( p->speed  <= 0.0f ) p->speed  = 150.0f;
-            if ( p->travel <= 0.0f ) p->travel = world->models[mdlnum].maxs.z - world->models[mdlnum].mins.z;
+            if ( p->time.travel <= 0.0f )
+                p->time.travel = world->models[mdlnum].maxs.z - world->models[mdlnum].mins.z;
 
             /* Quake positions the brush raised, so a lift at rest is
                one full travel below where the map drew it. */
@@ -642,8 +643,8 @@ static void near ent_load_plats( World *world, unsigned char far *buf, long *ofs
             p->first = p->corner = -1;
             p->wait_left = 0.0f;
             p->snd = pr.snd >= 1 && pr.snd <= 2 ? pr.snd : 2;
-            p->moving = 0;
-            world->brush[mdlnum].ofs.z = -p->travel;
+            p->mode.moving = 0;
+            world->brush[mdlnum].ofs.z = -p->time.travel;
 
             world->plat_count++;
         }

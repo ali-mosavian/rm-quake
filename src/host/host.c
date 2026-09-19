@@ -412,7 +412,7 @@ static void near host_tick( Host *h, float dt )
     ent_move_plats( world, player, dt, rider_kind );
     ent_move_doors( world, player, fight, rdr, dt );
     ent_move_trigs( world, player, cam, fight, rdr, dt, scr_x_res, scr_y_res, live );
-    ent_move_trains( world, player, dt, rider_kind );
+    ent_move_trains( world, player, fight, rdr, dt, rider_kind );
 
     /* after the movers: a plat can carry an item's floor out from under
        the player */

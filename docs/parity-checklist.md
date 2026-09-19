@@ -232,6 +232,11 @@ PAK0 and are left out.
       id: `snd_dma.c` `SND_Spatialize`
       qcport: id's distance and left/right dot-product attenuation into an
       interleaved 8-bit SB16 ring; `tools/test-stereo.sh`
+- [x] Train pushing and blocked damage
+      id: `sv_phys.c` `SV_PushMove`; `plats.qc` `train_blocked`
+      qcport: swept player displacement, trapped-player rollback, map `dmg`,
+      outward kick and half-second cadence; `tools/test-plats.sh`,
+      `tools/test-train-crush.sh`
 - [ ] CD music
       id: `cd_audio.c` `CDAudio_Play`
       qcport: none

@@ -2,6 +2,8 @@
 #define __PLATS_H__
 
 #include "world.h"
+#include "renderer.h"
+#include "fight.h"
 
 #define ENT_RIDER_DEAD 0
 #define ENT_RIDER_LIVE 1
@@ -14,7 +16,8 @@ void  ent_move_plats( World *world, Player *player, float dt, short rider_kind )
  * name: ent_move_trains
  * desc: Every func_train one leg on, carrying its rider.
  */
-void ent_move_trains( World *world, Player *player, float dt, short rider_kind );
+void ent_move_trains( World *world, Player *player, Fight *fight,
+                      Renderer *rdr, float dt, short rider_kind );
 
 /*
  * name: ent_train_init

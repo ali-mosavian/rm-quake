@@ -292,7 +292,7 @@ SKILLS     = 4   # easy, normal, hard, nightmare: an ents<N>.bin each
 ENTS_HEAD  = '<4f3fff13hfhhh3ffh'  # ent.h's EntsHead; the monsters follow it
 ENTS_MON   = '<hh3ffhh'          # ent.h's EntsMon
 
-QMAP_VER   = 5
+QMAP_VER   = 6
 QMAP_HEAD  = 64
 QMAP_NAME  = 16
 QMAP_ENT   = 24
@@ -944,7 +944,7 @@ class Ents:
     air_bubbles: list[tuple[float, float, float]] = field(default_factory=list)
     # targetname, origin, wait, target
     corners: list[tuple[str, tuple[float, float, float], float, str]] = field(default_factory=list)
-    trains: list[tuple] = field(default_factory=list)   # model, speed, targetname id, first corner, sounds
+    trains: list[tuple] = field(default_factory=list)   # model, speed, damage, targetname id, first corner, sounds
     lights: list[tuple[int, int, int]] = field(default_factory=list)   # targetname id, style, starts on
     combat_order: dict[int, int] = field(default_factory=dict)         # brush model -> source edict
 
@@ -1322,7 +1322,8 @@ def sp_train(e: Ents, kv: dict[str, str]) -> bool:
     # func_train: speed 100; a targetname waits for its trigger
     if not (m := ent_model(e, kv.get('model', ''))):
         return False
-    e.trains.append((m, float(kv.get('speed', '0')) or 100.0, ent_name_id(e, kv.get('targetname', '')),
+    e.trains.append((m, float(kv.get('speed', '0')) or 100.0, int(float(kv.get('dmg', '0')) or 2.0),
+                     ent_name_id(e, kv.get('targetname', '')),
                      kv.get('target', ''), int(kv.get('sounds', '0') or 0)))
     return True
 
@@ -1444,7 +1445,8 @@ def pack_entities(e: Ents, nmodels: int, gravity: float, crates: CrateSet) -> by
     spawn2, angle2 = (e.spawn2, e.angle2) if e.spawn2 else (spawn, angle)
     # corners by index, each pointing at the next; a train at one with no target stays
     corner_at = {name: i for i, (name, _, _, _) in reversed(list(enumerate(corners))) if name}
-    trains = [(m, speed, targeted, corner_at[first], snd) for m, speed, targeted, first, snd in trains
+    trains = [(m, speed, dmg, targeted, corner_at[first], snd)
+              for m, speed, dmg, targeted, first, snd in trains
               if first in corner_at]
     if any(u[1] == TRIG_BOLT for u in uses):
         assert len(bolt_doors) == 2, bolt_doors
@@ -1494,8 +1496,8 @@ def pack_entities(e: Ents, nmodels: int, gravity: float, crates: CrateSet) -> by
                            msg_id(msg), delay, e.combat_order.get(m, 0))
     for snd, vol, org in ambs:
         buf += struct.pack('<hh3f', snd, vol, *org)
-    for m, speed, targeted, first, snd in trains:
-        buf += struct.pack('<hfhhh', m, speed, targeted, first, snd)
+    for m, speed, dmg, targeted, first, snd in trains:
+        buf += struct.pack('<hfhhhh', m, speed, dmg, targeted, first, snd)
     for _, org, wait, target in corners:
         buf += struct.pack('<3ffh', *org, wait, corner_at.get(target, -1))
     # q_ent.bi's CrateModel: the size, then five faces of atlas id,

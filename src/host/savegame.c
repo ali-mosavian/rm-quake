@@ -15,12 +15,13 @@
 #include "mdl_ai.h"
 
 #define SG_MAGIC   0x31565351L
-#define SG_VERSION 8
+#define SG_VERSION 9
 #define SG_VERSION_ITEMS 2
 #define SG_VERSION_SPR3 5
 #define SG_VERSION_ANIM 6
 #define SG_VERSION_SPAWN 7
 #define SG_VERSION_ZWAIT 8
+#define SG_VERSION_TRAIN_DMG 9
 #define SG_VERSION_OLD 1
 #define SG_GIB_MAGIC 0x31424947L
 #define SG_SPR_MAGIC 0x31525053L
@@ -71,11 +72,26 @@ static void near savegame_zombie_wait_v7( MdlEnt far *ent )
 
 static short near savegame_monsters( World *world, short version );
 
+static void near savegame_train_damage_v8( World *world, short far *damage )
+{
+    short i;
+
+    for ( i = 0; i < world->plat_count; i++ ) {
+        if ( world->plat[i].kind != ENT_PLAT_KIND_TRAIN ) continue;
+        world->plat[i].time.block_at = 0.0f;
+        world->plat[i].mode.dmg = damage[i] > 0 ? damage[i] : 2;
+    }
+}
+
 short savegame_selftest( World *world )
 {
     MdlEnt ent;
+    PlatEnt plat;
     MdlEnt far *saved_mon = world->mon;
+    PlatEnt far *saved_plat = world->plat;
     short saved_count = world->mon_count;
+    short saved_plat_count = world->plat_count;
+    short damage = 75;
     short ok;
 
     memset( &ent, 0, sizeof(ent) );
@@ -99,6 +115,17 @@ short savegame_selftest( World *world )
 done:
     world->mon = saved_mon;
     world->mon_count = saved_count;
+    if ( ok ) {
+        memset( &plat, 0, sizeof(plat) );
+        plat.kind = ENT_PLAT_KIND_TRAIN;
+        plat.time.block_at = 8.0f;
+        world->plat = &plat;
+        world->plat_count = 1;
+        savegame_train_damage_v8( world, &damage );
+        ok = (short) ( plat.time.block_at == 0.0f && plat.mode.dmg == 75 );
+    }
+    world->plat = saved_plat;
+    world->plat_count = saved_plat_count;
     return ok;
 }
 
@@ -434,6 +461,7 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
     SpriteBubble far *bubble = 0;
     SpriteBubbleSpawner far *spawner = 0;
     SpriteBubbleEmitter far *emitter = 0;
+    short far *train_damage = 0;
 
     savegame_name( slot, "sav", name );
     file = qglFileOpen( name );
@@ -450,6 +478,18 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
         qglFileClose( file );
         strcpy( error, "Save file does not match this map" );
         return 0;
+    }
+    if ( head.version < SG_VERSION_TRAIN_DMG ) {
+        train_damage = (short far *) qglMemAlloc(
+            (long) ( world->plat_count ? world->plat_count : 1 ) * sizeof(short) );
+        if ( !train_damage ) {
+            qglFileClose( file );
+            strcpy( error, "Could not preserve train damage" );
+            return 0;
+        }
+        for ( i = 0; i < world->plat_count; i++ )
+            train_damage[i] = world->plat[i].kind == ENT_PLAT_KIND_TRAIN
+                            ? world->plat[i].mode.dmg : 0;
     }
     ok = (short) ( savegame_read_block( file, (long) (void far *) player, sizeof(*player) ) &&
                    savegame_read_block( file, (long) (void far *) cam, sizeof(*cam) ) &&
@@ -468,6 +508,10 @@ short savegame_load( short slot, const char *map, World *world, Player *player,
                                       (long) world->trig_count * sizeof(TrigEnt) ) &&
                    savegame_read_block( file, (long) world->light,
                                       (long) world->light_count * sizeof(LightEnt) ) );
+    if ( train_damage ) {
+        if ( ok ) savegame_train_damage_v8( world, train_damage );
+        qglMemFree( (long) train_damage );
+    }
     if ( ok ) ok = savegame_read_items( file, world->item,
                                         head.item_count, head.version );
     if ( ok ) ok = savegame_read_block( file, (long) world->mon,
