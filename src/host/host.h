@@ -76,6 +76,7 @@ typedef struct {
     short          pending_load;
     short          quit;
     long           console_frames;
+    float          ui_time;
     float          fov_applied;
     float          skill_cvar_seen;
     float          viewsize_applied;

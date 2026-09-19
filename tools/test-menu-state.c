@@ -4,11 +4,12 @@
 
 #include "menu.h"
 #include "qgl.h"
+#include "uigfx.h"
 
-#define MENU_BYTES 98304L
-#define HELP_BYTES 64000L
-#define QUIT_BYTES 9984L
-#define QUIT_OFFSET (MENU_BYTES + 6L * HELP_BYTES)
+#define MENU_BYTES  UIGFX_MENU_BYTES
+#define HELP_BYTES  UIGFX_HELP_BYTES
+#define QUIT_BYTES  UIGFX_QUIT_BYTES
+#define QUIT_OFFSET UIGFX_QUIT_OFFSET
 
 static unsigned char row[512];
 static short standard_news, help_news, dialog_news, frees, part_reads;
@@ -47,7 +48,7 @@ short pak_seek( Pak *pak, char *member, long *bytes )
 {
     (void) pak;
     assert( strcmp( member, "menu.raw" ) == 0 );
-    if ( bytes ) *bytes = QUIT_OFFSET + 8L * QUIT_BYTES;
+    if ( bytes ) *bytes = UIGFX_FILE_BYTES;
     return 1;
 }
 short pak_seek_part( Pak *pak, char *member, long offset, long bytes )

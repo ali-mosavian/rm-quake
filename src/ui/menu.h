@@ -52,6 +52,7 @@ short menu_is_open( const Menu MENU_FAR *menu );
 MenuAction menu_key( Menu MENU_FAR *menu, short key,
                      KeyBindings KB_FAR *keys, CmdState far *cmd, Pak *pak );
 void menu_draw( Menu MENU_FAR *menu, const KeyBindings KB_FAR *keys,
-                const CmdState far *cmd, float now, QSurf dst, short w, short h );
+                const CmdState far *cmd, float now, QSurf dst, short w, short h,
+                short fade );
 
 #endif

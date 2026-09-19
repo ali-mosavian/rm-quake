@@ -79,6 +79,33 @@ def glyph(chars: bytes, code: int) -> bytes:
     )
 
 
+def conback(pak: bytes, entries: dict[str, tuple[int, int]], chars: bytes) -> bytes:
+    width, height, pixels = qpic(mdlview.pak_read(pak, entries, "gfx/conback.lmp"))
+    if (width, height) != (320, 200):
+        raise AssertionError(f"conback is {width}x{height}, wanted 320x200")
+    result = bytearray(pixels)
+    for column, code in enumerate(b"1.09"):
+        source = chars[(code // 16 * 8) * 128 + code % 16 * 8 :]
+        for row in range(8):
+            for x in range(8):
+                pixel = source[row * 128 + x]
+                if pixel:
+                    result[(186 + row) * 320 + 277 + column * 8 + x] = 0x60 + pixel
+    return bytes(result)
+
+
+def place_console_text(
+    screen: bytearray, chars: bytes, text: bytes, x: int, y: int
+) -> None:
+    for column, code in enumerate(text):
+        source = chars[(code // 16 * 8) * 128 + code % 16 * 8 :]
+        for row in range(8):
+            for gx in range(8):
+                pixel = source[row * 128 + gx]
+                if pixel:
+                    screen[(y + row) * 320 + x + column * 8 + gx] = pixel
+
+
 def place_raw(
     screen: bytearray,
     pixels: bytes,
@@ -125,10 +152,12 @@ def quit_dialog(pak: bytes, entries: dict[str, tuple[int, int]], message: tuple[
 
 
 def main() -> int:
-    if len(sys.argv) != 8:
+    if len(sys.argv) != 17:
         print(
             f"usage: {sys.argv[0]} PAK0.PAK MAIN_GAME.BMP MAIN.BMP HELP.BMP "
-            "QUIT_GAME.BMP QUIT.BMP CONSOLE.BMP",
+            "QUIT_GAME.BMP QUIT.BMP HANDOFF.BMP CONSOLE0.BMP CONSOLE1.BMP "
+            "CONSOLE2.BMP CONSOLE3.BMP CONSOLE4.BMP CONSOLE5.BMP "
+            "TRANSITION_GAME.BMP TRANSITION_CONSOLE.BMP TRANSITION_FADE.BMP",
             file=sys.stderr,
         )
         return 2
@@ -188,7 +217,7 @@ def main() -> int:
     changed = min(candidates)
     if changed:
         raise AssertionError(f"quit menu differs from every id dialog at {changed} pixels")
-    console = bmp_pixels(sys.argv[7])
+    handoff = bmp_pixels(sys.argv[7])
     for message in QUIT_MESSAGES:
         dialog = quit_dialog(pak, entries, message)
         opaque = (
@@ -196,9 +225,82 @@ def main() -> int:
             for index, pixel in enumerate(dialog)
             if pixel != 255
         )
-        if all(console[index] == pixel for pixel, index in opaque):
+        if all(handoff[index] == pixel for pixel, index in opaque):
             raise AssertionError("toggleconsole left the quit dialog owning the screen")
-    print("ok: main, Help and DOS quit menus match id art and fade the playfield")
+
+    chars = wad_lumps(mdlview.pak_read(pak, entries, "gfx.wad"))["CONCHARS"]
+    background = conback(pak, entries, chars)
+    console_expected = bytearray(background[100 * 320 :])
+    place_console_text(console_expected, chars, b"ABC", 8, 76)
+    place_console_text(console_expected, chars, b"]", 8, 84)
+    console_actual = (
+        bmp_pixels(sys.argv[8])[: 100 * 320],
+        bmp_pixels(sys.argv[9])[: 100 * 320],
+        bmp_pixels(sys.argv[10])[: 100 * 320],
+        bmp_pixels(sys.argv[11])[: 100 * 320],
+        bmp_pixels(sys.argv[12])[: 100 * 320],
+        bmp_pixels(sys.argv[13])[: 100 * 320],
+    )
+    cursor = {
+        y * 320 + x
+        for y in range(84, 92)
+        for x in range(16, 24)
+    }
+    for frame in console_actual:
+        changed = sum(
+            actual != expected
+            for index, (actual, expected) in enumerate(zip(frame, console_expected))
+            if index not in cursor
+        )
+        if changed:
+            raise AssertionError(
+                f"console differs from id conback and CONCHARS at {changed} pixels"
+            )
+    cursor_frames = []
+    for frame in console_actual:
+        actual_cursor = bytes(frame[index] for index in sorted(cursor))
+        candidates = []
+        for code in (10, 11):
+            expected = bytearray(console_expected)
+            place_console_text(expected, chars, bytes((code,)), 16, 84)
+            candidates.append(bytes(expected[index] for index in sorted(cursor)))
+        if actual_cursor not in candidates:
+            raise AssertionError("console cursor is not either id cursor glyph")
+        cursor_frames.append(actual_cursor)
+    if len(set(cursor_frames)) != 2:
+        raise AssertionError("console cursor did not animate while the game was paused")
+
+    transition_game = bmp_pixels(sys.argv[14])
+    transition_console = bmp_pixels(sys.argv[15])
+    expected = bytearray(background)
+    place(expected, mdlview.pak_read(pak, entries, "gfx/qplaque.lmp"), 16, 4)
+    place(expected, mdlview.pak_read(pak, entries, "gfx/ttl_main.lmp"), 112, 4)
+    place(expected, mdlview.pak_read(pak, entries, "gfx/mainmenu.lmp"), 72, 32)
+    changed = sum(
+        actual != pixel
+        for index, (actual, pixel) in enumerate(zip(transition_console, expected))
+        if index not in ignored
+    )
+    if changed:
+        raise AssertionError(f"console-to-menu backdrop differs from id at {changed} pixels")
+
+    transition_fade = bmp_pixels(sys.argv[16])
+    expected = bytearray(
+        pixel if (x & 3) == ((y & 1) << 1) else 0
+        for y in range(200)
+        for x, pixel in enumerate(transition_game[y * 320 : (y + 1) * 320])
+    )
+    place(expected, mdlview.pak_read(pak, entries, "gfx/qplaque.lmp"), 16, 4)
+    place(expected, mdlview.pak_read(pak, entries, "gfx/ttl_main.lmp"), 112, 4)
+    place(expected, mdlview.pak_read(pak, entries, "gfx/mainmenu.lmp"), 72, 32)
+    changed = sum(
+        actual != pixel
+        for index, (actual, pixel) in enumerate(zip(transition_fade, expected))
+        if index not in ignored and index // 320 >= 8
+    )
+    if changed:
+        raise AssertionError(f"retracted console menu differs from id fade at {changed} pixels")
+    print("ok: menus and console match id art, fade and console handoff")
     return 0
 
 

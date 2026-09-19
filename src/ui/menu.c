@@ -7,23 +7,24 @@
 #include "menu.h"
 #include "qgl.h"
 #include "sys.h"
+#include "uigfx.h"
 
-#define MENU_W       256
-#define MENU_H       384
-#define MENU_CHARS_Y 320
-#define HELP_W        320
-#define HELP_H        200
+#define MENU_W       UIGFX_MENU_W
+#define MENU_H       UIGFX_MENU_H
+#define MENU_CHARS_Y UIGFX_MENU_CHARS_Y
+#define HELP_W       UIGFX_HELP_W
+#define HELP_H       UIGFX_HELP_H
 #define HELP_STRIDE   512
-#define HELP_PAGES    6
-#define QUIT_W         208
-#define QUIT_H         48
+#define HELP_PAGES   UIGFX_HELP_PAGES
+#define QUIT_W       UIGFX_QUIT_W
+#define QUIT_H       UIGFX_QUIT_H
 #define QUIT_STRIDE    256
-#define QUIT_MESSAGES  8
-#define MENU_BYTES    ( (long) MENU_W * MENU_H )
-#define HELP_BYTES    ( (long) HELP_W * HELP_H )
-#define QUIT_BYTES    ( (long) QUIT_W * QUIT_H )
-#define QUIT_OFFSET   ( MENU_BYTES + HELP_PAGES * HELP_BYTES )
-#define MENU_FILE_BYTES ( QUIT_OFFSET + QUIT_MESSAGES * QUIT_BYTES )
+#define QUIT_MESSAGES UIGFX_QUIT_MESSAGES
+#define MENU_BYTES    UIGFX_MENU_BYTES
+#define HELP_BYTES    UIGFX_HELP_BYTES
+#define QUIT_BYTES    UIGFX_QUIT_BYTES
+#define QUIT_OFFSET   UIGFX_QUIT_OFFSET
+#define MENU_FILE_BYTES UIGFX_FILE_BYTES
 
 typedef struct { char *command, *label; } BindRow;
 
@@ -428,7 +429,8 @@ static void near menu_fade( QSurf dst, short w, short h )
 }
 
 void menu_draw( Menu MENU_FAR *menu, const KeyBindings KB_FAR *keys,
-                const CmdState far *cmd, float now, QSurf dst, short w, short h )
+                const CmdState far *cmd, float now, QSurf dst, short w, short h,
+                short fade )
 {
     short ox = (short) ( ( w - 320 ) / 2 );
     short oy = (short) ( ( h - 200 ) / 2 );
@@ -443,7 +445,7 @@ void menu_draw( Menu MENU_FAR *menu, const KeyBindings KB_FAR *keys,
             return;
         }
     } else view = dst;
-    if ( menu->page != MENU_HELP ) menu_fade( view, 320, 200 );
+    if ( fade && menu->page != MENU_HELP ) menu_fade( view, 320, 200 );
     if ( menu->page != MENU_CLOSED ) {
         if ( menu->page == MENU_HELP ) qglDrBlit( view, 0, 0, menu->atlas );
         else if ( menu->page == MENU_MAIN ) menu_draw_main( menu, view, now );

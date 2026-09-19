@@ -40,6 +40,8 @@ MENU_H = 384
 MENU_CHARS_Y = 320
 QUIT_W = 208
 QUIT_H = 48
+CONBACK_W = 320
+CONBACK_H = 200
 
 QUIT_MESSAGES = (
     ("  Are you gonna quit    ", "  this game just like   ",
@@ -252,8 +254,19 @@ def main() -> int:
             for x, code in enumerate(line.encode("ascii"), 1):
                 blit_masked(dialog, glyph(code + 128), x * 8, y * 8, 8, 8, QUIT_W)
         menu += dialog
+
+    console = bytearray(pak_pic("gfx/conback.lmp", CONBACK_W, CONBACK_H))
+    version = b"1.09"
+    for column, code in enumerate(version):
+        for row in range(8):
+            for x in range(8):
+                pixel = chars[(code // 16 * 8 + row) * 128 + code % 16 * 8 + x]
+                if pixel:
+                    console[(186 + row) * CONBACK_W + 277 + column * 8 + x] = 0x60 + pixel
+    menu += console
+    menu += chars
     open(os.path.join(outdir, "menu.raw"), "wb").write(menu)
-    print(f"  menu.raw       {len(menu):,} B, one menu surface swapped in at a time")
+    print(f"  menu.raw       {len(menu):,} B, menus and console art swapped into EMS")
     return 0
 
 

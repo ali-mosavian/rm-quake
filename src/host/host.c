@@ -1187,6 +1187,7 @@ void host_init( Host *h )
     h->viewsize_applied = 100.0f;
     h->forward_speed = 200.0f;
     h->invert_mouse = 0;
+    h->ui_time = 0.0f;
     con_init( h->console );
     commands[0] = 0;
     if ( host_file_exists( "default.cfg" ) &&
@@ -1669,12 +1670,13 @@ static void near host_present( Host *h )
 {
     Video *v = &h->v;
     QSurf target;
-    short special, menu;
+    short special, menu, console_backdrop;
 #if QR_PROF
     float t0 = sys_now( &h->sysclk ), hud_t0;
 #endif
 
     menu = menu_is_open( h->menu );
+    console_backdrop = (short) ( menu && con_visible( h->console ) );
     special = (short) ( !menu &&
         ( h->fight.state == GS_EXIT || h->fight.state == GS_FINALE ) );
     if ( h->player.water_level == 3 && !special )
@@ -1714,10 +1716,14 @@ static void near host_present( Host *h )
                            keybind_action( h->keys, KA_SHOWSCORES ), v->sbar_lines,
                            target, v->scr_x_res, v->scr_y_res );
     }
-    if ( !menu ) con_draw( h->console, h->hud, target, v->scr_x_res, v->scr_y_res );
-    if ( menu )
-        menu_draw( h->menu, h->keys, h->cmd, h->rdr.anim_time,
-                   target, v->scr_x_res, v->scr_y_res );
+    if ( !menu )
+        con_draw( h->console, &h->world.pak, target, v->scr_x_res, h->ui_time );
+    if ( menu ) {
+        if ( console_backdrop ) con_draw_full( h->console, &h->world.pak, target );
+        menu_draw( h->menu, h->keys, h->cmd, h->ui_time,
+                   target, v->scr_x_res, v->scr_y_res,
+                   (short) !console_backdrop );
+    }
     qglDrBlit( v->h_video_dc, 0, 0, v->h_comp_dc );
 #if QR_PROF
     pt_stop( h, t0, &h->pt.present_sum, 0 );
@@ -1732,6 +1738,7 @@ void host_frame( Host *h )
 #endif
 
     frame_dt = sys_frame_time( &h->sysclk, &raw_dt );
+    h->ui_time += raw_dt;
     if ( !demo_input( &h->demo, &h->input, &frame_dt ) ) {
         if ( h->attract.active ) {
             demo_close( &h->demo, &h->args );
@@ -1949,6 +1956,7 @@ static void near host_map_release( Host *h )
     short ems;
 
     menu_close( h->menu );
+    con_gfx_release( h->console );
     if ( h->z_dc ) qglSfZFree( h->h_dst_dc );
     h->z_dc = 0;
     if ( h->sc ) {

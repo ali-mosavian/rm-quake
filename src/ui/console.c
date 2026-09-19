@@ -6,6 +6,8 @@
 #include "input.h"
 #include "qgl.h"
 #include "screen.h"
+#include "sys.h"
+#include "uigfx.h"
 
 static void far_zero( void CMD_FAR *ptr, unsigned size )
 {
@@ -33,6 +35,35 @@ static void far_copy( char CMD_FAR *dst, const char CMD_FAR *src, short size )
     short i = 0;
     while ( i < size - 1 && src[i] ) { dst[i] = src[i]; i++; }
     dst[i] = 0;
+}
+
+static short near con_has_notifications( const Console CMD_FAR *con )
+{
+    short i, idx;
+    short rows = con->line_count < 4 ? con->line_count : 4;
+
+    for ( i = rows; i > 0; i-- ) {
+        idx = (short) ( ( con->line_head - i + CON_LINES ) % CON_LINES );
+        if ( con->line_time[idx] > 0.0f ) return -1;
+    }
+    return 0;
+}
+
+static short near con_gfx_trim( Console CMD_FAR *con )
+{
+    short live;
+
+    if ( con->height > 0.0f ) return -1;
+    if ( con->conback ) {
+        qglArFree( con->conback );
+        con->conback = 0;
+    }
+    live = con_has_notifications( con );
+    if ( !live && con->chars ) {
+        qglSfFree( con->chars );
+        con->chars = 0;
+    }
+    return live;
 }
 
 void con_init( Console CMD_FAR *con )
@@ -64,6 +95,7 @@ void con_animate( Console CMD_FAR *con, float dt, short screen_h )
         con->height -= step;
         if ( con->height < target ) con->height = target;
     }
+    con_gfx_trim( con );
 }
 
 void con_toggle( Console CMD_FAR *con, Input *input )
@@ -244,7 +276,106 @@ void con_key( Console CMD_FAR *con, CmdState CMD_FAR *cmd, short key, short shif
     }
 }
 
-void con_draw( const Console CMD_FAR *con, Hud far *hud, QSurf dc, short w, short h )
+static void near con_gfx_check( Pak *pak )
+{
+    long bytes;
+
+    pak_seek( pak, "menu.raw", &bytes );
+    if ( bytes != UIGFX_FILE_BYTES ) sys_error( "menu.raw has the wrong size" );
+}
+
+static short near con_back_load( Console CMD_FAR *con, Pak *pak )
+{
+    short handle, y;
+
+    if ( con->conback ) return -1;
+    con_gfx_check( pak );
+    con->conback = qglArNew( QGL_AR_EMS, UIGFX_CONBACK_W,
+                             UIGFX_CONBACK_H, QGL_TEX_SLOT );
+    if ( !con->conback ) return 0;
+    handle = pak_seek_part( pak, "menu.raw", UIGFX_CONBACK_OFFSET,
+                            UIGFX_CONBACK_BYTES );
+    for ( y = 0; y < UIGFX_CONBACK_H; y++ )
+        if ( qglFileRead( handle, qglArWin( con->conback, y ), UIGFX_CONBACK_W )
+             != UIGFX_CONBACK_W )
+            sys_error( "menu.raw console backdrop is short" );
+    return -1;
+}
+
+static short near con_chars_load( Console CMD_FAR *con, Pak *pak )
+{
+    short handle, y;
+
+    if ( con->chars ) return -1;
+    con_gfx_check( pak );
+    con->chars = qglSfNewEx( UIGFX_CHARS_W, UIGFX_CHARS_H,
+                             UIGFX_CHARS_W, QGL_SURF_EMS );
+    if ( !con->chars ) return 0;
+    handle = pak_seek_part( pak, "menu.raw", UIGFX_CHARS_OFFSET,
+                            UIGFX_CHARS_BYTES );
+    for ( y = 0; y < UIGFX_CHARS_H; y++ )
+        if ( qglFileRead( handle, qglSfWrRow( con->chars, y ), UIGFX_CHARS_W )
+             != UIGFX_CHARS_W )
+            sys_error( "menu.raw console font is short" );
+    return -1;
+}
+
+void con_gfx_release( Console CMD_FAR *con )
+{
+    if ( con->conback ) qglArFree( con->conback );
+    if ( con->chars ) qglSfFree( con->chars );
+    con->conback = con->chars = 0;
+}
+
+short con_visible( const Console CMD_FAR *con )
+{
+    return (short) ( con && con->height > 0.0f );
+}
+
+static void near con_glyph( Console CMD_FAR *con, QSurf dc,
+                            short x, short y, unsigned char code )
+{
+    unsigned char row[8];
+    unsigned char far *src, far *dst;
+    short gx, gy;
+    short sx = (short) ( ( code & 15 ) * 8 );
+    short sy = (short) ( code / 16 * 8 );
+
+    for ( gy = 0; gy < 8; gy++ ) {
+        src = (unsigned char far *) qglSfRdRow( con->chars, (short) ( sy + gy ) ) + sx;
+        qglMemCopy( (long) (void far *) row, (long) src, 8L );
+        dst = (unsigned char far *) qglSfWrRow( dc, (short) ( y + gy ) ) + x;
+        for ( gx = 0; gx < 8; gx++ ) if ( row[gx] ) dst[gx] = row[gx];
+    }
+}
+
+static void near con_text( Console CMD_FAR *con, QSurf dc,
+                           short x, short y, const char *text )
+{
+    short i;
+    for ( i = 0; text[i] && x + i * 8 < 320; i++ )
+        con_glyph( con, dc, (short) ( x + i * 8 ), y, (unsigned char) text[i] );
+}
+
+static void near con_back_draw( Console CMD_FAR *con, QSurf dc, short top )
+{
+    short sy, dy;
+
+    sy = top < 0 ? (short) -top : 0;
+    for ( ; sy < UIGFX_CONBACK_H; sy++ ) {
+        dy = (short) ( top + sy );
+        if ( dy >= UIGFX_CONBACK_H ) break;
+        qglMemCopy( qglSfWrRow( dc, dy ), qglArWin( con->conback, sy ),
+                    UIGFX_CONBACK_W );
+    }
+}
+
+void con_draw_full( Console CMD_FAR *con, Pak *pak, QSurf dc )
+{
+    if ( con_back_load( con, pak ) ) con_back_draw( con, dc, 0 );
+}
+
+void con_draw( Console CMD_FAR *con, Pak *pak, QSurf dc, short w, float now )
 {
     char text[CON_LINE + 2];
     short panel_h, rows, i, idx, y, cols, input_len, input_start;
@@ -252,34 +383,40 @@ void con_draw( const Console CMD_FAR *con, Hud far *hud, QSurf dc, short w, shor
 
     if ( con->height <= 0.0f ) {
         rows = con->line_count < 4 ? con->line_count : 4;
+        if ( !con_gfx_trim( con ) ) return;
+        if ( !con_chars_load( con, pak ) ) return;
         y = 0;
         for ( i = rows; i > 0; i-- ) {
             idx = (short) ( ( con->line_head - i + CON_LINES ) % CON_LINES );
             if ( con->line_time[idx] <= 0.0f ) continue;
             far_get( text, con->line[idx], CON_LINE );
-            draw_string( hud, dc, 4, y, text, hud->hc_text );
+            con_text( con, dc, 8, y, text );
             y = (short) ( y + 8 );
         }
         return;
     }
+    if ( !con_back_load( con, pak ) ) return;
     panel_h = (short) con->height;
-    qglDrFill( dc, 0, 0, (short) ( w - 1 ), panel_h, hud->hc_bg );
-    qglDrHline( dc, 0, panel_h, (short) ( w - 1 ), hud->hc_slabhi );
-    rows = (short) ( ( panel_h - 12 ) / 8 );
+    con_back_draw( con, dc, (short) ( panel_h - UIGFX_CONBACK_H ) );
+    if ( panel_h < 16 ) return;
+    if ( !con_chars_load( con, pak ) ) return;
+    rows = (short) ( ( panel_h - 16 ) / 8 );
     if ( rows > con->line_count - con->scroll ) rows = (short) ( con->line_count - con->scroll );
-    y = (short) ( panel_h - 12 - rows * 8 );
+    y = (short) ( panel_h - 16 - rows * 8 );
     for ( i = rows; i > 0; i-- ) {
         idx = (short) ( ( con->line_head - con->scroll - i + CON_LINES ) % CON_LINES );
         far_get( text, con->line[idx], CON_LINE );
-        draw_string( hud, dc, 4, y, text, hud->hc_text );
+        con_text( con, dc, 8, y, text );
         y = (short) ( y + 8 );
     }
     text[0] = ']';
     far_get( input, con->input, CON_LINE );
-    cols = (short) ( ( w - 8 ) / 4 );
+    cols = (short) ( w / 8 - 2 );
     input_len = (short) strlen( input );
     input_start = input_len > cols - 2 ? (short) ( input_len - ( cols - 2 ) ) : 0;
     strcpy( text + 1, input + input_start );
-    strcat( text, "_" );
-    draw_string( hud, dc, 4, (short) ( panel_h - 12 ), text, hud->hc_text );
+    input_len = (short) strlen( text );
+    text[input_len++] = (char) ( 10 + ( (long) ( now * 4.0f ) & 1L ) );
+    text[input_len] = 0;
+    con_text( con, dc, 8, (short) ( panel_h - 16 ), text );
 }
