@@ -487,7 +487,8 @@ void combat_radius( World *world, Player *player, Fight *fight, Renderer *rdr,
         if ( pts <= 0.0f || !combat_can_damage( world, &org, &target, model ) ) continue;
         if ( kind == 0 ) combat_damage_monster( world, player, fight, rdr, &world->mon[index], pts );
         else if ( kind == 1 ) combat_damage_box( world, player, fight, rdr, index, pts );
-        else if ( kind == 2 ) ent_door_fire( world, player, world->door[index].link );
+        else if ( kind == 2 )
+            ent_door_fire( world, player, fight, rdr, world->door[index].link );
         else                  ent_trig_shot( world, player, fight, rdr, index );
     }
 

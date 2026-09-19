@@ -167,7 +167,8 @@ void ent_use_targets( World *world, Player *player, Fight *fight,
     if ( !id ) return;
 
     for ( k = 0; k < world->door_count; k++ )
-        if ( world->door[k].targeted == id ) ent_door_fire( world, player, world->door[k].link );
+        if ( world->door[k].targeted == id )
+            ent_door_fire( world, player, fight, rdr, world->door[k].link );
 
     /* train_use: once */
     for ( k = 0; k < world->plat_count; k++ )

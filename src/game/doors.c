@@ -26,7 +26,8 @@ void ent_link_doors( World *world )
 
     for ( i = 0; i < world->door_count; i++ ) {
         for ( j = i + 1; j < world->door_count; j++ ) {
-            touch = ( d[i].nolink == 0 && d[j].nolink == 0 );
+            touch = ( !d[i].secret && !d[j].secret &&
+                      d[i].action.nolink == 0 && d[j].action.nolink == 0 );
             /* The fields are the brushes GROWN by the margin, so shrink
                them back before asking whether the brushes touch. */
             if ( d[i].mins.x + ENT_DOOR_FIELD  > d[j].maxs.x - ENT_DOOR_FIELD  ) touch = 0;
@@ -59,7 +60,8 @@ static void ent_door_sound( Player *player, World *world, DoorEnt far *d, short 
 
 /* door_go_up for a whole linked group: a shut or closing door sets out,
    an open one restarts its hold. */
-void ent_door_fire( World *world, Player *player, short grp )
+void ent_door_fire( World *world, Player *player, Fight *fight,
+                    Renderer *rdr, short grp )
 {
     short k;
     DoorEnt far *d = world->door;
@@ -73,6 +75,8 @@ void ent_door_fire( World *world, Player *player, short grp )
                so noise2 is what plays. */
             if ( d[k].state == ENT_DOOR_SHUT ) {
                 d[k].state = ENT_DOOR_OUT1;
+                d[k].msg = 0;
+                ent_use_targets( world, player, fight, rdr, d[k].action.target );
                 ent_door_sound( player, world, &d[k], 1 );
             }
             continue;
@@ -125,7 +129,7 @@ static void ent_door_key( World *world, Player *player, Fight *fight,
     }
     fight->items &= ~bit;
     snd_play( &world->snd, player, (short) ( SND_KEYTRY + 1 + wt * 2 ), &player->pos );
-    ent_door_fire( world, player, d->link );
+    ent_door_fire( world, player, fight, rdr, d->link );
 }
 
 void ent_move_doors( World *world, Player *player, Fight *fight,
@@ -145,7 +149,7 @@ void ent_move_doors( World *world, Player *player, Fight *fight,
         if ( d->key )
             ent_door_key( world, player, fight, rdr, k );
         else if ( !d->targeted && !d->secret )
-            ent_door_fire( world, player, d->link );
+            ent_door_fire( world, player, fight, rdr, d->link );
         else
             ent_talk( player, &world->snd, fight, rdr, ent_msg( world, d->msg ) );
     }

@@ -340,7 +340,7 @@ static void pl_shot_touch( World *world, Player *player, Fight *fight,
         mins = world->door[i].mins;
         maxs = world->door[i].maxs;
         if ( pl_ray_box( &mins, &maxs, org, dir, bt + PL_HALF ) < 0.0f ) continue;
-        ent_door_fire( world, player, world->door[i].link );
+        ent_door_fire( world, player, fight, rdr, world->door[i].link );
         if ( stopped ) *stopped = -1;
     }
 }
@@ -459,7 +459,7 @@ static void near pl_lightning_ray( World *world, Player *player, Fight *fight,
     else if ( hit.kind == PL_LHIT_TRIG )
         ent_trig_shot( world, player, fight, rdr, hit.index );
     else if ( hit.kind == PL_LHIT_DOOR )
-        ent_door_fire( world, player, world->door[hit.index].link );
+        ent_door_fire( world, player, fight, rdr, world->door[hit.index].link );
 }
 
 static void near pl_lightning_damage( World *world, Player *player, Fight *fight,

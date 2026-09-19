@@ -296,7 +296,7 @@ SKILLS     = 4   # easy, normal, hard, nightmare: an ents<N>.bin each
 ENTS_HEAD  = '<4f3fff13hfhhh3ffh'  # ent.h's EntsHead; the monsters follow it
 ENTS_MON   = '<hh3ffhh'          # ent.h's EntsMon
 
-QMAP_VER   = 7
+QMAP_VER   = 8
 QMAP_HEAD  = 64
 QMAP_NAME  = 16
 QMAP_ENT   = 24
@@ -1087,7 +1087,8 @@ def ent_secret(e: Ents, m: int, kv: dict[str, str], box: tuple[float, ...]) -> t
     hold = -1.0 if flags & 1 else (float(kv.get('wait', '0')) or 5.0)
     name = ent_name_id(e, kv.get('targetname', ''))
     shoot = 0 if flags & 8 else (1 if not name or flags & 16 else 0)
-    return (m, travel, mid, speed, hold, 0, 1, name, 1, shoot, int(kv.get('sounds', '0')) or 3, 0, ent_msg(kv))
+    return (m, travel, mid, speed, hold, 0, kv.get('target', ''), name, 1, shoot,
+            int(kv.get('sounds', '0')) or 3, 0, ent_msg(kv))
 
 
 def ent_trig(e: Ents, m: int, kv: dict[str, str]) -> tuple:
@@ -1470,6 +1471,9 @@ def pack_entities(e: Ents, nmodels: int, gravity: float, crates: CrateSet) -> by
     items, uses, mons, ambs, corners, trains, lights = e.items, e.uses, e.mons, e.ambs, e.corners, e.trains, e.lights
     uses = [(*u[:2], ent_name_id(e, u[2]), u[3], ent_name_id(e, u[4]), *u[5:])
             if u[1] == TRIG_EXIT else u for u in uses]
+    # Exit target ids precede fields added after savegames existed. Keep that
+    # stable, then resolve a secret door's outgoing target.
+    doors = [(*d[:6], ent_name_id(e, d[6]), *d[7:]) if d[8] else d for d in doors]
 
     # a teleporter with no destination still hides its brush
     teles = [(m, *dests[t], name, only) for t, m, name, only in trigs if t in dests]
@@ -1519,8 +1523,8 @@ def pack_entities(e: Ents, nmodels: int, gravity: float, crates: CrateSet) -> by
         buf += struct.pack('<hhh', m, boss, bits)
     for kind, amount, target, crate, order, org in items:
         buf += struct.pack('<hhhhh3f', kind, amount, target, crate, order, *org)
-    for m, travel, mid, speed, hold, start_open, nolink, targeted, secret, shoot, snd, key, msg in doors:
-        buf += struct.pack('<h3f3fffhhhhhhhhh', m, *travel, *mid, speed, hold, start_open, nolink, targeted,
+    for m, travel, mid, speed, hold, start_open, action, targeted, secret, shoot, snd, key, msg in doors:
+        buf += struct.pack('<h3f3fffhhhhhhhhh', m, *travel, *mid, speed, hold, start_open, action, targeted,
                            secret, shoot, snd, key, msg_id(msg), e.combat_order.get(m, 0))
     for m, kind, target, name, kill, count, wait, speed, travel, snd, msg, *rest in uses:
         org = rest[0] if rest else (0.0, 0.0, 0.0)   # a shooter's

@@ -350,9 +350,10 @@ static void near ent_store_door( World *world, const EntsDoor *dr )
     d->hold    = dr->hold;
     d->hold_left = 0.0f;
     d->pause_left = 0.0f;
-    d->nolink  = dr->nolink;
     d->targeted = dr->targeted;
     d->secret  = dr->secret;
+    if ( d->secret ) d->action.target = dr->action;
+    else             d->action.nolink = dr->action;
     d->shoot   = dr->shoot;
     d->snd     = dr->snd;
     d->key     = dr->key;

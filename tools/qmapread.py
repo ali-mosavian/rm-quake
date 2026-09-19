@@ -13,7 +13,7 @@ import sys
 
 HEAD = struct.Struct("<4slHlL16s")
 ENT = struct.Struct("<16sll")
-QMAP_VERSION = 7
+QMAP_VERSION = 8
 
 
 def members(path: str) -> dict[str, tuple[int, int]]:

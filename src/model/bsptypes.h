@@ -259,7 +259,11 @@ typedef struct {
     float   speed, hold, hold_left, pause_left;
     short   state, secret, shoot;
     short   link;        /* lowest door index of its linked group */
-    short   nolink, targeted, snd;
+    union {
+        short nolink;    /* a normal door's DOOR_DONT_LINK */
+        short target;    /* a secret door's output target */
+    } action;
+    short   targeted, snd;
     short   key;         /* 1 silver, 2 gold */
     float   say_at;      /* door_touch's attack_finished: the refusal
                             is said two seconds apart, not every tick */
