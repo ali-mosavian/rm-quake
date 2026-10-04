@@ -435,6 +435,7 @@ short sc_init( SurfCache far *sc, Face far *faces, short face_count )
     sc->evict   = 0;
     sc->tbuilds = 0;
     sc->dlit    = 0;
+    sc->unlit   = 0;
     sc->nofresh = 0;
 
     sc_why = 0;
@@ -720,6 +721,7 @@ void sc_stats( SurfCache far *sc, CacheStats *s )
     s->peak    = sc->peak;
     s->total_builds = sc->tbuilds;
     s->dlit    = sc->dlit;
+    s->unlit   = sc->unlit;
     s->nofresh = sc->nofresh;
     s->blocks  = sc->bcnt;
 }
@@ -744,6 +746,11 @@ void sc_note_build( SurfCache far *sc )
 {
     sc->builds++;
     sc->tbuilds++;
+}
+
+void sc_note_unlit( SurfCache far *sc )
+{
+    sc->unlit++;
 }
 
 void sc_note_dlit( SurfCache far *sc )

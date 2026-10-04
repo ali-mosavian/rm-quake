@@ -295,34 +295,37 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
             dp->k_lm += gv[GEOM_LMOFS];
 #endif
 
+            /* lightofs -1 means no light reached the face: a lit face of
+               zero light, as R_BuildLightMap makes it. Not an unlit one --
+               id's maps have 12 to 18% of their faces so, dm3ish none. */
             if ( lm_use && liquid == 0 && !sky ) {
-                if ( gv[GEOM_LMOFS] >= 0 ) {
 #if QR_PROF
-                    dp->k_hdr++;
+                dp->k_hdr++;
 #endif
-                    lm_tms  = gv[GEOM_LMOFS + 2];
-                    lm_tmt  = gv[GEOM_LMOFS + 3];
-                    lm_extw = (short)( ( gv[GEOM_LMOFS + 4] - 1 ) * 16 );
-                    lm_exth = (short)( ( gv[GEOM_LMOFS + 5] - 1 ) * 16 );
-                    if ( lm_extw > 0 && lm_exth > 0 ) lm_on = 1;
+                lm_tms  = gv[GEOM_LMOFS + 2];
+                lm_tmt  = gv[GEOM_LMOFS + 3];
+                lm_extw = (short)( ( gv[GEOM_LMOFS + 4] - 1 ) * 16 );
+                lm_exth = (short)( ( gv[GEOM_LMOFS + 5] - 1 ) * 16 );
+                if ( lm_extw > 0 && lm_exth > 0 ) lm_on = 1;
 
-                    {
-                        short s01 = gv[GEOM_LMOFS + 6], s23 = gv[GEOM_LMOFS + 7];
-                        unsigned short hp = (unsigned short) gv[GEOM_LMOFS + 8];
-                        lm_stag = LS_FACE_KEY( ls, s01, s23 ) * anim_total + anim_phase;
-                        if ( hp & 255 )
-                            lm_state = (short) ( ( ( lm_stag * ( hp & 255 ) ) ^
-                                                  ( (unsigned long) lm_stag >> ( hp >> 8 ) ) ) & 511 );
-                    }
-
-                    /* D_CacheSurface's cache->dlight: a lit face
-                       rebuilds while lit and once after. A constant
-                       stag here hit on the second lit frame, and the
-                       glow froze at its first build. */
-                    dl_bits = dl_mark( rdr, dl_on, pl, &texinf[tex], lm_tms, lm_tmt,
-                                       lm_extw, lm_exth );
-                    if ( dl_bits ) lm_state = -1;
+                {
+                    short s01 = gv[GEOM_LMOFS + 6], s23 = gv[GEOM_LMOFS + 7];
+                    unsigned short hp = (unsigned short) gv[GEOM_LMOFS + 8];
+                    lm_stag = LS_FACE_KEY( ls, s01, s23 ) * anim_total + anim_phase;
+                    if ( hp & 255 )
+                        lm_state = (short) ( ( ( lm_stag * ( hp & 255 ) ) ^
+                                              ( (unsigned long) lm_stag >> ( hp >> 8 ) ) ) & 511 );
+                    else
+                        lm_state = anim_phase & 511;   /* no styles, so no hash: an animated texture still keys */
                 }
+
+                /* D_CacheSurface's cache->dlight: a lit face
+                   rebuilds while lit and once after. A constant
+                   stag here hit on the second lit frame, and the
+                   glow froze at its first build. */
+                dl_bits = dl_mark( rdr, dl_on, pl, &texinf[tex], lm_tms, lm_tmt,
+                                   lm_extw, lm_exth );
+                if ( dl_bits ) lm_state = -1;
             }
 
             /* A cached face keeps ORIGINAL TEXEL units -- the shift
@@ -511,6 +514,7 @@ void d_draw_faces( World *world, Renderer *rdr, SurfCache far *sc, LightStyles *
                 if ( !sky_made ) { d_sky_make( world, dp->anim_time ); sky_made = 1; }
                 src_dc = (long) (void far *) world->sky_dc;
             } else if ( lm_on == 0 ) {
+                if ( lm_use && !liquid ) sc_note_unlit( sc );
                 src_dc = (long) (void far *) ( liquid
                        ? mod_tex_raw( world, tex_id, 0 )
                        : mod_tex_shaded( world, tex_id, draw_mip ) );

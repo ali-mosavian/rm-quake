@@ -59,6 +59,7 @@ typedef struct {
     long  peak;           /* high-water bytes in the cache DC */
     long  total_builds;   /* builds over the whole run */
     long  dlit;           /* of those, how many a dynamic light reached */
+    long  unlit;          /* lit-eligible faces drawn without a surface */
     long  nofresh;        /* new light keys refused a block of their own */
     short blocks;         /* most block records ever made, of SC_NBLK:
                              a record freed by a merge is recycled, not
@@ -106,7 +107,7 @@ typedef struct {
        AGENTS.md's "no hidden side effects" rule rules out. */
 
     short made, hits, builds, bpeak;
-    long  live, evict, flushes, peak, tbuilds, dlit, nofresh;
+    long  live, evict, flushes, peak, tbuilds, dlit, nofresh, unlit;
 } SurfCache;
 
 /*
@@ -177,6 +178,7 @@ short sc_ready( SurfCache far *sc );
 
 void  sc_note_build( SurfCache far *sc );
 void  sc_note_dlit( SurfCache far *sc );
+void  sc_note_unlit( SurfCache far *sc );
 
 /*
  * name: sc_selftest

@@ -31,12 +31,8 @@ static short sb_pot( short v )
     return p;
 }
 
-/* Private to this file, same as the BASIC-linked build's own version:
-   confirmed by grep, nothing else reads either. lm_flat's one byte is
-   BASIC's own zero-initialised default for an unread integer array
-   element, so an unlit face's one flat luxel is byte 0 here too. */
+/* Private to this file: nothing else reads it. */
 static unsigned char ls_scratch_c[1024];
-static unsigned char lm_flat_c = 0;
 
 /* R_BuildLightMap's sum into the scratch: each style's plane scaled by
    its value, the planes stacked lmh rows apart in the face's slot. */
@@ -105,9 +101,20 @@ short sb_build( SurfCache far *sc, World *world, Renderer *rdr, LightStyles *ls,
     lmh = gv[GEOM_LMOFS + 5];
 
     if ( lmy < 0 ) {
-        srow = &lm_flat_c;
-        lmw = 1;
-        lmh = 1;
+        /* No luxels: zero light, which a dynamic light still adds to. A
+           real grid, not one cell: the generic span reads past a 1x1. */
+        if ( lmw < 2 || lmh < 2 || (long) lmw * lmh > 1024L ) {
+            sc_forget( sc, face );
+            return 0;
+        }
+        memset( ls_scratch_c, 0, (size_t) lmw * lmh );
+        if ( dlbits ) {
+            sc_note_dlit( sc );
+            dl_add_luxels( rdr, dlbits, &world->planes[ FACE_PLANE_ID( f ) ], ti,
+                           tms, tmt, ls_scratch_c, lmw, lmh );
+        }
+        srow = ls_scratch_c;
+        scaled = 1;
     } else {
         srow = mod_lm_map( world, lmy ) + lmx;
 

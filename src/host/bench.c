@@ -161,6 +161,7 @@ void bench_write( const BenchStats *bs, const PhaseTimes *pt, const Renderer *rd
     fprintf( bf, "sc_live %ld\n", scs.live );
     fprintf( bf, "sc_blocks_peak %d\n", scs.blocks );
     fprintf( bf, "sc_nofresh %ld\n", scs.nofresh );
+    fprintf( bf, "sc_unlit %ld\n", scs.unlit );
     fprintf( bf, "mem_far_largest %ld\n", bs->mem_far_largest );
     if ( bs->ft_n > 0 ) bench_write_times( bf, bs, pt, rdr );
     fclose( bf );
