@@ -10,7 +10,7 @@
 # sc_unlit counts lit-eligible faces drawn without a surface; it must be 0.
 # sc_builds > 0 keeps a run with no cache from passing. The symptom is
 # checked too: two attract-demo poses (demo1 at 37 s and 50 s) where the
-# jamb faces 4229, 4184 and 1603 filled a region at luminance 24 and 62;
+# slab faces 81, 83 and 3870, 3871 filled a region at luminance 23 and 62;
 # lit by nothing they must be under 15. -pitch is 90 plus degrees down.
 #
 #   tools/test-unlit-faces.sh build/cport
