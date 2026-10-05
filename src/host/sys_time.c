@@ -14,13 +14,14 @@
  * -IB:\INCLUDE) means <dos.h> would resolve to that one, not Borland's.
  * A Borland far pointer is segment:offset packed exactly as this cast
  * assumes -- the same layout every (long)(void far*) conversion already
- * used throughout cport/ relies on.
+ * used throughout cport/ relies on. Volatile: INT 8h changes it under the
+ * waits below, and a compiler that inlines this may otherwise read it once.
  */
 #define BIOS_TICK_HZ 18.2065f
 
 static unsigned long bios_ticks( void )
 {
-    return *(unsigned long far *) ( ((unsigned long) 0x0040 << 16) | 0x006CUL );
+    return *(volatile unsigned long far *) ( ((unsigned long) 0x0040 << 16) | 0x006CUL );
 }
 
 /*
